@@ -31,6 +31,7 @@
   - `tiktoken`: Token 计数
   - `Pillow`: 图片处理
   - `pdf2image`: PDF 转 PNG
+  - `typer`: CLI 子命令（`convert` / `images`）与全局 `--config` 等
   - `pypandoc` (可选): LaTeX 解析
 
 ## 项目结构
@@ -39,27 +40,20 @@
 arxiv2md-beta/
 ├── src/arxiv2md_beta/          # 主源代码目录
 │   ├── __init__.py             # 包初始化，版本号
-│   ├── __main__.py             # CLI 入口点
-│   ├── cli.py                  # 命令行参数解析和输出目录管理
-│   ├── config.py               # 配置常量和环境变量读取
-│   ├── ingestion.py            # 主流程编排器（路由到 HTML/LaTeX 解析器）
-│   ├── fetch.py                # HTML/TeX 下载和缓存
-│   ├── query_parser.py         # arXiv ID/URL 解析
-│   ├── arxiv_api.py            # arXiv API 元数据获取
-│   ├── crossref_api.py         # CrossRef API 用于引用信息
-│   ├── paper_metadata.py       # 论文元数据保存到 YAML
-│   │
-│   ├── html_ingestion.py       # HTML 解析流程
-│   ├── html_parser.py          # HTML 解析核心
-│   ├── markdown.py             # HTML 到 Markdown 转换
-│   ├── sections.py             # Section 过滤
-│   ├── output_formatter.py     # 输出格式化
-│   │
-│   ├── latex_ingestion.py      # LaTeX 解析流程
-│   ├── latex_parser.py         # LaTeX 到 Markdown 转换
-│   ├── tex_source.py           # TeX 源码下载与解压
-│   ├── image_resolver.py       # 图片处理（PDF 转 PNG 等）
-│   │
+│   ├── __main__.py             # python -m 入口，转调 cli.main
+│   ├── cli/                    # Typer 应用与异步编排
+│   │   ├── app.py              # Typer：callback + convert / images
+│   │   ├── runner.py           # asyncio 业务流
+│   │   └── helpers.py          # collect_sections 等
+│   ├── network/                # fetch、arxiv_api、crossref_api
+│   ├── query/                  # parser：arXiv ID/URL/本地归档
+│   ├── output/                 # layout、formatter、metadata
+│   ├── images/                 # resolver、extract
+│   ├── html/                   # parser、markdown、sections
+│   ├── latex/                  # parser、tex_source
+│   ├── ingestion/              # pipeline、html、latex、local
+│   ├── config/                 # 默认与环境 YAML
+│   ├── settings/               # Pydantic 配置加载
 │   ├── schemas/                # Pydantic 数据模型
 │   │   ├── __init__.py
 │   │   ├── query.py            # ArxivQuery 模型
@@ -71,6 +65,7 @@ arxiv2md-beta/
 │
 ├── tests/                      # 测试目录
 │   ├── conftest.py             # pytest 配置和 fixtures
+│   ├── test_cli_images.py      # Typer CLI 冒烟测试
 │   ├── test_query_parser.py    # 查询解析器测试
 │   ├── test_markdown.py        # Markdown 转换测试
 │   └── test_integration.py     # 集成测试（需要网络）
@@ -89,20 +84,22 @@ arxiv2md-beta/
 ### 数据流
 
 ```
-CLI Input (arxiv ID/URL)
+CLI（Typer: arxiv2md-beta convert … / images …）
     ↓
-query_parser.parse_arxiv_input() → ArxivQuery
+cli.runner → query / images.extract / ingestion
+    ↓
+query.parse_arxiv_input() → ArxivQuery（若输入为 arXiv）
     ↓
 ingestion.ingest_paper() → 路由到 HTML 或 LaTeX 解析器
     ↓
 [HTML 模式]                    [LaTeX 模式]
-fetch_arxiv_html()             fetch_and_extract_tex_source()
+network.fetch_arxiv_html()     latex.tex_source.fetch_and_extract_tex_source()
     ↓                                ↓
-parse_arxiv_html()             latex_parser.parse()
+html.parser.parse_arxiv_html() latex.parser.parse_latex_to_markdown()
     ↓                                ↓
-filter_sections()              image_resolver.process_images()
+html.sections.filter_sections()  images.resolver.process_images()
     ↓                                ↓
-markdown.convert()             output_formatter.format_paper()
+html.markdown.convert…         output.formatter.format_paper()
     ↓
 format_paper() → IngestionResult
     ↓
@@ -111,10 +108,13 @@ format_paper() → IngestionResult
 
 ### 关键模块说明
 
-#### `ingestion.py`
-主入口，根据 `parser` 参数路由到 HTML 或 LaTeX 解析流程。
+#### `cli/app.py` / `cli/runner.py`
+控制台入口：`pyproject.toml` 中 `arxiv2md-beta = "arxiv2md_beta.cli:main"`。全局 `--config` / `--env` / `--force-reload` 在 Typer callback 中调用 `load_settings`；子命令 `convert` 与 `images` 分别进入 `run_convert_sync` 与 `run_images_sync`。
 
-#### `html_ingestion.py`
+#### `ingestion/pipeline.py`
+库入口 `ingest_paper`，根据 `parser` 参数路由到 `ingestion/html.py` 或 `ingestion/latex.py`（由 `cli.runner` 调用）。包 `arxiv2md_beta.ingestion` 在 `__init__.py` 中导出 `ingest_paper`。
+
+#### `ingestion/html.py`
 HTML 模式完整流程：
 1. 获取 HTML（带缓存）
 2. 解析 HTML 提取结构
@@ -123,13 +123,13 @@ HTML 模式完整流程：
 5. 转换 HTML 为 Markdown（含图片映射）
 6. 格式化输出
 
-#### `tex_source.py`
+#### `latex/tex_source.py`
 下载和解压 arXiv TeX Source，建立图片映射关系。
 
-#### `image_resolver.py`
+#### `images/resolver.py`
 处理图片文件：PDF 转 PNG，复制其他格式，生成 figure_index -> local_path 映射。
 
-#### `markdown.py`
+#### `html/markdown.py`
 HTML 到 Markdown 转换，支持：
 - 图片路径替换（使用 image_map）
 - 表格、列表、数学公式
@@ -248,23 +248,26 @@ async def fetch_data(url: str) -> str | None:
 
 ```bash
 # HTML 模式（默认）
-arxiv2md-beta 2501.11120
+arxiv2md-beta convert 2501.11120
 
 # LaTeX 模式
-arxiv2md-beta 2501.11120 --parser latex
+arxiv2md-beta convert 2501.11120 --parser latex
 
 # 指定输出目录和元数据
-arxiv2md-beta 2501.11120 -o ./output --source "ICML" --short "Dreamer3"
+arxiv2md-beta convert 2501.11120 -o ./output --source "ICML" --short "Dreamer3"
 
 # 跳过图片下载
-arxiv2md-beta 2501.11120 --no-images
+arxiv2md-beta convert 2501.11120 --no-images
 
 # 移除参考文献和目录
-arxiv2md-beta 2501.11120 --remove-refs --remove-toc
+arxiv2md-beta convert 2501.11120 --remove-refs --remove-toc
 
 # Section 过滤
-arxiv2md-beta 2501.11120 --sections "Abstract,Introduction,Method"
-arxiv2md-beta 2501.11120 --section-filter-mode exclude --sections "References,Appendix"
+arxiv2md-beta convert 2501.11120 --sections "Abstract,Introduction,Method"
+arxiv2md-beta convert 2501.11120 --section-filter-mode exclude --sections "References,Appendix"
+
+# 仅提取图片（测试图片管线）
+arxiv2md-beta images 2501.11120 -o ./img_out
 ```
 
 ## Python API 使用
@@ -272,8 +275,9 @@ arxiv2md-beta 2501.11120 --section-filter-mode exclude --sections "References,Ap
 ```python
 import asyncio
 from pathlib import Path
+
 from arxiv2md_beta.ingestion import ingest_paper
-from arxiv2md_beta.query_parser import parse_arxiv_input
+from arxiv2md_beta.query import parse_arxiv_input
 
 async def main():
     query = parse_arxiv_input("2501.11120")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path

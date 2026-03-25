@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
 
 
 def test_convert_simple_html():

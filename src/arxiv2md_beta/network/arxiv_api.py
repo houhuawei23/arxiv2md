@@ -34,25 +34,25 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
 
     timeout = httpx.Timeout(h.fetch_timeout_s)
     headers = {"User-Agent": h.user_agent}
-    last_exc: Exception | None = None
 
     for attempt in range(h.fetch_max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 response = await client.get(api_url)
 
-            if response.status_code in retry_status:
-                last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv API")
-            else:
+            if response.status_code not in retry_status:
                 response.raise_for_status()
                 arxiv_metadata = _parse_api_response(response.text)
-                
+
                 # Try to enrich with Crossref API if DOI is available
                 doi = arxiv_metadata.get("doi")
                 if doi:
                     try:
-                        from arxiv2md_beta.crossref_api import fetch_crossref_metadata, is_arxiv_doi
-                        
+                        from arxiv2md_beta.network.crossref_api import (
+                            fetch_crossref_metadata,
+                            is_arxiv_doi,
+                        )
+
                         # Skip arXiv DOIs
                         if not is_arxiv_doi(doi):
                             crossref_metadata = await fetch_crossref_metadata(doi)
@@ -64,10 +64,10 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
                         # Crossref failure should not break the flow
                         from loguru import logger
                         logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
-                
+
                 return arxiv_metadata
-        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            last_exc = exc
+        except (httpx.RequestError, httpx.HTTPStatusError):
+            pass
 
         if attempt < h.fetch_max_retries:
             backoff = h.fetch_backoff_s * (2**attempt)

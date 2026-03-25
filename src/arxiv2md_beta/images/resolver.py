@@ -12,7 +12,7 @@ from PIL import Image, ImageChops
 from tqdm import tqdm
 
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.tex_source import TexSourceInfo
+from arxiv2md_beta.latex.tex_source import TexSourceInfo
 
 
 class ImageProcessingError(Exception):
@@ -109,6 +109,7 @@ def process_images(
                 images_dir,
                 idx,
                 dpi=img_cfg.pdf_to_png_dpi,
+                trim_whitespace=img_cfg.trim_whitespace,
                 trim_tolerance=img_cfg.trim_whitespace_tolerance,
             )
             image_map[idx] = relative_path
@@ -126,6 +127,7 @@ def _process_single_image(
     index: int,
     *,
     dpi: int,
+    trim_whitespace: bool,
     trim_tolerance: int,
 ) -> tuple[Path, str]:
     """Process a single image file.
@@ -176,7 +178,8 @@ def _process_single_image(
                     Image.MAX_IMAGE_PIXELS = _max_pixels
             if images:
                 pil_img = images[0]
-                pil_img = _trim_whitespace(pil_img, tolerance=trim_tolerance)
+                if trim_whitespace:
+                    pil_img = _trim_whitespace(pil_img, tolerance=trim_tolerance)
                 pil_img.save(output_path, "PNG")
                 logger.debug(f"Converted PDF {source_path.name} to {output_filename}")
             else:
@@ -201,7 +204,8 @@ def _process_single_image(
             img = Image.open(source_path)
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            img = _trim_whitespace(img, tolerance=trim_tolerance)
+            if trim_whitespace:
+                img = _trim_whitespace(img, tolerance=trim_tolerance)
             img.save(output_path, "PNG")
             logger.debug(f"Converted {suffix} {source_path.name} to {output_filename}")
         except Exception as e:

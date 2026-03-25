@@ -48,34 +48,43 @@ pip install pypandoc_binary
 
 ### 基本用法
 
+子命令 **`convert`** 将论文转为 Markdown；**`images`** 仅拉取并处理 TeX 中的图片（用于测试图片管线）。
+
 ```bash
 # HTML 模式（默认）
-arxiv2md-beta 2501.11120
+arxiv2md-beta convert 2501.11120
 
 # LaTeX 模式
-arxiv2md-beta 2501.11120 --parser latex
+arxiv2md-beta convert 2501.11120 --parser latex
 
-# 指定输出文件
-arxiv2md-beta 2501.11120 -o output.md
+# 指定输出根目录（其下会再建日期-标题子目录）
+arxiv2md-beta convert 2501.11120 -o ./out
 
 # 跳过图片下载
-arxiv2md-beta 2501.11120 --no-images
+arxiv2md-beta convert 2501.11120 --no-images
+
+# 仅提取图片到目录（无 Markdown）
+arxiv2md-beta images 2501.11120 -o ./img_test
 ```
 
-### 命令行参数
+**迁移说明**：旧版省略子命令的写法（如 `arxiv2md-beta 2501.11120`）已改为必须写 `convert`（或 `images`）。
+
+### 命令行参数（`convert`）
+
+全局选项（写在子命令前）：`--config`、`--env` / `-E`、`--force-reload`。
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `input` | arXiv ID 或 URL | - |
-| `--parser` | 解析模式：`html` 或 `latex` | `html` |
-| `--output`, `-o` | 输出文件路径 | `{arxiv_id}.md` |
-| `--images-dir` | 图片目录名（相对于输出文件） | `{output_stem}_images` |
+| `INPUT` | arXiv ID、URL 或本地归档路径 | - |
+| `--parser` | 解析模式：`html` 或 `latex` | 配置中 `cli_defaults.parser` |
+| `--output`, `-o` | 输出根目录 | 配置中 `cli_defaults.output_dir` |
 | `--no-images` | 不下载/插入图片（仅 HTML 模式） | False |
 | `--remove-refs` | 移除参考文献 | False |
 | `--remove-toc` | 移除目录 | False |
 | `--remove-inline-citations` | 移除内联引用 | False |
 | `--section-filter-mode` | 过滤模式：`include` 或 `exclude` | `exclude` |
 | `--sections` | 逗号分隔的 section 过滤 | - |
+| `--section` | 可重复的 section 标题 | - |
 | `--include-tree` | 输出 section 树 | False |
 
 ### Python API
@@ -83,8 +92,9 @@ arxiv2md-beta 2501.11120 --no-images
 ```python
 import asyncio
 from pathlib import Path
+
 from arxiv2md_beta.ingestion import ingest_paper
-from arxiv2md_beta.query_parser import parse_arxiv_input
+from arxiv2md_beta.query import parse_arxiv_input
 
 async def main():
     query = parse_arxiv_input("2501.11120")
@@ -92,9 +102,9 @@ async def main():
         arxiv_id=query.arxiv_id,
         version=query.version,
         html_url=query.html_url,
+        ar5iv_url=query.ar5iv_url,
         parser="html",
-        output_dir=Path("output"),
-        images_dir_name="images",
+        base_output_dir=Path("output"),
     )
     print(result.content)
 
@@ -108,33 +118,29 @@ arxiv2md-beta/
 ├── src/
 │   └── arxiv2md_beta/
 │       ├── __init__.py
-│       ├── __main__.py           # CLI 入口
-│       ├── cli.py                # 命令行参数解析
-│       ├── config.py             # 配置
-│       ├── ingestion.py          # 主流程编排
-│       ├── fetch.py              # HTML/TeX 下载
-│       ├── tex_source.py         # TeX 源码下载与解压
-│       ├── html_parser.py        # HTML 解析
-│       ├── html_ingestion.py     # HTML 解析流程
-│       ├── latex_parser.py       # LaTeX 解析
-│       ├── latex_ingestion.py    # LaTeX 解析流程
-│       ├── markdown.py           # Markdown 转换
-│       ├── image_resolver.py     # 图片处理
-│       ├── query_parser.py       # arXiv ID 解析
-│       ├── sections.py           # Section 过滤
-│       ├── output_formatter.py   # 输出格式化
+│       ├── __main__.py           # python -m 入口（转调 cli.main）
+│       ├── cli/                  # Typer：app.py / runner.py / helpers.py
+│       ├── network/              # fetch、arxiv_api、crossref_api
+│       ├── query/                # parser.py：arXiv ID / URL / 本地归档
+│       ├── output/               # layout、formatter、metadata
+│       ├── images/               # resolver、extract（仅图片子命令）
+│       ├── html/                 # parser、markdown、sections
+│       ├── latex/                # parser、tex_source
+│       ├── ingestion/            # pipeline、html、latex、local
+│       ├── config/               # 默认与环境 YAML
+│       ├── settings/             # Pydantic 配置加载
 │       ├── schemas/              # 数据模型
 │       └── utils/
-│           └── logging_config.py # 日志配置
-├── tests/                        # 测试
-├── demo/                         # Demo 脚本
+│           └── logging_config.py
+├── tests/
+├── demo/
 ├── pyproject.toml
 └── README.md
 ```
 
 ## 主要模块
 
-### `tex_source.py`
+### `latex/tex_source.py`
 
 下载和提取 arXiv TeX Source：
 - 下载 TeX Source 压缩包
@@ -142,21 +148,21 @@ arxiv2md-beta/
 - 解析 LaTeX 文件中的图片引用
 - 建立图片映射关系
 
-### `image_resolver.py`
+### `images/resolver.py`
 
 处理图片文件：
 - 将 PDF 图片转换为 PNG
 - 复制其他格式的图片
 - 生成图片映射表（figure_index -> local_path）
 
-### `markdown.py`
+### `html/markdown.py`
 
 HTML 到 Markdown 转换：
 - 支持图片路径替换
 - 处理表格、列表、数学公式等
 - 支持图片映射（image_map）
 
-### `latex_parser.py`
+### `latex/parser.py`
 
 LaTeX 到 Markdown 转换：
 - 使用 pypandoc 进行转换
@@ -186,7 +192,7 @@ python demo/demo_arxiv2md_beta.py
 2. `environments/<name>.yml`（由 `app.environment` 或 `ARXIV2MD_BETA_APP__ENVIRONMENT` 选择，默认 `development`）
 3. 用户 YAML：`--config /path/to.yml` 或环境变量 `ARXIV2MD_BETA_CONFIG_PATH`
 4. 嵌套环境变量：前缀 `ARXIV2MD_BETA_`，子节用 `__`，例如 `ARXIV2MD_BETA__CACHE__DIR=/tmp/cache`、`ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S=15`
-5. 命令行：`--config`、`--env` 等与 CLI 相关的覆盖（见 `arxiv2md_beta.cli`）
+5. 命令行：`--config`、`--env` 等与 CLI 相关的覆盖（见 `arxiv2md_beta.cli.app` 中 Typer callback）
 
 **不再支持**旧版扁平环境变量名（如 `ARXIV2MD_BETA_CACHE_PATH`、`ARXIV2MD_BETA_FETCH_TIMEOUT_S`）；请改用上述嵌套形式或 YAML。
 
@@ -202,6 +208,7 @@ python demo/demo_arxiv2md_beta.py
 - `tiktoken`: Token 计数
 - `Pillow`: 图片处理
 - `pdf2image`: PDF 转 PNG
+- `typer`: 命令行子命令与帮助
 - `pypandoc` (可选): LaTeX 解析
 
 ## 注意事项
@@ -210,6 +217,10 @@ python demo/demo_arxiv2md_beta.py
 2. **LaTeX 解析**：需要系统安装 Pandoc 或使用 `pypandoc_binary`
 3. **网络访问**：需要能够访问 arXiv.org
 4. **缓存**：下载的文件会缓存在本地；路径与 TTL 见配置中的 `cache` 节或 `ARXIV2MD_BETA__CACHE__*` 环境变量
+
+## 更新日志
+
+版本与破坏性变更说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可证
 

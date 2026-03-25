@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import gzip
-import os
 import re
 import shutil
 import tarfile

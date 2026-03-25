@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.html_ingestion import ingest_paper_html
-from arxiv2md_beta.latex_ingestion import ingest_paper_latex
+from arxiv2md_beta.ingestion.html import ingest_paper_html
+from arxiv2md_beta.ingestion.latex import ingest_paper_latex
 from arxiv2md_beta.schemas import IngestionResult
 
 

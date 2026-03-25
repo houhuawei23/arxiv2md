@@ -75,6 +75,11 @@ class ParsingSection(BaseModel):
 
 class ImagesSection(BaseModel):
     pdf_to_png_dpi: int = Field(gt=0)
+    trim_whitespace: bool = Field(
+        default=False,
+        description="If true, crop PDF/EPS→PNG output to content bbox via _trim_whitespace; "
+        "default off to preserve margins.",
+    )
     trim_whitespace_tolerance: int = Field(ge=0)
     disable_tqdm: bool = False
 

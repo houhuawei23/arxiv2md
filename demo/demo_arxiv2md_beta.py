@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 
 from arxiv2md_beta.ingestion import ingest_paper
-from arxiv2md_beta.query_parser import parse_arxiv_input
+from arxiv2md_beta.query import parse_arxiv_input
 
 
 async def main():

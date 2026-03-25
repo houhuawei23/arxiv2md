@@ -5,7 +5,6 @@ from __future__ import annotations
 import html as html_module
 import re
 from pathlib import Path
-from typing import Iterable
 
 from arxiv2md_beta.settings import get_settings
 

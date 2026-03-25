@@ -772,7 +772,6 @@ def _remove_pandoc_divs(markdown: str) -> str:
     # Handle nested ::: blocks
     lines = markdown.split('\n')
     result_lines = []
-    skip_until = None
     div_depth = 0
     
     i = 0

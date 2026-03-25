@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.arxiv_api import fetch_arxiv_metadata
-from arxiv2md_beta.image_resolver import process_images
-from arxiv2md_beta.latex_parser import ParserNotAvailableError, parse_latex_to_markdown
-from arxiv2md_beta.output_formatter import format_paper
+from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
+from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
+from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
+from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 
 from loguru import logger
 
@@ -56,7 +56,7 @@ async def ingest_paper_latex(
     submission_date = api_metadata.get("submission_date")
 
     # Create paper-specific output directory
-    from arxiv2md_beta.cli import create_paper_output_dir
+    from arxiv2md_beta.output.layout import create_paper_output_dir
     paper_output_dir = create_paper_output_dir(
         base_output_dir, submission_date, title, source=source, short=short
     )
@@ -128,7 +128,7 @@ async def ingest_paper_latex(
 
     # Save paper metadata to paper.yml
     try:
-        from arxiv2md_beta.paper_metadata import save_paper_metadata
+        from arxiv2md_beta.output.metadata import save_paper_metadata
         save_paper_metadata(api_metadata, paper_output_dir)
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")

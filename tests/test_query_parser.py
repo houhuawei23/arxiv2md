@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from arxiv2md_beta.query_parser import parse_arxiv_input
+from arxiv2md_beta.query.parser import parse_arxiv_input
 
 
 def test_parse_arxiv_id():

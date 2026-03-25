@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 from loguru import logger
 
-from arxiv2md_beta.image_resolver import process_images
-from arxiv2md_beta.latex_parser import ParserNotAvailableError, parse_latex_to_markdown
-from arxiv2md_beta.output_formatter import format_paper
+from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
+from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery, SectionNode
-from arxiv2md_beta.tex_source import (
+from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
     TexSourceInfo,
     extract_local_archive,
@@ -132,7 +133,7 @@ async def _ingest_latex_archive(
     no_images: bool,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process a LaTeX-based local archive."""
-    from arxiv2md_beta.cli import create_paper_output_dir
+    from arxiv2md_beta.output.layout import create_paper_output_dir
 
     # Parse LaTeX to extract metadata before creating output dir
     try:
@@ -224,7 +225,7 @@ async def _ingest_latex_archive(
 
     # Save paper metadata to paper.yml
     try:
-        from arxiv2md_beta.paper_metadata import save_paper_metadata
+        from arxiv2md_beta.output.metadata import save_paper_metadata
 
         metadata_dict = {
             "title": title,
@@ -265,10 +266,10 @@ async def _ingest_html_archive(
     sections: list[str],
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process an HTML-based local archive."""
-    from arxiv2md_beta.cli import create_paper_output_dir
-    from arxiv2md_beta.html_parser import parse_arxiv_html
-    from arxiv2md_beta.markdown import convert_fragment_to_markdown
-    from arxiv2md_beta.sections import filter_sections
+    from arxiv2md_beta.output.layout import create_paper_output_dir
+    from arxiv2md_beta.html.parser import parse_arxiv_html
+    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+    from arxiv2md_beta.html.sections import filter_sections
 
     # Find main HTML file (look for index.html, abstract.html, or largest file)
     main_html_file = _find_main_html_file(extracted_dir, html_files)
@@ -354,7 +355,7 @@ async def _ingest_html_archive(
 
     # Save metadata
     try:
-        from arxiv2md_beta.paper_metadata import save_paper_metadata
+        from arxiv2md_beta.output.metadata import save_paper_metadata
 
         metadata_dict = {
             "title": title,
@@ -388,7 +389,7 @@ def _populate_section_markdown(
     images_dir: Path | None = None,
 ) -> None:
     """Populate markdown for section and children."""
-    from arxiv2md_beta.markdown import convert_fragment_to_markdown
+    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
 
     if figure_counter is None:
         figure_counter = [0]

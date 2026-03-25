@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.arxiv_api import fetch_arxiv_metadata
-from arxiv2md_beta.fetch import fetch_arxiv_html
-from arxiv2md_beta.html_parser import parse_arxiv_html
-from arxiv2md_beta.image_resolver import process_images
-from arxiv2md_beta.markdown import convert_fragment_to_markdown
-from arxiv2md_beta.output_formatter import format_paper
+from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
+from arxiv2md_beta.network.fetch import fetch_arxiv_html
+from arxiv2md_beta.html.parser import parse_arxiv_html
+from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.sections import filter_sections
-from arxiv2md_beta.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
+from arxiv2md_beta.html.sections import filter_sections
+from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 
 
 async def ingest_paper_html(
@@ -93,7 +93,7 @@ async def ingest_paper_html(
         include_abstract = not sections or abstract_key in selected_lower
 
     # Create paper-specific output directory
-    from arxiv2md_beta.cli import create_paper_output_dir
+    from arxiv2md_beta.output.layout import create_paper_output_dir
     paper_output_dir = create_paper_output_dir(
         base_output_dir, submission_date, parsed.title, source=source, short=short
     )
@@ -163,7 +163,7 @@ async def ingest_paper_html(
 
     # Save paper metadata to paper.yml
     try:
-        from arxiv2md_beta.paper_metadata import save_paper_metadata
+        from arxiv2md_beta.output.metadata import save_paper_metadata
         save_paper_metadata(api_metadata, paper_output_dir)
     except Exception as e:
         from loguru import logger

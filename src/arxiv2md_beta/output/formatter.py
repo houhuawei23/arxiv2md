@@ -161,7 +161,7 @@ def _format_markdown_output(markdown: str) -> str:
     )
 
     # 3. Simplify display math blocks: remove/sanitize $ inside $$...$$ for markdown compatibility
-    from arxiv2md_beta.markdown import _simplify_display_math
+    from arxiv2md_beta.html.markdown import _simplify_display_math
 
     def _replace_display_math(m: re.Match) -> str:
         inner = _simplify_display_math(m.group(1))

@@ -54,6 +54,8 @@ parsing:
 
 images:
   pdf_to_png_dpi: 150
+  # Crop converted figures to tight content (can make margins too tight; enable if needed)
+  trim_whitespace: false
   trim_whitespace_tolerance: 100
   disable_tqdm: false
 

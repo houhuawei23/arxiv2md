@@ -88,7 +88,7 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
 
             response.raise_for_status()
             return _parse_crossref_response(response.json())
-        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+        except (httpx.RequestError, httpx.HTTPStatusError):
             if attempt < h.fetch_max_retries:
                 backoff = h.fetch_backoff_s * (2**attempt)
                 await asyncio.sleep(backoff)
