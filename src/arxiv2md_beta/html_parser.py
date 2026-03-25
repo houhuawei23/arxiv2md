@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from arxiv2md_beta.schemas import SectionNode
+from arxiv2md_beta.settings import get_settings
 
 try:
     from bs4 import BeautifulSoup
@@ -19,7 +20,6 @@ _HEADING_RE = re.compile(r"^h[1-6]$")
 _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
 # Keywords that indicate footnotes or contribution statements (case-insensitive check)
 _SKIP_KEYWORDS = {"footnotemark:", "equal contribution", "work performed", "listing order"}
-_MAX_AUTHOR_PART_LENGTH = 80  # Filter out long contribution statements
 
 
 @dataclass
@@ -151,7 +151,7 @@ def _clean_author_text(node: Tag) -> list[str]:
         if any(marker in part_lower for marker in _SKIP_KEYWORDS):
             continue
         # Skip very long text (likely contribution statements)
-        if len(part) > _MAX_AUTHOR_PART_LENGTH:
+        if len(part) > get_settings().parsing.max_author_part_length:
             continue
         # Skip text that looks like a sentence (contains multiple periods or common sentence patterns)
         if part.count(".") > 1 or (part.endswith(".") and len(part) > 40):

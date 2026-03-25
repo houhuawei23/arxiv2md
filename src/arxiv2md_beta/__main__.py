@@ -18,6 +18,7 @@ from arxiv2md_beta.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.ingestion import ingest_paper
 from arxiv2md_beta.local_ingestion import ingest_local_archive
 from arxiv2md_beta.query_parser import is_local_archive_path, parse_arxiv_input, parse_local_archive
+from arxiv2md_beta.settings import ConfigurationError, get_settings
 from arxiv2md_beta.utils.logging_config import configure_logging, get_logger
 
 logger = get_logger()
@@ -25,8 +26,13 @@ logger = get_logger()
 
 def main() -> None:
     """Run the CLI entry point for arXiv ingestion."""
-    configure_logging(level="INFO")
-    args = parse_args()
+    try:
+        args = parse_args()
+    except ConfigurationError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
+
+    configure_logging(settings=get_settings())
 
     try:
         asyncio.run(_async_main(args))
@@ -42,7 +48,6 @@ async def _async_main(args) -> None:
     """Async main function."""
     input_text = args.input_text
 
-    # Determine if this is a local archive path
     if is_local_archive_path(input_text):
         await _process_local_archive(args)
     else:
@@ -51,20 +56,17 @@ async def _async_main(args) -> None:
 
 async def _process_arxiv_paper(args) -> None:
     """Process an arXiv paper (original workflow)."""
-    # Parse arXiv input
+    s = get_settings()
     query = parse_arxiv_input(args.input_text)
 
-    # Collect section filters
     sections = collect_sections(args.sections, args.section)
 
-    # Determine base output directory
     base_output_dir = determine_output_dir(args.output)
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Processing arXiv paper: {query.arxiv_id}")
     logger.info(f"Parser mode: {args.parser}")
 
-    # Ingest paper (this will return metadata including title and date)
     result, metadata = await ingest_paper(
         arxiv_id=query.arxiv_id,
         version=query.version,
@@ -82,25 +84,23 @@ async def _process_arxiv_paper(args) -> None:
         short=args.short,
     )
 
-    # Get submission date and title from metadata
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
 
-    # Use the paper_output_dir from ingestion (already created)
     paper_output_dir = metadata.get("paper_output_dir")
     if paper_output_dir is None:
-        # Fallback: create directory if not provided (for backward compatibility)
         paper_output_dir = create_paper_output_dir(
-            base_output_dir, submission_date, title,
-            source=args.source, short=args.short,
+            base_output_dir,
+            submission_date,
+            title,
+            source=args.source,
+            short=args.short,
         )
     else:
-        # Ensure it's a Path object
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
 
-    # Format output
     output_text = _format_output(
         result.summary,
         result.sections_tree,
@@ -108,14 +108,14 @@ async def _process_arxiv_paper(args) -> None:
         include_tree=args.include_tree,
     )
 
-    # Determine output filename (use same format as directory: [Date]-[Source]-[Short]-[Paper Name])
     if submission_date and title:
-        # Reserve 3 chars for .md extension, so max basename = 252
         basename = build_output_basename(
-            submission_date, title,
-            source=args.source, short=args.short,
-            max_title_length=220,
-            max_basename_length=252,
+            submission_date,
+            title,
+            source=args.source,
+            short=args.short,
+            max_basename_length=s.output_naming.max_md_basename_length,
+            settings=s,
         )
         output_filename = f"{basename}.md"
     else:
@@ -124,13 +124,10 @@ async def _process_arxiv_paper(args) -> None:
 
     output_path = paper_output_dir / output_filename
 
-    # Write to file
     output_path.write_text(output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
 
-    # Download PDF (use same filename as markdown, but with .pdf extension)
     try:
-        # PDF filename should match the markdown filename format
         pdf_filename = output_filename.replace(".md", ".pdf")
         pdf_path = paper_output_dir / pdf_filename
         await fetch_arxiv_pdf(query.arxiv_id, pdf_path, query.version)
@@ -138,7 +135,6 @@ async def _process_arxiv_paper(args) -> None:
     except Exception as e:
         logger.warning(f"Failed to download PDF: {e}")
 
-    # Print summary
     print("\nSummary:")
     try:
         print(result.summary)
@@ -148,20 +144,17 @@ async def _process_arxiv_paper(args) -> None:
 
 async def _process_local_archive(args) -> None:
     """Process a local archive file (tar.gz, tgz, or zip)."""
-    # Parse local archive input
+    s = get_settings()
     query = parse_local_archive(args.input_text)
 
-    # Collect section filters
     sections = collect_sections(args.sections, args.section)
 
-    # Determine base output directory
     base_output_dir = determine_output_dir(args.output)
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Processing local archive: {query.archive_path}")
     logger.info(f"Archive type: {query.archive_type}")
 
-    # Ingest local archive
     result, metadata = await ingest_local_archive(
         query=query,
         base_output_dir=base_output_dir,
@@ -175,25 +168,23 @@ async def _process_local_archive(args) -> None:
         sections=sections,
     )
 
-    # Get submission date and title from metadata
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
 
-    # Use the paper_output_dir from ingestion (already created)
     paper_output_dir = metadata.get("paper_output_dir")
     if paper_output_dir is None:
-        # Fallback: create directory if not provided
         paper_output_dir = create_paper_output_dir(
-            base_output_dir, submission_date, title,
-            source=args.source, short=args.short,
+            base_output_dir,
+            submission_date,
+            title,
+            source=args.source,
+            short=args.short,
         )
     else:
-        # Ensure it's a Path object
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
 
-    # Format output
     output_text = _format_output(
         result.summary,
         result.sections_tree,
@@ -201,30 +192,26 @@ async def _process_local_archive(args) -> None:
         include_tree=args.include_tree,
     )
 
-    # Determine output filename
     if submission_date and title:
         basename = build_output_basename(
-            submission_date, title,
-            source=args.source, short=args.short,
-            max_title_length=220,
-            max_basename_length=252,
+            submission_date,
+            title,
+            source=args.source,
+            short=args.short,
+            max_basename_length=s.output_naming.max_md_basename_length,
+            settings=s,
         )
         output_filename = f"{basename}.md"
     else:
-        # Use archive name as fallback
         output_filename = f"{query.archive_path.stem}.md"
 
     output_path = paper_output_dir / output_filename
 
-    # Write to file
     output_path.write_text(output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
 
-    # Note: PDF is not downloaded for local archives (they don't have arXiv PDFs)
-    # But we can copy the archive itself if needed
     logger.info("Local archive processed successfully (no PDF download for local archives)")
 
-    # Print summary
     print("\nSummary:")
     try:
         print(result.summary)

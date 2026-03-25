@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover - optional dependency
     tiktoken = None
 
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
+from arxiv2md_beta.settings import get_settings
 
 
 def format_paper(
@@ -175,7 +176,7 @@ def _format_token_count(text: str) -> str | None:
     if not tiktoken:
         return None
     try:
-        encoding = tiktoken.get_encoding("o200k_base")
+        encoding = tiktoken.get_encoding(get_settings().output.tiktoken_encoding)
         total_tokens = len(encoding.encode(text, disallowed_special=()))
     except Exception:
         return None

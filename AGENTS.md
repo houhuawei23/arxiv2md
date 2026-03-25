@@ -183,17 +183,17 @@ pytest tests/ --cov=src/arxiv2md_beta --cov-report=html
 
 ## 配置
 
-通过环境变量配置：
+见打包的 `src/arxiv2md_beta/config/default_config.yml` 与 `environments/*.yml`。合并优先级：**命令行 > 环境变量（`ARXIV2MD_BETA__` 嵌套）> 用户 YAML（`ARXIV2MD_BETA_CONFIG_PATH` / `--config`）> 环境 profile > 默认 YAML**。
 
-| 环境变量 | 说明 | 默认值 |
-|---------|------|--------|
-| `ARXIV2MD_BETA_CACHE_PATH` | 缓存目录路径 | `.arxiv2md_beta_cache` |
-| `ARXIV2MD_BETA_CACHE_TTL_SECONDS` | 缓存 TTL（秒） | `86400` (24小时) |
-| `ARXIV2MD_BETA_FETCH_TIMEOUT_S` | HTTP 请求超时 | `10` |
-| `ARXIV2MD_BETA_FETCH_MAX_RETRIES` | 最大重试次数 | `2` |
-| `ARXIV2MD_BETA_FETCH_BACKOFF_S` | 重试退避时间（秒） | `0.5` |
-| `ARXIV2MD_BETA_USER_AGENT` | HTTP User-Agent | `arxiv2md-beta/0.1 (...)` |
-| `TQDM_DISABLE` / `DISABLE_TQDM` | 禁用进度条 | - |
+| 用途 | 示例 |
+|------|------|
+| 用户配置文件 | `ARXIV2MD_BETA_CONFIG_PATH` 或 `--config path.yml` |
+| 逻辑环境 | `app.environment` / `ARXIV2MD_BETA_APP__ENVIRONMENT`（`development` / `production` / `test`） |
+| 缓存目录 | `ARXIV2MD_BETA__CACHE__DIR` |
+| HTTP 超时 | `ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S` |
+| 禁用 tqdm | `ARXIV2MD_BETA__IMAGES__DISABLE_TQDM=true` |
+
+旧版扁平变量（如 `ARXIV2MD_BETA_CACHE_PATH`）已移除，请改用嵌套键或 YAML。
 
 ## 代码风格指南
 
@@ -218,7 +218,7 @@ from typing import Final
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.config import ARXIV2MD_BETA_CACHE_PATH
+from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.schemas import ArxivQuery
 
 

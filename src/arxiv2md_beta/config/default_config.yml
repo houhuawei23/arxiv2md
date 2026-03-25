@@ -1,0 +1,78 @@
+# Bundled defaults for arxiv2md-beta (override via user file, environments/*.yml, env ARXIV2MD_BETA__*, CLI)
+
+app:
+  environment: development
+  log_level: INFO
+
+http:
+  fetch_timeout_s: 10.0
+  fetch_max_retries: 2
+  fetch_backoff_s: 0.5
+  user_agent: "arxiv2md-beta/0.1 (+https://github.com/arxiv2md-beta)"
+  retry_status_codes: [429, 500, 502, 503, 504]
+  large_transfer_timeout_multiplier: 5.0
+
+cache:
+  dir: ".arxiv2md_beta_cache"
+  ttl_seconds: 86400
+
+paths:
+  user_config_dir: "~/.arxiv2md_beta"
+
+urls:
+  arxiv_host: "arxiv.org"
+  ar5iv_html_base: "https://ar5iv.labs.arxiv.org/html"
+  arxiv_api_query_template: "http://export.arxiv.org/api/query?id_list={base_id}"
+  arxiv_pdf_template: "https://arxiv.org/pdf/{base_id}.pdf"
+  arxiv_src_template: "https://arxiv.org/src/{arxiv_id}"
+  crossref_works_template: "https://api.crossref.org/works/{doi}"
+
+cli_defaults:
+  parser: html
+  source: Arxiv
+  section_filter_mode: exclude
+  output_dir: "."
+  images_subdir: images
+
+output_naming:
+  max_title_length: 220
+  max_basename_length: 255
+  max_md_basename_length: 252
+  default_unknown_title: Unknown
+  sanitize_source_max_length: 80
+  sanitize_short_max_length: 80
+
+ingestion:
+  reference_section_titles:
+    - references
+    - bibliography
+  abstract_section_title: abstract
+  latex_fallback_title: Document
+
+parsing:
+  max_author_part_length: 80
+
+images:
+  pdf_to_png_dpi: 150
+  trim_whitespace_tolerance: 100
+  disable_tqdm: false
+
+markdown_svg:
+  foreignobject_default_width: 100.0
+  foreignobject_default_height: 14.0
+  font_size_min: 4.0
+  font_size_max_ratio: 0.65
+
+logging:
+  console_format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+  file_format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
+  file_rotation: "10 MB"
+  file_retention: "7 days"
+  file_compression: zip
+  default_log_file: "arxiv2md_beta.log"
+
+features:
+  enable_file_logging: false
+
+output:
+  tiktoken_encoding: o200k_base

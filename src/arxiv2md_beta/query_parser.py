@@ -8,10 +8,9 @@ from typing import Final
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from arxiv2md_beta.config import ARXIV2MD_BETA_CACHE_PATH
 from arxiv2md_beta.schemas import ArxivQuery, LocalArchiveQuery
+from arxiv2md_beta.settings import get_settings
 
-_ARXIV_HOST: Final = "arxiv.org"
 _ARXIV_PATH_KINDS: Final = {"abs", "pdf", "html"}
 _ARXIV_ID_RE: Final = re.compile(
     r"^(?P<base>(\d{4}\.\d{4,5}|[a-zA-Z-]+/\d{7}))(v(?P<version>\d+))?$",
@@ -25,9 +24,11 @@ def parse_arxiv_input(input_text: str) -> ArxivQuery:
         raise ValueError("input_text cannot be empty")
 
     normalized_id, version = _extract_arxiv_id(raw)
-    html_url = f"https://{_ARXIV_HOST}/html/{normalized_id}"
-    ar5iv_url = f"https://ar5iv.labs.arxiv.org/html/{normalized_id}"
-    abs_url = f"https://{_ARXIV_HOST}/abs/{normalized_id}"
+    s = get_settings()
+    host = s.urls.arxiv_host
+    html_url = f"https://{host}/html/{normalized_id}"
+    ar5iv_url = f"{s.urls.ar5iv_html_base.rstrip('/')}/{normalized_id}"
+    abs_url = f"https://{host}/abs/{normalized_id}"
     query_id = uuid4()
 
     return ArxivQuery(
@@ -38,7 +39,7 @@ def parse_arxiv_input(input_text: str) -> ArxivQuery:
         ar5iv_url=ar5iv_url,
         abs_url=abs_url,
         id=query_id,
-        cache_dir=ARXIV2MD_BETA_CACHE_PATH / str(query_id),
+        cache_dir=s.resolved_cache_path() / str(query_id),
     )
 
 
@@ -89,7 +90,7 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
         archive_path=archive_path,
         archive_type=archive_type,  # type: ignore[arg-type]
         id=query_id,
-        cache_dir=ARXIV2MD_BETA_CACHE_PATH / str(query_id),
+        cache_dir=get_settings().resolved_cache_path() / str(query_id),
     )
 
 
@@ -190,7 +191,8 @@ def _extract_from_url(url: str) -> tuple[str, str | None]:
         url = f"https://{url}"
 
     parsed = urlparse(url)
-    if parsed.netloc and _ARXIV_HOST not in parsed.netloc:
+    host = get_settings().urls.arxiv_host
+    if parsed.netloc and host not in parsed.netloc:
         raise ValueError(f"Unsupported host: {parsed.netloc}")
 
     path_parts = [part for part in parsed.path.split("/") if part]

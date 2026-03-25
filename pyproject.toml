@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2md-beta"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
@@ -10,6 +10,7 @@ dependencies = [
     "httpx>=0.25.0",
     "loguru>=0.7.0",
     "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
     "pyyaml>=6.0",
     "tqdm>=4.66.0",
     "tiktoken>=0.7.0",
@@ -32,6 +33,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
+
+[tool.setuptools.package-data]
+"arxiv2md_beta.config" = ["*.yml", "environments/*.yml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

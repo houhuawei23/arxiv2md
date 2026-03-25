@@ -1,0 +1,8 @@
+# Test profile — pytest uses this via load_settings(environment=test)
+app:
+  log_level: WARNING
+http:
+  fetch_timeout_s: 30.0
+  fetch_max_retries: 1
+cache:
+  ttl_seconds: 0

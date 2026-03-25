@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from typing import NamedTuple
@@ -12,6 +11,7 @@ from pdf2image import convert_from_path
 from PIL import Image, ImageChops
 from tqdm import tqdm
 
+from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.tex_source import TexSourceInfo
 
 
@@ -96,9 +96,8 @@ def process_images(
 
     logger.info(f"Processing {len(image_files)} images...")
 
-    # 检查是否禁用 tqdm（通过环境变量）
-    disable_tqdm = os.getenv("TQDM_DISABLE", "").lower() in ("1", "true", "yes") or \
-                   os.getenv("DISABLE_TQDM", "").lower() in ("1", "true", "yes")
+    img_cfg = get_settings().images
+    disable_tqdm = img_cfg.disable_tqdm
 
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
@@ -109,6 +108,8 @@ def process_images(
                 source_image_path,
                 images_dir,
                 idx,
+                dpi=img_cfg.pdf_to_png_dpi,
+                trim_tolerance=img_cfg.trim_whitespace_tolerance,
             )
             image_map[idx] = relative_path
             filename_map[idx] = original_filename
@@ -123,6 +124,9 @@ def _process_single_image(
     source_path: Path,
     output_dir: Path,
     index: int,
+    *,
+    dpi: int,
+    trim_tolerance: int,
 ) -> tuple[Path, str]:
     """Process a single image file.
 
@@ -164,7 +168,7 @@ def _process_single_image(
                     str(source_path),
                     first_page=1,
                     last_page=1,
-                    dpi=150,
+                    dpi=dpi,
                     use_cropbox=True,
                 )
             finally:
@@ -172,7 +176,7 @@ def _process_single_image(
                     Image.MAX_IMAGE_PIXELS = _max_pixels
             if images:
                 pil_img = images[0]
-                pil_img = _trim_whitespace(pil_img)
+                pil_img = _trim_whitespace(pil_img, tolerance=trim_tolerance)
                 pil_img.save(output_path, "PNG")
                 logger.debug(f"Converted PDF {source_path.name} to {output_filename}")
             else:
@@ -197,7 +201,7 @@ def _process_single_image(
             img = Image.open(source_path)
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            img = _trim_whitespace(img)
+            img = _trim_whitespace(img, tolerance=trim_tolerance)
             img.save(output_path, "PNG")
             logger.debug(f"Converted {suffix} {source_path.name} to {output_filename}")
         except Exception as e:

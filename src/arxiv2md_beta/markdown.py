@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+from arxiv2md_beta.settings import get_settings
+
 try:
     from bs4 import BeautifulSoup
     from bs4.element import NavigableString, Tag
@@ -63,6 +65,7 @@ def _svg_replace_foreignobject_with_text(svg_html: str) -> str:
     if not svg_elem:
         return svg_html
 
+    ms = get_settings().markdown_svg
     for fo in list(svg_elem.find_all("foreignobject")):
         text = fo.get_text(separator=" ", strip=True)
         if not text:
@@ -73,13 +76,13 @@ def _svg_replace_foreignobject_with_text(svg_html: str) -> str:
             text = html_module.unescape(text)
         except Exception:
             pass
-        w = _parse_svg_length(fo.get("width"), 100)
-        h = _parse_svg_length(fo.get("height"), 14)
+        w = _parse_svg_length(fo.get("width"), ms.foreignobject_default_width)
+        h = _parse_svg_length(fo.get("height"), ms.foreignobject_default_height)
         tx, ty = _parse_svg_matrix_translate(fo.get("transform", ""))
         # foreignObject often uses matrix(1 0 0 -1 0 ty) (flip Y); center in local is (w/2, h/2) -> (tx + w/2, ty - h/2)
         cx = tx + w / 2
         cy = ty - h / 2
-        font_size = max(4, min(24, h * 0.65))
+        font_size = max(ms.font_size_min, min(24.0, h * ms.font_size_max_ratio))
         text_elem = soup.new_tag("text", x=f"{cx:.2f}", y=f"{cy:.2f}")
         text_elem["text-anchor"] = "middle"
         text_elem["dominant-baseline"] = "middle"

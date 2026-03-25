@@ -11,11 +11,9 @@ from arxiv2md_beta.image_resolver import process_images
 from arxiv2md_beta.markdown import convert_fragment_to_markdown
 from arxiv2md_beta.output_formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.sections import filter_sections
 from arxiv2md_beta.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
-
-_REFERENCE_TITLES = ("references", "bibliography")
-_ABSTRACT_TITLE = "abstract"
 
 
 async def ingest_paper_html(
@@ -70,6 +68,7 @@ async def ingest_paper_html(
         html_url, arxiv_id=arxiv_id, version=version, use_cache=True, ar5iv_url=ar5iv_url
     )
     parsed = parse_arxiv_html(html)
+    ing = get_settings().ingestion
 
     # Fetch metadata from API to get submission date (more reliable)
     api_metadata = await fetch_arxiv_metadata(arxiv_id)
@@ -81,21 +80,24 @@ async def ingest_paper_html(
 
     filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
     if remove_refs:
-        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=_REFERENCE_TITLES)
+        filtered_sections = filter_sections(
+            filtered_sections, mode="exclude", selected=ing.reference_section_titles
+        )
 
     # Check if abstract should be included based on section filter
+    abstract_key = ing.abstract_section_title.lower()
     selected_lower = [s.lower() for s in sections]
     if section_filter_mode == "exclude":
-        include_abstract = _ABSTRACT_TITLE not in selected_lower
+        include_abstract = abstract_key not in selected_lower
     else:  # include mode
-        include_abstract = not sections or _ABSTRACT_TITLE in selected_lower
+        include_abstract = not sections or abstract_key in selected_lower
 
     # Create paper-specific output directory
     from arxiv2md_beta.cli import create_paper_output_dir
     paper_output_dir = create_paper_output_dir(
         base_output_dir, submission_date, parsed.title, source=source, short=short
     )
-    images_dir_name = "images"
+    images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
     

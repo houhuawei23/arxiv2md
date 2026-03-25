@@ -9,6 +9,7 @@ from arxiv2md_beta.image_resolver import process_images
 from arxiv2md_beta.latex_parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.output_formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
+from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 
 from loguru import logger
@@ -50,7 +51,8 @@ async def ingest_paper_latex(
     """
     # Fetch metadata from API
     api_metadata = await fetch_arxiv_metadata(arxiv_id)
-    title = api_metadata.get("title") or "Document"
+    fallback_title = get_settings().ingestion.latex_fallback_title
+    title = api_metadata.get("title") or fallback_title
     submission_date = api_metadata.get("submission_date")
 
     # Create paper-specific output directory
@@ -58,7 +60,7 @@ async def ingest_paper_latex(
     paper_output_dir = create_paper_output_dir(
         base_output_dir, submission_date, title, source=source, short=short
     )
-    images_dir_name = "images"
+    images_dir_name = get_settings().cli_defaults.images_subdir
 
     # Fetch and extract TeX source
     tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
@@ -103,7 +105,7 @@ async def ingest_paper_latex(
     # For LaTeX mode, we create a single section with the full content
     sections = [
         SectionNode(
-            title=parsed_latex.title or "Document",
+            title=parsed_latex.title or fallback_title,
             level=1,
             anchor=None,
             html=None,

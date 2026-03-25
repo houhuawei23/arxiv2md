@@ -3,11 +3,46 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
+from arxiv2md_beta.settings import (
+    apply_cli_overrides,
+    get_settings,
+    load_settings,
+    set_settings,
+)
+from arxiv2md_beta.settings.schema import AppSettings
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+
+def parse_preliminary_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse --config / --env / --force-reload before full settings merge."""
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="User YAML configuration file (merged after bundled default and environment profile).",
+    )
+    p.add_argument(
+        "--env",
+        "-E",
+        default=None,
+        metavar="NAME",
+        help="Environment profile: development, production, or test (selects environments/<NAME>.yml).",
+    )
+    p.add_argument(
+        "--force-reload",
+        action="store_true",
+        help="Reload configuration from disk instead of using cached settings.",
+    )
+    return p.parse_known_args(argv)[0]
+
+
+def build_main_parser(settings: AppSettings) -> argparse.ArgumentParser:
+    """Build the main CLI parser with defaults taken from settings."""
+    d = settings.cli_defaults
     parser = argparse.ArgumentParser(
         prog="arxiv2md-beta",
         description="Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes.",
@@ -19,8 +54,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--parser",
         choices=("html", "latex"),
-        default="html",
-        help="Parser mode: html (default) or latex",
+        default=d.parser,
+        help="Parser mode: html or latex",
     )
     parser.add_argument(
         "--output",
@@ -30,8 +65,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source",
-        default="Arxiv",
-        help="Article source (conference/journal name). Default: Arxiv",
+        default=d.source,
+        help="Article source (conference/journal name).",
     )
     parser.add_argument(
         "--short",
@@ -61,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--section-filter-mode",
         choices=("include", "exclude"),
-        default="exclude",
+        default=d.section_filter_mode,
         help="Section filtering mode when using --sections/--section.",
     )
     parser.add_argument(
@@ -79,7 +114,30 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include the section tree before the Markdown content.",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse argv: preliminary flags, load settings, then main parser."""
+    if argv is None:
+        argv = sys.argv[1:]
+    pre = parse_preliminary_args(argv)
+    load_settings(
+        config_path=pre.config,
+        environment=pre.env,
+        force_reload=pre.force_reload,
+    )
+    settings = get_settings()
+    parser = build_main_parser(settings)
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", type=Path, default=None)
+    pre_parser.add_argument("--env", "-E", default=None)
+    pre_parser.add_argument("--force-reload", action="store_true")
+    _, rest = pre_parser.parse_known_args(argv)
+    args = parser.parse_args(rest)
+    merged = apply_cli_overrides(settings, args)
+    set_settings(merged)
+    return args
 
 
 def collect_sections(sections_csv: str | None, section_list: list[str] | None) -> list[str]:
@@ -92,12 +150,12 @@ def collect_sections(sections_csv: str | None, section_list: list[str] | None) -
     return [value.strip() for value in values if value and value.strip()]
 
 
-def determine_output_dir(output: str | None) -> Path:
+def determine_output_dir(output: str | None, settings: AppSettings | None = None) -> Path:
     """Determine output directory path."""
+    s = settings or get_settings()
     if output:
         return Path(output)
-    # Default: current directory
-    return Path(".")
+    return Path(s.cli_defaults.output_dir)
 
 
 def _sanitize_for_filesystem(s: str, max_length: int = 220) -> str:
@@ -116,23 +174,12 @@ def _sanitize_for_filesystem(s: str, max_length: int = 220) -> str:
     return safe
 
 
-def sanitize_title_for_filesystem(title: str, max_length: int = 220) -> str:
-    """Sanitize title for use in file/directory names.
-    
-    Parameters
-    ----------
-    title : str
-        Original title
-    max_length : int
-        Maximum length for the sanitized title
-        
-    Returns
-    -------
-    str
-        Sanitized title safe for filesystem use
-    """
+def sanitize_title_for_filesystem(title: str, max_length: int = 220, *, settings: AppSettings | None = None) -> str:
+    """Sanitize title for use in file/directory names."""
+    s = settings or get_settings()
+    unknown = s.output_naming.default_unknown_title
     if not title:
-        return "Unknown"
+        return unknown
     return _sanitize_for_filesystem(title, max_length)
 
 
@@ -141,40 +188,29 @@ def build_output_basename(
     title: str | None,
     source: str = "Arxiv",
     short: str | None = None,
-    max_title_length: int = 220,
-    max_basename_length: int = 255,
+    *,
+    max_title_length: int | None = None,
+    max_basename_length: int | None = None,
+    settings: AppSettings | None = None,
 ) -> str:
-    """Build output basename for directory and files: [Date]-[Source]-[Short]-[Paper Name].
-    
-    Parameters
-    ----------
-    submission_date : str | None
-        Submission date in YYYYMMDD format
-    title : str | None
-        Paper title
-    source : str
-        Article source (conference/journal name)
-    short : str | None
-        Short name for the article (optional)
-    max_title_length : int
-        Maximum length for the sanitized title part
-        
-    Returns
-    -------
-    str
-        Basename for directory and files (without extension)
-    """
-    date_str = submission_date if submission_date else "Unknown"
-    safe_source = _sanitize_for_filesystem(source, max_length=80) or "Arxiv"
-    safe_short = _sanitize_for_filesystem(short, max_length=80) if short else ""
-    safe_title = sanitize_title_for_filesystem(title or "Unknown", max_length=max_title_length)
-    
+    """Build output basename for directory and files: [Date]-[Source]-[Short]-[Paper Name]."""
+    s = settings or get_settings()
+    on = s.output_naming
+    max_title_length = max_title_length if max_title_length is not None else on.max_title_length
+    max_basename_length = max_basename_length if max_basename_length is not None else on.max_basename_length
+
+    date_str = submission_date if submission_date else on.default_unknown_title
+    src_max = on.sanitize_source_max_length
+    short_max = on.sanitize_short_max_length
+    safe_source = _sanitize_for_filesystem(source, max_length=src_max) or s.cli_defaults.source
+    safe_short = _sanitize_for_filesystem(short, max_length=short_max) if short else ""
+    safe_title = sanitize_title_for_filesystem(title or on.default_unknown_title, max_length=max_title_length, settings=s)
+
     if safe_short:
         basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
     else:
         basename = f"{date_str}-{safe_source}-{safe_title}"
-    
-    # Final safety check: ensure total length doesn't exceed filesystem limits
+
     if len(basename) > max_basename_length:
         max_dir_length = max_basename_length
         if safe_short:
@@ -183,12 +219,16 @@ def build_output_basename(
             fixed_part = f"{date_str}-{safe_source}-"
         max_title_in_basename = max_dir_length - len(fixed_part)
         if len(safe_title) > max_title_in_basename:
-            safe_title = sanitize_title_for_filesystem(title or "Unknown", max_length=max_title_in_basename)
+            safe_title = sanitize_title_for_filesystem(
+                title or on.default_unknown_title,
+                max_length=max_title_in_basename,
+                settings=s,
+            )
         if safe_short:
             basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
         else:
             basename = f"{date_str}-{safe_source}-{safe_title}"
-    
+
     return basename
 
 
@@ -198,33 +238,18 @@ def create_paper_output_dir(
     title: str | None,
     source: str = "Arxiv",
     short: str | None = None,
+    *,
+    settings: AppSettings | None = None,
 ) -> Path:
-    """Create output directory for paper with format [date]-[source]-[short]-[title].
-    
-    Parameters
-    ----------
-    base_output_dir : Path
-        Base output directory
-    submission_date : str | None
-        Submission date in YYYYMMDD format
-    title : str | None
-        Paper title
-    source : str
-        Article source (conference/journal name)
-    short : str | None
-        Short name for the article (optional)
-    
-    Returns
-    -------
-    Path
-        Created output directory path
-    """
-    dir_name = build_output_basename(submission_date, title, source, short)
+    """Create output directory for paper with format [date]-[source]-[short]-[title]."""
+    s = settings or get_settings()
+    dir_name = build_output_basename(submission_date, title, source, short, settings=s)
     output_dir = base_output_dir / dir_name
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
 
-def determine_images_dir() -> str:
+def determine_images_dir(settings: AppSettings | None = None) -> str:
     """Determine images directory name."""
-    return "images"
+    s = settings or get_settings()
+    return s.cli_defaults.images_subdir

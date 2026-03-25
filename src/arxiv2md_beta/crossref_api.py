@@ -8,14 +8,7 @@ from datetime import datetime
 
 import httpx
 
-from arxiv2md_beta.config import (
-    ARXIV2MD_BETA_FETCH_BACKOFF_S,
-    ARXIV2MD_BETA_FETCH_MAX_RETRIES,
-    ARXIV2MD_BETA_FETCH_TIMEOUT_S,
-    ARXIV2MD_BETA_USER_AGENT,
-)
-
-_RETRY_STATUS = {429, 500, 502, 503, 504}
+from arxiv2md_beta.settings import get_settings
 
 
 def is_arxiv_doi(doi: str) -> bool:
@@ -68,12 +61,16 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
     elif doi_clean.startswith("https://doi.org/"):
         doi_clean = doi_clean[len("https://doi.org/") :]
 
-    api_url = f"https://api.crossref.org/works/{doi_clean}"
+    s = get_settings()
+    h = s.http
+    urls = s.urls
+    retry_status = set(h.retry_status_codes)
+    api_url = urls.crossref_works_template.format(doi=doi_clean)
 
-    timeout = httpx.Timeout(ARXIV2MD_BETA_FETCH_TIMEOUT_S)
-    headers = {"User-Agent": ARXIV2MD_BETA_USER_AGENT}
+    timeout = httpx.Timeout(h.fetch_timeout_s)
+    headers = {"User-Agent": h.user_agent}
 
-    for attempt in range(ARXIV2MD_BETA_FETCH_MAX_RETRIES + 1):
+    for attempt in range(h.fetch_max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 response = await client.get(api_url)
@@ -82,9 +79,9 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
                 # Not found is expected for some DOIs, return None silently
                 return None
 
-            if response.status_code in _RETRY_STATUS:
-                if attempt < ARXIV2MD_BETA_FETCH_MAX_RETRIES:
-                    backoff = ARXIV2MD_BETA_FETCH_BACKOFF_S * (2**attempt)
+            if response.status_code in retry_status:
+                if attempt < h.fetch_max_retries:
+                    backoff = h.fetch_backoff_s * (2**attempt)
                     await asyncio.sleep(backoff)
                     continue
                 return None
@@ -92,8 +89,8 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
             response.raise_for_status()
             return _parse_crossref_response(response.json())
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            if attempt < ARXIV2MD_BETA_FETCH_MAX_RETRIES:
-                backoff = ARXIV2MD_BETA_FETCH_BACKOFF_S * (2**attempt)
+            if attempt < h.fetch_max_retries:
+                backoff = h.fetch_backoff_s * (2**attempt)
                 await asyncio.sleep(backoff)
                 continue
             return None

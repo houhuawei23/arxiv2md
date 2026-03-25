@@ -17,16 +17,7 @@ import httpx
 from loguru import logger
 from tqdm import tqdm
 
-from arxiv2md_beta.config import (
-    ARXIV2MD_BETA_CACHE_PATH,
-    ARXIV2MD_BETA_CACHE_TTL_SECONDS,
-    ARXIV2MD_BETA_FETCH_BACKOFF_S,
-    ARXIV2MD_BETA_FETCH_MAX_RETRIES,
-    ARXIV2MD_BETA_FETCH_TIMEOUT_S,
-    ARXIV2MD_BETA_USER_AGENT,
-)
-
-_RETRY_STATUS = {429, 500, 502, 503, 504}
+from arxiv2md_beta.settings import get_settings
 
 
 class TexSourceInfo(NamedTuple):
@@ -63,7 +54,7 @@ def _cache_dir_for(arxiv_id: str, version: str | None) -> Path:
         base = arxiv_id[: -len(version)]
     version_tag = version or "latest"
     key = f"{base}__{version_tag}".replace("/", "_")
-    return ARXIV2MD_BETA_CACHE_PATH / key
+    return get_settings().resolved_cache_path() / key
 
 
 async def fetch_and_extract_tex_source(
@@ -104,7 +95,7 @@ async def fetch_and_extract_tex_source(
         return _extract_info_from_dir(extracted_dir)
 
     # Download TeX source
-    tex_url = f"https://arxiv.org/src/{arxiv_id}"
+    tex_url = get_settings().urls.arxiv_src_template.format(arxiv_id=arxiv_id)
     logger.info(f"Downloading TeX source from {tex_url}")
 
     try:
@@ -162,7 +153,7 @@ def extract_local_archive(
         # Create a cache key based on file path and modification time
         mtime = archive_path.stat().st_mtime
         cache_key = f"local_{archive_path.stem}_{int(mtime)}"
-        extracted_dir = ARXIV2MD_BETA_CACHE_PATH / cache_key / "extracted"
+        extracted_dir = get_settings().resolved_cache_path() / cache_key / "extracted"
     else:
         extracted_dir = output_dir
 
@@ -275,11 +266,14 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
 
 async def _download_tex_source(url: str, output_path: Path) -> None:
     """Download TeX source with retries and progress bar."""
-    timeout = httpx.Timeout(ARXIV2MD_BETA_FETCH_TIMEOUT_S * 5)  # Longer timeout for large files
-    headers = {"User-Agent": ARXIV2MD_BETA_USER_AGENT}
+    s = get_settings()
+    h = s.http
+    retry_status = set(h.retry_status_codes)
+    timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
+    headers = {"User-Agent": h.user_agent}
     last_exc: Exception | None = None
 
-    for attempt in range(ARXIV2MD_BETA_FETCH_MAX_RETRIES + 1):
+    for attempt in range(h.fetch_max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 async with client.stream("GET", url) as response:
@@ -289,7 +283,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                             "This paper may not have TeX source available."
                         )
 
-                    if response.status_code in _RETRY_STATUS:
+                    if response.status_code in retry_status:
                         last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
                     else:
                         response.raise_for_status()
@@ -298,9 +292,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                         total_size = int(response.headers.get("content-length", 0))
 
                         output_path.parent.mkdir(parents=True, exist_ok=True)
-                        # Check if disable tqdm
-                        disable_tqdm = os.getenv("TQDM_DISABLE", "").lower() in ("1", "true", "yes") or \
-                                       os.getenv("DISABLE_TQDM", "").lower() in ("1", "true", "yes")
+                        disable_tqdm = s.images.disable_tqdm
 
                         with open(output_path, "wb") as f:
                             with tqdm(
@@ -318,8 +310,8 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
 
-        if attempt < ARXIV2MD_BETA_FETCH_MAX_RETRIES:
-            backoff = ARXIV2MD_BETA_FETCH_BACKOFF_S * (2**attempt)
+        if attempt < h.fetch_max_retries:
+            backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
     raise RuntimeError(f"Failed to download TeX source from {url}: {last_exc}")
@@ -506,10 +498,11 @@ def _is_cache_fresh(path: Path) -> bool:
     """Check if cached directory is fresh."""
     if not path.exists():
         return False
-    if ARXIV2MD_BETA_CACHE_TTL_SECONDS <= 0:
+    ttl = get_settings().cache.ttl_seconds
+    if ttl <= 0:
         return True
 
     # Check modification time of directory
     mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - mtime).total_seconds()
-    return age_seconds <= ARXIV2MD_BETA_CACHE_TTL_SECONDS
+    return age_seconds <= ttl

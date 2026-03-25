@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,16 +10,7 @@ from pathlib import Path
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.config import (
-    ARXIV2MD_BETA_CACHE_PATH,
-    ARXIV2MD_BETA_CACHE_TTL_SECONDS,
-    ARXIV2MD_BETA_FETCH_BACKOFF_S,
-    ARXIV2MD_BETA_FETCH_MAX_RETRIES,
-    ARXIV2MD_BETA_FETCH_TIMEOUT_S,
-    ARXIV2MD_BETA_USER_AGENT,
-)
-
-_RETRY_STATUS = {429, 500, 502, 503, 504}
+from arxiv2md_beta.settings import get_settings
 
 
 async def fetch_arxiv_html(
@@ -41,14 +31,12 @@ async def fetch_arxiv_html(
     if use_cache and _is_cache_fresh(html_path):
         return html_path.read_text(encoding="utf-8")
 
-    # Try primary URL (arxiv.org) first
     try:
         html_text = await _fetch_with_retries(html_url)
         cache_dir.mkdir(parents=True, exist_ok=True)
         html_path.write_text(html_text, encoding="utf-8")
         return html_text
     except RuntimeError as primary_error:
-        # If we got 404 and have ar5iv fallback, try it
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
@@ -56,23 +44,23 @@ async def fetch_arxiv_html(
                 html_path.write_text(html_text, encoding="utf-8")
                 return html_text
             except Exception:
-                # If ar5iv also fails, raise the original error
                 pass
-        # Re-raise the original error
         raise primary_error
 
 
 async def _fetch_with_retries(url: str) -> str:
-    timeout = httpx.Timeout(ARXIV2MD_BETA_FETCH_TIMEOUT_S)
-    headers = {"User-Agent": ARXIV2MD_BETA_USER_AGENT}
+    s = get_settings()
+    h = s.http
+    retry_status = set(h.retry_status_codes)
+    timeout = httpx.Timeout(h.fetch_timeout_s)
+    headers = {"User-Agent": h.user_agent}
     last_exc: Exception | None = None
 
-    for attempt in range(ARXIV2MD_BETA_FETCH_MAX_RETRIES + 1):
+    for attempt in range(h.fetch_max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 response = await client.get(url)
 
-            # Check for 404 specifically to provide a better error message
             if response.status_code == 404:
                 raise RuntimeError(
                     "This paper does not have an HTML version available on arXiv. "
@@ -80,7 +68,7 @@ async def _fetch_with_retries(url: str) -> str:
                     "Older papers may only be available as PDF."
                 )
 
-            if response.status_code in _RETRY_STATUS:
+            if response.status_code in retry_status:
                 last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
             else:
                 response.raise_for_status()
@@ -89,8 +77,8 @@ async def _fetch_with_retries(url: str) -> str:
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
 
-        if attempt < ARXIV2MD_BETA_FETCH_MAX_RETRIES:
-            backoff = ARXIV2MD_BETA_FETCH_BACKOFF_S * (2**attempt)
+        if attempt < h.fetch_max_retries:
+            backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
     raise RuntimeError(f"Failed to fetch HTML from {url}: {last_exc}")
@@ -103,13 +91,15 @@ def _ensure_html_response(response: httpx.Response) -> None:
 
 
 def _is_cache_fresh(html_path: Path) -> bool:
+    s = get_settings()
+    ttl = s.cache.ttl_seconds
     if not html_path.exists():
         return False
-    if ARXIV2MD_BETA_CACHE_TTL_SECONDS <= 0:
+    if ttl <= 0:
         return True
     mtime = datetime.fromtimestamp(html_path.stat().st_mtime, tz=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - mtime).total_seconds()
-    return age_seconds <= ARXIV2MD_BETA_CACHE_TTL_SECONDS
+    return age_seconds <= ttl
 
 
 def _cache_dir_for(arxiv_id: str, version: str | None) -> Path:
@@ -118,7 +108,7 @@ def _cache_dir_for(arxiv_id: str, version: str | None) -> Path:
         base = arxiv_id[: -len(version)]
     version_tag = version or "latest"
     key = f"{base}__{version_tag}".replace("/", "_")
-    return ARXIV2MD_BETA_CACHE_PATH / key
+    return get_settings().resolved_cache_path() / key
 
 
 async def fetch_arxiv_pdf(
@@ -127,69 +117,44 @@ async def fetch_arxiv_pdf(
     version: str | None = None,
     use_cache: bool = True,
 ) -> Path:
-    """Download arXiv PDF and save to output path.
-
-    Uses local cache to avoid re-downloading the same paper. Cache is stored
-    under ARXIV2MD_BETA_CACHE_PATH/{arxiv_id}__{version}/paper.pdf.
-
-    Parameters
-    ----------
-    arxiv_id : str
-        arXiv ID (e.g., "2501.11120" or "2501.11120v1")
-    output_path : Path
-        Path where PDF should be saved
-    version : str | None
-        Version string (e.g., "v1")
-    use_cache : bool
-        If True, use cached PDF when available and fresh
-
-    Returns
-    -------
-    Path
-        Path to saved PDF file
-
-    Raises
-    ------
-    RuntimeError
-        If PDF download fails
-    """
+    """Download arXiv PDF and save to output path."""
+    s = get_settings()
+    h = s.http
+    urls = s.urls
+    retry_status = set(h.retry_status_codes)
     cache_dir = _cache_dir_for(arxiv_id, version)
     cache_path = cache_dir / "paper.pdf"
 
-    # Use cache if available and fresh
     if use_cache and _is_cache_fresh(cache_path):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cache_path, output_path)
         logger.debug(f"Using cached PDF for {arxiv_id}")
         return output_path
 
-    # Remove version suffix for PDF URL
     base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
-    pdf_url = f"https://arxiv.org/pdf/{base_id}.pdf"
+    pdf_url = urls.arxiv_pdf_template.format(base_id=base_id)
 
-    timeout = httpx.Timeout(ARXIV2MD_BETA_FETCH_TIMEOUT_S * 5)  # Longer timeout for PDF
-    headers = {"User-Agent": ARXIV2MD_BETA_USER_AGENT}
+    timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
+    headers = {"User-Agent": h.user_agent}
     last_exc: Exception | None = None
 
-    for attempt in range(ARXIV2MD_BETA_FETCH_MAX_RETRIES + 1):
+    for attempt in range(h.fetch_max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 async with client.stream("GET", pdf_url) as response:
                     if response.status_code == 404:
                         raise RuntimeError(f"PDF not found at {pdf_url}")
 
-                    if response.status_code in _RETRY_STATUS:
+                    if response.status_code in retry_status:
                         last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
                     else:
                         response.raise_for_status()
 
-                        # Download to cache first
                         cache_dir.mkdir(parents=True, exist_ok=True)
 
                         from tqdm import tqdm
 
-                        disable_tqdm = os.getenv("TQDM_DISABLE", "").lower() in ("1", "true", "yes") or \
-                                       os.getenv("DISABLE_TQDM", "").lower() in ("1", "true", "yes")
+                        disable_tqdm = s.images.disable_tqdm
 
                         total_size = int(response.headers.get("content-length", 0))
                         with open(cache_path, "wb") as f:
@@ -204,15 +169,14 @@ async def fetch_arxiv_pdf(
                                     f.write(chunk)
                                     pbar.update(len(chunk))
 
-                        # Copy from cache to output path
                         output_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(cache_path, output_path)
                         return output_path
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
 
-        if attempt < ARXIV2MD_BETA_FETCH_MAX_RETRIES:
-            backoff = ARXIV2MD_BETA_FETCH_BACKOFF_S * (2**attempt)
+        if attempt < h.fetch_max_retries:
+            backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
     raise RuntimeError(f"Failed to download PDF from {pdf_url}: {last_exc}")

@@ -180,19 +180,24 @@ python demo/demo_arxiv2md_beta.py
 
 ## 配置
 
-通过环境变量配置：
+运行时参数由打包的 `arxiv2md_beta/config/default_config.yml` 提供默认值，可按下面顺序覆盖（后者优先）：
 
-- `ARXIV2MD_BETA_CACHE_PATH`: 缓存目录路径（默认：`.arxiv2md_beta_cache`）
-- `ARXIV2MD_BETA_CACHE_TTL_SECONDS`: 缓存 TTL（默认：86400，24小时）
-- `ARXIV2MD_BETA_FETCH_TIMEOUT_S`: 请求超时时间（默认：10秒）
-- `ARXIV2MD_BETA_FETCH_MAX_RETRIES`: 最大重试次数（默认：2）
+1. 默认 `default_config.yml`
+2. `environments/<name>.yml`（由 `app.environment` 或 `ARXIV2MD_BETA_APP__ENVIRONMENT` 选择，默认 `development`）
+3. 用户 YAML：`--config /path/to.yml` 或环境变量 `ARXIV2MD_BETA_CONFIG_PATH`
+4. 嵌套环境变量：前缀 `ARXIV2MD_BETA_`，子节用 `__`，例如 `ARXIV2MD_BETA__CACHE__DIR=/tmp/cache`、`ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S=15`
+5. 命令行：`--config`、`--env` 等与 CLI 相关的覆盖（见 `arxiv2md_beta.cli`）
+
+**不再支持**旧版扁平环境变量名（如 `ARXIV2MD_BETA_CACHE_PATH`、`ARXIV2MD_BETA_FETCH_TIMEOUT_S`）；请改用上述嵌套形式或 YAML。
+
+用户配置目录默认在 `paths.user_config_dir`（见默认 YAML），日志等相对路径会解析到该目录下。
 
 ## 依赖
 
 - `beautifulsoup4`: HTML 解析
 - `httpx`: HTTP 客户端
 - `loguru`: 日志记录
-- `pydantic`: 数据验证
+- `pydantic` / `pydantic-settings`: 配置校验与嵌套环境变量
 - `tqdm`: 进度条
 - `tiktoken`: Token 计数
 - `Pillow`: 图片处理
@@ -204,7 +209,7 @@ python demo/demo_arxiv2md_beta.py
 1. **PDF 转 PNG**：需要安装 `poppler-utils`（Ubuntu/Debian: `sudo apt-get install poppler-utils`）
 2. **LaTeX 解析**：需要系统安装 Pandoc 或使用 `pypandoc_binary`
 3. **网络访问**：需要能够访问 arXiv.org
-4. **缓存**：下载的文件会缓存在本地，可通过环境变量配置缓存路径和 TTL
+4. **缓存**：下载的文件会缓存在本地；路径与 TTL 见配置中的 `cache` 节或 `ARXIV2MD_BETA__CACHE__*` 环境变量
 
 ## 许可证
 

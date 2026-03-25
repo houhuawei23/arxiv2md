@@ -7,61 +7,49 @@ from pathlib import Path
 
 from loguru import logger
 
+from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.settings.schema import AppSettings
+
 
 def configure_logging(
     *,
-    level: str = "INFO",
+    settings: AppSettings | None = None,
+    level: str | None = None,
     log_file: Path | None = None,
-    enable_file_logging: bool = False,
+    enable_file_logging: bool | None = None,
 ) -> None:
-    """Configure loguru for the application.
+    """Configure loguru for the application."""
+    s = settings or get_settings()
+    log = s.logging
+    feats = s.features
+    eff_level = level if level is not None else s.app.log_level
+    eff_file = enable_file_logging if enable_file_logging is not None else feats.enable_file_logging
+    eff_log_path = log_file
 
-    Parameters
-    ----------
-    level : str
-        Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    log_file : Path | None
-        Path to log file. If None, uses default location.
-    enable_file_logging : bool
-        Whether to enable file logging.
-    """
-    # Remove default handler
     logger.remove()
 
-    # Add console handler with color
     logger.add(
         sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level=level,
+        format=log.console_format,
+        level=eff_level,
         colorize=True,
     )
 
-    # Add file handler if enabled
-    if enable_file_logging:
-        if log_file is None:
-            log_file = Path.home() / ".arxiv2md_beta" / "arxiv2md_beta.log"
-            log_file.parent.mkdir(parents=True, exist_ok=True)
+    if eff_file:
+        if eff_log_path is None:
+            eff_log_path = s.resolved_default_log_file()
+            eff_log_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger.add(
-            log_file,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-            level=level,
-            rotation="10 MB",
-            retention="7 days",
-            compression="zip",
+            eff_log_path,
+            format=log.file_format,
+            level=eff_level,
+            rotation=log.file_rotation,
+            retention=log.file_retention,
+            compression=log.file_compression,
         )
 
 
 def get_logger():
-    """Get a configured logger instance.
-
-    Returns
-    -------
-    Logger
-        Configured logger instance
-    """
+    """Return the configured loguru logger."""
     return logger
-
-
-# Configure default logging
-configure_logging()
