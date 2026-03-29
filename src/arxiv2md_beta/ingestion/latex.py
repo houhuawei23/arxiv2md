@@ -114,7 +114,7 @@ async def ingest_paper_latex(
         )
     ]
 
-    # Format output
+    # Format output (single blob; no HTML section tree — do not split into References/Appendix files)
     result = format_paper(
         arxiv_id=arxiv_id,
         version=version,
@@ -124,6 +124,7 @@ async def ingest_paper_latex(
         sections=sections,
         include_toc=False,  # LaTeX mode doesn't use TOC
         include_abstract_in_tree=parsed_latex.abstract is not None,
+        split_for_reference=False,
     )
 
     # Save paper metadata to paper.yml

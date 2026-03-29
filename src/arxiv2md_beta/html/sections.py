@@ -47,3 +47,27 @@ def filter_sections(
         return result
 
     return _filter(list(sections))
+
+
+def split_sections_at_reference(
+    sections: list[SectionNode],
+    *,
+    reference_titles: Iterable[str],
+) -> tuple[list[SectionNode], list[SectionNode], list[SectionNode]]:
+    """Split top-level sections into (main, references, appendix).
+
+    The first top-level section whose normalized title matches one of
+    ``reference_titles`` (after normalization) starts the references block;
+    that section and its subtree are the references file; following top-level
+    sections are appendix. If no match, main is the full list and the other
+    two lists are empty.
+    """
+    ref_set = {normalize_section_title(t) for t in reference_titles if str(t).strip()}
+    if not ref_set:
+        return list(sections), [], []
+
+    for i, sec in enumerate(sections):
+        if normalize_section_title(sec.title) in ref_set:
+            return sections[:i], [sections[i]], sections[i + 1 :]
+
+    return list(sections), [], []

@@ -189,9 +189,10 @@ pytest tests/ --cov=src/arxiv2md_beta --cov-report=html
 |------|------|
 | 用户配置文件 | `ARXIV2MD_BETA_CONFIG_PATH` 或 `--config path.yml` |
 | 逻辑环境 | `app.environment` / `ARXIV2MD_BETA_APP__ENVIRONMENT`（`development` / `production` / `test`） |
-| 缓存目录 | `ARXIV2MD_BETA__CACHE__DIR` |
-| HTTP 超时 | `ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S` |
-| 禁用 tqdm | `ARXIV2MD_BETA__IMAGES__DISABLE_TQDM=true` |
+| 日志级别 | 默认 INFO；`--verbose` / `-v` 单次强制 DEBUG；或 `ARXIV2MD_BETA_APP__LOG_LEVEL` |
+| 缓存目录 | `ARXIV2MD_BETA_CACHE__DIR`（默认 `~/.cache/arxiv2md-beta`） |
+| HTTP 超时 | `ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S` |
+| 禁用 tqdm | `ARXIV2MD_BETA_IMAGES__DISABLE_TQDM=true` |
 
 旧版扁平变量（如 `ARXIV2MD_BETA_CACHE_PATH`）已移除，请改用嵌套键或 YAML。
 

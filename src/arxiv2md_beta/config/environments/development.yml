@@ -1,3 +1,4 @@
 # Development profile (merged on top of default_config.yml)
 app:
-  log_level: DEBUG
+  # Default INFO for normal CLI; use --verbose or ARXIV2MD_BETA_APP__LOG_LEVEL=DEBUG when needed.
+  log_level: INFO

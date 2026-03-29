@@ -71,7 +71,7 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 
 ### 命令行参数（`convert`）
 
-全局选项（写在子命令前）：`--config`、`--env` / `-E`、`--force-reload`。
+全局选项（写在子命令前）：`--config`、`--env` / `-E`、`--verbose` / `-v`（输出 DEBUG 日志）、`--force-reload`。
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -191,7 +191,7 @@ python demo/demo_arxiv2md_beta.py
 1. 默认 `default_config.yml`
 2. `environments/<name>.yml`（由 `app.environment` 或 `ARXIV2MD_BETA_APP__ENVIRONMENT` 选择，默认 `development`）
 3. 用户 YAML：`--config /path/to.yml` 或环境变量 `ARXIV2MD_BETA_CONFIG_PATH`
-4. 嵌套环境变量：前缀 `ARXIV2MD_BETA_`，子节用 `__`，例如 `ARXIV2MD_BETA__CACHE__DIR=/tmp/cache`、`ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S=15`
+4. 嵌套环境变量：前缀 `ARXIV2MD_BETA_`，子节用 `__` 连接（如 `ARXIV2MD_BETA_CACHE__DIR`、`ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S`）；环境变量会覆盖 YAML
 5. 命令行：`--config`、`--env` 等与 CLI 相关的覆盖（见 `arxiv2md_beta.cli.app` 中 Typer callback）
 
 **不再支持**旧版扁平环境变量名（如 `ARXIV2MD_BETA_CACHE_PATH`、`ARXIV2MD_BETA_FETCH_TIMEOUT_S`）；请改用上述嵌套形式或 YAML。
@@ -203,7 +203,7 @@ python demo/demo_arxiv2md_beta.py
 - `beautifulsoup4`: HTML 解析
 - `httpx`: HTTP 客户端
 - `loguru`: 日志记录
-- `pydantic` / `pydantic-settings`: 配置校验与嵌套环境变量
+- `pydantic`: 配置模型与校验（环境变量在 loader 中合并）
 - `tqdm`: 进度条
 - `tiktoken`: Token 计数
 - `Pillow`: 图片处理
@@ -216,7 +216,7 @@ python demo/demo_arxiv2md_beta.py
 1. **PDF 转 PNG**：需要安装 `poppler-utils`（Ubuntu/Debian: `sudo apt-get install poppler-utils`）
 2. **LaTeX 解析**：需要系统安装 Pandoc 或使用 `pypandoc_binary`
 3. **网络访问**：需要能够访问 arXiv.org
-4. **缓存**：下载的文件会缓存在本地；路径与 TTL 见配置中的 `cache` 节或 `ARXIV2MD_BETA__CACHE__*` 环境变量
+4. **缓存**：默认在 `~/.cache/arxiv2md-beta`（与当前工作目录无关）；相对路径配置会解析到 `$XDG_CACHE_HOME/arxiv2md-beta/` 下。路径与 TTL 见 `cache` 节或 `ARXIV2MD_BETA_CACHE__*` 环境变量
 
 ## 更新日志
 

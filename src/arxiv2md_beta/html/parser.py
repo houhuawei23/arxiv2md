@@ -87,11 +87,35 @@ def _find_document_root(soup: BeautifulSoup) -> Tag:
 
 
 def _extract_title(soup: BeautifulSoup) -> str | None:
+    # Try h1.ltx_title first (ar5iv HTML)
     title_tag = soup.find("h1", class_=re.compile(r"ltx_title"))
     if title_tag:
-        return title_tag.get_text(" ", strip=True)
+        # Filter out document type markers like [cs/0309048] Contents
+        text = title_tag.get_text(" ", strip=True)
+        # Remove arXiv ID patterns like [cs/0309048] or [math.AG/0211234]
+        text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text)
+        # Remove "Contents" suffix if it's just a TOC page
+        text = re.sub(r"\bContents\s*$", "", text).strip()
+        if text:
+            return text
+    # Try other common title selectors
+    for selector in ["h1.title", "h1.paper-title", "meta[property='og:title']"]:
+        tag = soup.select_one(selector)
+        if tag:
+            text = tag.get("content") if tag.name == "meta" else tag.get_text(" ", strip=True)
+            text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text)
+            text = re.sub(r"\bContents\s*$", "", text).strip()
+            if text:
+                return text
+    # Fallback: try <title> but filter out site names
     if soup.title:
-        return soup.title.get_text(" ", strip=True)
+        text = soup.title.get_text(" ", strip=True)
+        # Filter out common site title patterns
+        text = re.sub(r"\s*[\|\-–—]\s*arXiv.*$", "", text, flags=re.I)
+        text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text)
+        text = re.sub(r"\bContents\s*$", "", text).strip()
+        if text and text.lower() not in ("arxiv", "", "contents"):
+            return text
     return None
 
 

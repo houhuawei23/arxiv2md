@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,10 +20,28 @@ from arxiv2md_beta.output.layout import (
     determine_output_dir,
 )
 from arxiv2md_beta.query.parser import is_local_archive_path, parse_arxiv_input, parse_local_archive
+from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
+
+
+def _write_split_markdown_sidecars(
+    paper_output_dir: Path,
+    output_filename: str,
+    result: IngestionResult,
+) -> None:
+    """Write ``-References.md`` and ``-Appendix.md`` when HTML ingestion produced a split."""
+    if result.content_references is None:
+        return
+    stem = Path(output_filename).stem
+    ref_path = paper_output_dir / f"{stem}-References.md"
+    app_path = paper_output_dir / f"{stem}-Appendix.md"
+    ref_path.write_text(result.content_references, encoding="utf-8")
+    app_path.write_text(result.content_appendix or "", encoding="utf-8")
+    logger.info(f"References written to: {ref_path}")
+    logger.info(f"Appendix written to: {app_path}")
 
 
 @dataclass(frozen=True)
@@ -40,6 +61,43 @@ class ConvertParams:
     sections: str | None
     section: list[str] | None
     include_tree: bool
+    emit_result_json: bool = False
+
+
+def _emit_result_json_line(paper_output_dir: Path, *, params: ConvertParams) -> None:
+    """单行机器可读结果，供父进程脚本解析（``ARXIV2MD_RESULT_JSON=...``）。"""
+    if not params.emit_result_json:
+        return
+    payload = {"paper_output_dir": str(paper_output_dir.resolve())}
+    line = f"ARXIV2MD_RESULT_JSON={json.dumps(payload, ensure_ascii=False)}"
+    print(line, flush=True)
+    # 与 stdout 相同一行写入 stderr，便于父进程只捕获 stderr（如 tqdm 占 stdout）时仍能解析
+    print(line, file=sys.stderr, flush=True)
+
+
+def _result_json_filename_key(arxiv_id: str) -> str:
+    """用于结果侧车文件名：新式 ID 去掉 ``vN`` 后缀，与流水线侧查找一致。"""
+    s = arxiv_id.strip()
+    m = re.match(r"^(\d{4}\.\d{4,5})(v\d+)?$", s)
+    if m:
+        return m.group(1)
+    return s.replace("/", "_")
+
+
+def _write_result_json_sidecar(
+    base_output_dir: Path,
+    paper_output_dir: Path,
+    *,
+    result_key: str,
+) -> None:
+    """在输出根目录写入 ``.arxiv2md-result-{key}.json``，供流水线在无捕获 stdio 时读取唯一真源。"""
+    payload = {
+        "paper_output_dir": str(paper_output_dir.resolve()),
+        "result_key": result_key,
+    }
+    name = f".arxiv2md-result-{_result_json_filename_key(result_key)}.json"
+    path = base_output_dir / name
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -147,6 +205,15 @@ async def _process_arxiv_paper(params: ConvertParams) -> None:
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
+    _emit_result_json_line(paper_output_dir, params=params)
+    try:
+        _write_result_json_sidecar(
+            base_output_dir,
+            paper_output_dir,
+            result_key=query.arxiv_id,
+        )
+    except OSError as e:
+        logger.warning(f"Could not write arxiv2md result sidecar: {e}")
 
     output_text = format_output(
         result.summary,
@@ -173,6 +240,7 @@ async def _process_arxiv_paper(params: ConvertParams) -> None:
 
     output_path.write_text(output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
+    _write_split_markdown_sidecars(paper_output_dir, output_filename, result)
 
     try:
         pdf_filename = output_filename.replace(".md", ".pdf")
@@ -231,6 +299,15 @@ async def _process_local_archive(params: ConvertParams) -> None:
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
+    _emit_result_json_line(paper_output_dir, params=params)
+    try:
+        _write_result_json_sidecar(
+            base_output_dir,
+            paper_output_dir,
+            result_key=query.archive_path.stem,
+        )
+    except OSError as e:
+        logger.warning(f"Could not write arxiv2md result sidecar: {e}")
 
     output_text = format_output(
         result.summary,
@@ -256,6 +333,7 @@ async def _process_local_archive(params: ConvertParams) -> None:
 
     output_path.write_text(output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
+    _write_split_markdown_sidecars(paper_output_dir, output_filename, result)
 
     logger.info("Local archive processed successfully (no PDF download for local archives)")
 

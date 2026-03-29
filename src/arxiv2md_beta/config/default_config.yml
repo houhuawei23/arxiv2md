@@ -1,4 +1,4 @@
-# Bundled defaults for arxiv2md-beta (override via user file, environments/*.yml, env ARXIV2MD_BETA__*, CLI)
+# Bundled defaults for arxiv2md-beta (override via user file, environments/*.yml, env ARXIV2MD_BETA_* nested keys, CLI)
 
 app:
   environment: development
@@ -13,7 +13,8 @@ http:
   large_transfer_timeout_multiplier: 5.0
 
 cache:
-  dir: ".arxiv2md_beta_cache"
+  # User-wide cache (not cwd); default ~/.cache/arxiv2md-beta. Relative values resolve under XDG cache.
+  dir: "~/.cache/arxiv2md-beta"
   ttl_seconds: 86400
 
 paths:
@@ -22,6 +23,7 @@ paths:
 urls:
   arxiv_host: "arxiv.org"
   ar5iv_html_base: "https://ar5iv.labs.arxiv.org/html"
+  # Use http: export.arxiv.org HTTPS may not match hostname on some systems (MITM/proxy).
   arxiv_api_query_template: "http://export.arxiv.org/api/query?id_list={base_id}"
   arxiv_pdf_template: "https://arxiv.org/pdf/{base_id}.pdf"
   arxiv_src_template: "https://arxiv.org/src/{arxiv_id}"

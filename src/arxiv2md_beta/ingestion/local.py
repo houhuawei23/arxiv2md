@@ -351,6 +351,7 @@ async def _ingest_html_archive(
         sections=filtered_sections,
         include_toc=not remove_toc,
         include_abstract_in_tree=abstract is not None,
+        split_for_reference=True,
     )
 
     # Save metadata

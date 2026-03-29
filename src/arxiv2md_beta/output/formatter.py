@@ -10,6 +10,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     tiktoken = None
 
+from arxiv2md_beta.html.sections import split_sections_at_reference
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
 
@@ -24,15 +25,38 @@ def format_paper(
     sections: list[SectionNode],
     include_toc: bool,
     include_abstract_in_tree: bool = True,
+    split_for_reference: bool = False,
 ) -> IngestionResult:
-    """Create summary, section tree, and content."""
+    """Create summary, section tree, and content.
+
+    If ``split_for_reference`` is True, ``content`` is only the main body
+    (TOC + abstract + sections before the first References/Bibliography heading);
+    ``content_references`` and ``content_appendix`` hold the rest. Summary and
+    section tree still describe the full section tree.
+    """
     tree_lines = ["Sections:"]
     if include_abstract_in_tree:
         tree_lines.append("Abstract")
     tree_lines.append(_create_sections_tree(sections))
     tree = "\n".join(tree_lines)
-    content = _render_content(abstract=abstract, sections=sections, include_toc=include_toc)
-    content = _format_markdown_output(content)
+
+    content_references: str | None = None
+    content_appendix: str | None = None
+
+    if split_for_reference:
+        ing = get_settings().ingestion
+        main_sections, ref_sections, appendix_sections = split_sections_at_reference(
+            sections, reference_titles=ing.reference_section_titles
+        )
+        content = _render_content(abstract=abstract, sections=main_sections, include_toc=include_toc)
+        content = _format_markdown_output(content)
+        ref_raw = _render_content(abstract=None, sections=ref_sections, include_toc=False)
+        content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else ""
+        app_raw = _render_content(abstract=None, sections=appendix_sections, include_toc=False)
+        content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else ""
+    else:
+        content = _render_content(abstract=abstract, sections=sections, include_toc=include_toc)
+        content = _format_markdown_output(content)
 
     summary_lines = []
     if title:
@@ -44,13 +68,24 @@ def format_paper(
         summary_lines.append(f"- Authors: {', '.join(authors)}")
     summary_lines.append(f"- Sections: {count_sections(sections)}")
 
-    token_estimate = _format_token_count(tree + "\n" + content)
+    token_body = content
+    if content_references is not None:
+        token_body = "\n".join(
+            x for x in (content, content_references, content_appendix or "") if x
+        )
+    token_estimate = _format_token_count(tree + "\n" + token_body)
     if token_estimate:
         summary_lines.append(f"- Estimated tokens: {token_estimate}")
 
     summary = "\n".join(summary_lines)
 
-    return IngestionResult(summary=summary, sections_tree=tree, content=content)
+    return IngestionResult(
+        summary=summary,
+        sections_tree=tree,
+        content=content,
+        content_references=content_references,
+        content_appendix=content_appendix,
+    )
 
 
 def count_sections(sections: Iterable[SectionNode]) -> int:

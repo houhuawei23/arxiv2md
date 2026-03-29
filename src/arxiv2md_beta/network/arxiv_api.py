@@ -8,7 +8,64 @@ from datetime import datetime
 
 import httpx
 
+from loguru import logger
+
 from arxiv2md_beta.settings import get_settings
+
+
+def submission_date_from_new_style_arxiv_id(arxiv_id: str) -> str | None:
+    """Derive ``YYYYMMDD`` from new-style arXiv id ``YYMM.NNNNN`` (submission month, day 01).
+
+    Used when the Atom API is unavailable (e.g. rate limit) so output dirs and ``paper.yml``
+    still get a stable date. See https://arxiv.org/help/arxiv_identifier
+    """
+    base = arxiv_id.split("v")[0].strip()
+    m = re.match(r"^(\d{2})(\d{2})\.(\d{4,5})$", base)
+    if not m:
+        return None
+    yy, mm = int(m.group(1)), int(m.group(2))
+    if not (1 <= mm <= 12):
+        return None
+    year = 2000 + yy
+    return f"{year:04d}{mm:02d}01"
+
+
+def fill_arxiv_metadata_defaults(
+    metadata: dict[str, str | list | dict | None],
+    base_id: str,
+) -> dict[str, str | list | dict | None]:
+    """Ensure ``arxiv_id``, ``submission_date`` / ``date`` / ``year`` from id when API omitted them."""
+    out = dict(metadata)
+    if not out.get("arxiv_id"):
+        out["arxiv_id"] = base_id
+    if not out.get("submission_date"):
+        sd = submission_date_from_new_style_arxiv_id(base_id)
+        if sd:
+            out["submission_date"] = sd
+            if not out.get("date"):
+                out["date"] = f"{sd[:4]}-{sd[4:6]}-{sd[6:8]}"
+            if not out.get("year"):
+                out["year"] = sd[:4]
+    if not out.get("bibtex") and out.get("title") and out.get("authors") and out.get("year") and out.get("arxiv_id"):
+        y = out["year"]
+        year_str = str(y) if y is not None else None
+        if year_str:
+            out["bibtex"] = _generate_bibtex(
+                title=out.get("title"),
+                authors=out["authors"],  # type: ignore[arg-type]
+                year=year_str,
+                arxiv_id=out.get("arxiv_id"),  # type: ignore[arg-type]
+                primary_category=out.get("primary_category"),  # type: ignore[arg-type]
+                abstract_url=out.get("abstract_url"),  # type: ignore[arg-type]
+            )
+    if not out.get("citation") and out.get("authors") and out.get("title"):
+        out["citation"] = _generate_citation(
+            authors=out["authors"],  # type: ignore[arg-type]
+            year=str(out["year"]) if out.get("year") is not None else None,
+            title=out.get("title"),
+            arxiv_id=out.get("arxiv_id"),  # type: ignore[arg-type]
+        )
+    return out
 
 
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | None]:
@@ -36,6 +93,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
     headers = {"User-Agent": h.user_agent}
 
     for attempt in range(h.fetch_max_retries + 1):
+        response: httpx.Response | None = None
         try:
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 response = await client.get(api_url)
@@ -59,26 +117,35 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
                             if crossref_metadata:
                                 # Merge metadata: arXiv as base, Crossref as supplement
                                 merged = _merge_metadata(arxiv_metadata, crossref_metadata)
-                                return merged
+                                return fill_arxiv_metadata_defaults(merged, base_id)
                     except Exception as e:
                         # Crossref failure should not break the flow
-                        from loguru import logger
                         logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
 
-                return arxiv_metadata
+                return fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
         except (httpx.RequestError, httpx.HTTPStatusError):
             pass
 
         if attempt < h.fetch_max_retries:
             backoff = h.fetch_backoff_s * (2**attempt)
+            if response is not None and response.status_code == 429:
+                logger.warning(
+                    f"arXiv API rate-limited (429) for {base_id}; retry {attempt + 1}/{h.fetch_max_retries + 1} after {backoff}s"
+                )
             await asyncio.sleep(backoff)
 
-    # Return empty metadata if failed
-    return {
-        "title": None,
-        "published": None,
-        "submission_date": None,
-    }
+    logger.warning(
+        f"arXiv API metadata fetch failed for {base_id} after retries; "
+        "using id-derived date and HTML fallbacks where available"
+    )
+    return fill_arxiv_metadata_defaults(
+        {
+            "title": None,
+            "published": None,
+            "submission_date": None,
+        },
+        base_id,
+    )
 
 
 def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:

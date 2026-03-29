@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from importlib import resources
 from pathlib import Path
@@ -25,6 +26,65 @@ class ConfigurationError(Exception):
         if hint:
             full = f"{message}\n\n{hint}"
         super().__init__(full)
+
+
+_ENV_PREFIX = "ARXIV2MD_BETA_"
+
+
+def _parse_env_scalar(raw: str) -> Any:
+    """Coerce env string to bool / int / float / JSON / str."""
+    v = raw.strip()
+    if v == "":
+        return None
+    if v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    if v[0] in "[{":
+        try:
+            return json.loads(v)
+        except json.JSONDecodeError:
+            pass
+    try:
+        if "." in v:
+            return float(v)
+        return int(v)
+    except ValueError:
+        pass
+    return raw
+
+
+def _set_nested(target: dict[str, Any], keys: list[str], value: Any) -> None:
+    """Set target[k1][k2]...[kn] = value (mutates target)."""
+    cur: Any = target
+    for k in keys[:-1]:
+        nxt = cur.setdefault(k, {})
+        if not isinstance(nxt, dict):
+            raise ConfigurationError(
+                f"Configuration env key conflicts with non-mapping at {k!r}",
+                hint="Check ARXIV2MD_BETA_* nested keys for duplicate prefixes.",
+            )
+        cur = nxt
+    cur[keys[-1]] = value
+
+
+def env_overlay_from_os() -> dict[str, Any]:
+    """Build nested dict from ARXIV2MD_BETA_* env vars (same nesting as former pydantic-settings)."""
+    out: dict[str, Any] = {}
+    for key, raw in os.environ.items():
+        if not key.startswith(_ENV_PREFIX):
+            continue
+        rest = key[len(_ENV_PREFIX) :]
+        if rest.startswith("_"):
+            rest = rest[1:]
+        if not rest:
+            continue
+        parts = [p.lower() for p in rest.split("__")]
+        if not parts:
+            continue
+        val = _parse_env_scalar(raw)
+        if val is None:
+            continue
+        _set_nested(out, parts, val)
+    return out
 
 
 def deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
@@ -150,14 +210,17 @@ def load_settings(
     if user_path is not None:
         merged = deep_merge(merged, _read_path(user_path))
 
+    # Env wins over all YAML (init kwargs previously blocked pydantic-settings env)
+    merged = deep_merge(merged, env_overlay_from_os())
+
     try:
-        settings = AppSettings(**merged)
+        settings = AppSettings.model_validate(merged)
     except ValidationError as e:
         raise ConfigurationError(
             f"Invalid configuration: {e}",
             hint=(
                 "Fix keys in your YAML or set env vars, e.g. "
-                "export ARXIV2MD_BETA__HTTP__FETCH_TIMEOUT_S=15"
+                "export ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S=15"
             ),
         ) from e
 

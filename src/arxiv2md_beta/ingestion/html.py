@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
+from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata, fill_arxiv_metadata_defaults
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.images.resolver import process_images
@@ -103,11 +103,13 @@ async def ingest_paper_html(
     
     # Process images if enabled
     image_map: dict[int, Path] | None = None
+    image_stem_map: dict[str, Path] | None = None
     if not no_images:
         try:
             tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
             processed_images = process_images(tex_source_info, paper_output_dir, images_dir_name)
             image_map = processed_images.image_map
+            image_stem_map = processed_images.stem_to_image_path
         except TexSourceNotFoundError:
             # Continue without images if TeX source not available
             pass
@@ -126,6 +128,7 @@ async def ingest_paper_html(
                 parsed.abstract_html,
                 remove_inline_citations=remove_inline_citations,
                 image_map=image_map,
+                image_stem_map=image_stem_map,
                 figure_counter=figure_counter,
                 images_dir=images_dir,
             )
@@ -136,6 +139,7 @@ async def ingest_paper_html(
             parsed.front_matter_html,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )
@@ -146,6 +150,7 @@ async def ingest_paper_html(
             section,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )
@@ -159,12 +164,23 @@ async def ingest_paper_html(
         sections=filtered_sections,
         include_toc=not remove_toc,
         include_abstract_in_tree=parsed.abstract is not None,
+        split_for_reference=True,
     )
 
-    # Save paper metadata to paper.yml
+    # Save paper metadata to paper.yml (merge HTML when Atom API failed, e.g. 429)
     try:
         from arxiv2md_beta.output.metadata import save_paper_metadata
-        save_paper_metadata(api_metadata, paper_output_dir)
+
+        base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
+        paper_meta = dict(api_metadata)
+        if not paper_meta.get("title") and parsed.title:
+            paper_meta["title"] = parsed.title
+        if not paper_meta.get("summary") and parsed.abstract:
+            paper_meta["summary"] = parsed.abstract
+        if not paper_meta.get("authors") and parsed.authors:
+            paper_meta["authors"] = [{"name": a} for a in parsed.authors if a]
+        paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
+        save_paper_metadata(paper_meta, paper_output_dir)
     except Exception as e:
         from loguru import logger
         logger.warning(f"Failed to save paper.yml: {e}")
@@ -185,6 +201,7 @@ def _populate_section_markdown(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
     images_dir: Path | None = None,
 ) -> None:
@@ -196,6 +213,7 @@ def _populate_section_markdown(
             section.html,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )
@@ -204,6 +222,7 @@ def _populate_section_markdown(
             child,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AppSection(BaseModel):
@@ -24,7 +24,10 @@ class HttpSection(BaseModel):
 
 
 class CacheSection(BaseModel):
-    dir: str
+    dir: str = Field(
+        description="Cache root. Absolute paths (e.g. ~/.cache/arxiv2md-beta) are used as-is. "
+        "Relative paths are resolved under $XDG_CACHE_HOME/arxiv2md-beta (or ~/.cache/arxiv2md-beta), never cwd.",
+    )
     ttl_seconds: int
 
     @field_validator("dir")
@@ -108,15 +111,10 @@ class OutputSection(BaseModel):
     tiktoken_encoding: str = "o200k_base"
 
 
-class AppSettings(BaseSettings):
-    """Full application settings (YAML + env overrides)."""
+class AppSettings(BaseModel):
+    """Full application settings (YAML merged with env in loader; env wins over YAML)."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="ARXIV2MD_BETA_",
-        env_nested_delimiter="__",
-        env_ignore_empty=True,
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
 
     app: AppSection
     http: HttpSection
@@ -134,7 +132,13 @@ class AppSettings(BaseSettings):
     output: OutputSection
 
     def resolved_cache_path(self) -> Path:
-        return Path(self.cache.dir).expanduser().resolve()
+        """Resolve cache directory: never anchor relative paths to cwd."""
+        p = Path(self.cache.dir).expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
+        base = Path(xdg).expanduser().resolve() if xdg else (Path.home() / ".cache").resolve()
+        return (base / "arxiv2md-beta" / p).resolve()
 
     def resolved_user_config_dir(self) -> Path:
         return Path(self.paths.user_config_dir).expanduser().resolve()

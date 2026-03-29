@@ -41,6 +41,12 @@ def global_callback(
         "--force-reload",
         help="Reload configuration from disk instead of using cached settings.",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Print DEBUG-level logs (overrides app.log_level for this run).",
+    ),
 ) -> None:
     """Global options (applied before ``convert`` / ``images``)."""
     if ctx.resilient_parsing:
@@ -54,7 +60,10 @@ def global_callback(
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
-    configure_logging(settings=get_settings())
+    configure_logging(
+        settings=get_settings(),
+        level="DEBUG" if verbose else None,
+    )
 
 
 @app.command("convert")
@@ -125,6 +134,16 @@ def convert_cmd(
         "--include-tree",
         help="Include the section tree before the Markdown content.",
     ),
+    no_progress: bool = typer.Option(
+        False,
+        "--no-progress",
+        help="Disable tqdm progress bars (downloads, images); logs still show milestones.",
+    ),
+    emit_result_json: bool = typer.Option(
+        False,
+        "--emit-result-json",
+        help="Print one line ARXIV2MD_RESULT_JSON={...} with paper_output_dir for scripting.",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -144,6 +163,12 @@ def convert_cmd(
         s,
         SimpleNamespace(parser=parser_mode, source=source_v, section_filter_mode=mode),
     )
+    if no_progress:
+        merged = merged.model_copy(
+            update={
+                "images": merged.images.model_copy(update={"disable_tqdm": True}),
+            }
+        )
     set_settings(merged)
 
     sec_list = section if section else None
@@ -161,6 +186,7 @@ def convert_cmd(
         sections=sections,
         section=sec_list,
         include_tree=include_tree,
+        emit_result_json=emit_result_json,
     )
     try:
         run_convert_sync(params)

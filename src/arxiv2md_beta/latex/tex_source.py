@@ -88,8 +88,16 @@ async def fetch_and_extract_tex_source(
     tex_source_path = cache_dir / "tex_source.tar.gz"
     extracted_dir = cache_dir / "tex_extracted"
 
-    # Check cache
-    if use_cache and extracted_dir.exists() and _is_cache_fresh(extracted_dir):
+    # Check cache: use tarball mtime for TTL, not extracted_dir — tar.extractall
+    # restores directory mtimes from the archive, so tex_extracted can look
+    # "days old" immediately after a fresh download and falsely fail TTL.
+    if (
+        use_cache
+        and tex_source_path.exists()
+        and extracted_dir.exists()
+        and _has_tex_files(extracted_dir)
+        and _mtime_within_ttl(tex_source_path)
+    ):
         logger.info(f"Using cached TeX source for {arxiv_id}")
         return _extract_info_from_dir(extracted_dir)
 
@@ -156,10 +164,11 @@ def extract_local_archive(
     else:
         extracted_dir = output_dir
 
-    # Check cache
-    if use_cache and extracted_dir.exists() and _is_cache_fresh(extracted_dir):
-        logger.info(f"Using cached extraction for {archive_path.name}")
-        return _extract_info_from_dir(extracted_dir)
+    # Check cache: use archive file mtime for TTL (same reason as arXiv TeX cache)
+    if use_cache and extracted_dir.exists() and _mtime_within_ttl(archive_path):
+        if _has_tex_files(extracted_dir):
+            logger.info(f"Using cached extraction for {archive_path.name}")
+            return _extract_info_from_dir(extracted_dir)
 
     logger.info(f"Extracting local archive: {archive_path}")
 
@@ -493,15 +502,18 @@ def _resolve_image_path(
     return None
 
 
-def _is_cache_fresh(path: Path) -> bool:
-    """Check if cached directory is fresh."""
+def _has_tex_files(extracted_dir: Path) -> bool:
+    """True if extraction looks complete (at least one .tex file)."""
+    return any(extracted_dir.rglob("*.tex"))
+
+
+def _mtime_within_ttl(path: Path) -> bool:
+    """Whether ``path``'s mtime is within ``cache.ttl_seconds`` (authoritative for downloads)."""
     if not path.exists():
         return False
     ttl = get_settings().cache.ttl_seconds
     if ttl <= 0:
         return True
-
-    # Check modification time of directory
     mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - mtime).total_seconds()
     return age_seconds <= ttl

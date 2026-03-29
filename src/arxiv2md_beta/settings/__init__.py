@@ -1,4 +1,4 @@
-"""Runtime configuration loading (Pydantic + YAML + env)."""
+"""Runtime configuration loading (Pydantic models + YAML + env overlay in loader)."""
 
 from arxiv2md_beta.settings.loader import (
     ConfigurationError,

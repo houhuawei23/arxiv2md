@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import html as html_module
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from arxiv2md_beta.settings import get_settings
 
@@ -112,12 +114,163 @@ def _parse_svg_matrix_translate(transform: str) -> tuple[float, float]:
     return 0.0, 0.0
 
 
+def _collect_figure_images_before_caption(figure: Tag) -> list[Tag]:
+    """Collect ``<img>`` nodes in document order before the caption element (ar5iv multi-panel).
+
+    LaTeXML often emits one outer ``figure`` with nested ``figure.ltx_figure_panel`` per
+    subfigure; all panels share one ``figcaption``. Using only ``figure.find('img')``
+    would take the first raster and skip the rest, and ``figure_counter`` would advance
+    by one per float instead of per ``\\includegraphics``, desynchronizing ``image_map``.
+    """
+    cap = figure.find("figcaption") or figure.find("span", class_=re.compile(r"ltx_caption"))
+    imgs: list[Tag] = []
+    for el in figure.descendants:
+        if cap is not None and el is cap:
+            break
+        if getattr(el, "name", None) == "img":
+            imgs.append(el)
+    if not imgs:
+        imgs = list(figure.find_all("img"))
+    if not imgs:
+        img = figure.find("img")
+        if img is None:
+            prev = figure.find_previous_sibling()
+            if isinstance(prev, Tag):
+                img = prev.find("img")
+        if img is not None:
+            imgs = [img]
+    return imgs
+
+
+def _format_figure_raster_block(raster_paths: list[tuple[str, str]]) -> str:
+    """Format raster paths for Markdown output.
+
+    A single image uses ``![alt](path)``. Two or more are emitted as a centered HTML
+    row so panels sit side-by-side in viewers that allow raw HTML.
+    """
+    if not raster_paths:
+        return ""
+    if len(raster_paths) == 1:
+        p, alt = raster_paths[0]
+        return f"![{alt}]({p})"
+    n = len(raster_paths)
+    if n == 2:
+        width = "45%"
+    elif n == 3:
+        width = "31%"
+    elif n == 4:
+        width = "22%"
+    else:
+        pct = max(14, min(90 // n, 45))
+        width = f"{pct}%"
+    lines = ['<div align="center">']
+    for p, alt in raster_paths:
+        src_esc = html_module.escape(p, quote=True)
+        alt_esc = html_module.escape(alt, quote=True)
+        lines.append(f'  <img src="{src_esc}" width="{width}" alt="{alt_esc}" />')
+    lines.append("</div>")
+    return "\n".join(lines)
+
+
+def _decode_data_plain_href(href: str | None) -> str | None:
+    """Decode ``data:text/plain;...;base64,...`` used by ar5iv for embedded listings."""
+    if not href or not href.startswith("data:"):
+        return None
+    if ";base64," not in href:
+        return None
+    _, b64 = href.split(";base64,", 1)
+    try:
+        return base64.b64decode(b64).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _is_ltx_listing_container(tag: Tag) -> bool:
+    """Outer ``div.ltx_listing`` (not ``ltx_listingline`` rows)."""
+    if tag.name != "div":
+        return False
+    cls = tag.get("class", [])
+    return "ltx_listing" in cls and "ltx_listingline" not in cls
+
+
+def _serialize_listing_line(line: Tag, *, remove_inline_citations: bool = False) -> str:
+    """One ``ltx_listingline`` row: walk children so spans/em/math serialize (not dropped by ``_serialize_children``)."""
+    parts: list[str] = []
+    for child in line.children:
+        if isinstance(child, NavigableString):
+            parts.append(str(child))
+        elif isinstance(child, Tag):
+            parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations))
+    return "".join(parts).rstrip()
+
+
+def _serialize_ltx_listing_div(tag: Tag, *, remove_inline_citations: bool = False) -> str:
+    """``div.ltx_listing``: prefer base64 payload in ``ltx_listing_data``; else join ``ltx_listingline`` rows."""
+    cls = " ".join(tag.get("class", []))
+    data = tag.find("div", class_=re.compile(r"ltx_listing_data"))
+    if data:
+        a = data.find("a", href=re.compile(r"^data:text/plain"))
+        if a and a.get("href"):
+            decoded = _decode_data_plain_href(a["href"])
+            if decoded is not None:
+                lang = "text"
+                m = re.search(r"ltx_lst_language_(\w+)", cls)
+                if m:
+                    lang = m.group(1).lower()
+                return f"```{lang}\n{decoded.rstrip()}\n```"
+    lines_out: list[str] = []
+    for line in tag.find_all("div", class_=re.compile(r"ltx_listingline"), recursive=False):
+        raw = _serialize_listing_line(line, remove_inline_citations=remove_inline_citations)
+        lines_out.append(raw)
+    if lines_out:
+        body = "\n".join(lines_out).rstrip()
+        return f"```text\n{body}\n```"
+    return ""
+
+
+def _resolve_image_by_html_src(
+    src: str | None,
+    stem_map: dict[str, Path] | None,
+) -> Path | None:
+    """Match arXiv HTML ``<img src=...>`` to a processed TeX asset by filename.
+
+    DOM order of figures can differ from ``\\includegraphics`` order in the TeX
+    source; positional ``image_map[index]`` then pairs the wrong file with a
+    caption. Keys in ``stem_map`` are TeX/source stems and output basenames (see
+    :func:`arxiv2md_beta.images.resolver.process_images`).
+    """
+    if not src or not stem_map:
+        return None
+    path = unquote(urlparse(src.strip()).path)
+    if not path:
+        return None
+    basename = Path(path).name
+    stem = Path(basename).stem
+    if stem in stem_map:
+        return stem_map[stem]
+    if basename in stem_map:
+        return stem_map[basename]
+    stem_lower = stem.lower()
+    for k, v in stem_map.items():
+        if k.lower() == stem_lower:
+            return v
+    base_lower = basename.lower()
+    for k, v in stem_map.items():
+        if k.lower() == base_lower:
+            return v
+    for k, v in stem_map.items():
+        if v.name.lower() == base_lower:
+            return v
+    return None
+
+
 def convert_html_to_markdown(
     html: str,
     *,
     remove_refs: bool = False,
     remove_toc: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     images_dir: Path | None = None,
 ) -> str:
     """Convert arXiv HTML into Markdown.
@@ -132,6 +285,8 @@ def convert_html_to_markdown(
         Remove table of contents
     image_map : dict[int, Path] | None
         Mapping from figure index (0-based) to local image path
+    image_stem_map : dict[str, Path] | None
+        TeX/source stem and output basename to processed path (preferred over index)
     """
     soup = BeautifulSoup(html, "html.parser")
     toc_markdown = None
@@ -168,7 +323,14 @@ def convert_html_to_markdown(
         if tag:
             tag.decompose()
 
-    blocks.extend(_serialize_children(root, image_map=image_map, images_dir=images_dir))
+    blocks.extend(
+        _serialize_children(
+            root,
+            image_map=image_map,
+            image_stem_map=image_stem_map,
+            images_dir=images_dir,
+        )
+    )
 
     return "\n\n".join(block for block in blocks if block).strip()
 
@@ -178,6 +340,7 @@ def convert_fragment_to_markdown(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
     images_dir: Path | None = None,
 ) -> str:
@@ -192,6 +355,8 @@ def convert_fragment_to_markdown(
         citation links are converted to plain text (URL stripped).
     image_map : dict[int, Path] | None
         Mapping from figure index (0-based) to local image path
+    image_stem_map : dict[str, Path] | None
+        TeX/source stem and output basename to processed path (preferred over index)
     figure_counter : list[int] | None
         Shared counter for image figures across sections (mutated in place)
     """
@@ -203,6 +368,7 @@ def convert_fragment_to_markdown(
         soup,
         remove_inline_citations=remove_inline_citations,
         image_map=image_map,
+        image_stem_map=image_stem_map,
         figure_counter=figure_counter,
         images_dir=images_dir,
     )
@@ -257,6 +423,7 @@ def _serialize_children(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
@@ -275,6 +442,7 @@ def _serialize_children(
                 child,
                 remove_inline_citations=remove_inline_citations,
                 image_map=image_map,
+                image_stem_map=image_stem_map,
                 figure_counter=figure_counter,
                 images_dir=images_dir,
             )
@@ -287,6 +455,7 @@ def _serialize_block(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
@@ -301,22 +470,27 @@ def _serialize_block(
             and "ltx_table" not in " ".join(tag.get("class", []))
             and "ltx_float_algorithm" not in " ".join(tag.get("class", []))
         ):
-            image_index = figure_counter[0]
             figure = _serialize_figure(
                 tag,
                 remove_inline_citations=remove_inline_citations,
                 image_map=image_map,
-                figure_index=image_index,
+                image_stem_map=image_stem_map,
+                figure_counter=figure_counter,
+                consume_image_slots=True,
                 images_dir=images_dir,
             )
-            figure_counter[0] += 1
             return [figure] if figure else []
+
+    if tag.name == "div" and _is_ltx_listing_container(tag):
+        md = _serialize_ltx_listing_div(tag, remove_inline_citations=remove_inline_citations)
+        return [md] if md else []
 
     if tag.name in {"section", "article", "div", "span"}:
         return _serialize_children(
             tag,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )
@@ -333,6 +507,7 @@ def _serialize_block(
             tag,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
+            image_stem_map=image_stem_map,
             figure_counter=figure_counter,
             images_dir=images_dir,
         )
@@ -348,21 +523,22 @@ def _serialize_block(
             prev = tag.find_previous_sibling()
             if isinstance(prev, Tag):
                 img = prev.find("img")
+        fc = " ".join(tag.get("class", []))
         is_image_figure = (
             img is not None
-            and "ltx_table" not in " ".join(tag.get("class", []))
-            and "ltx_float_algorithm" not in " ".join(tag.get("class", []))
+            and "ltx_table" not in fc
+            and "ltx_float_algorithm" not in fc
+            and "ltx_algorithm" not in fc
         )
-        image_index = figure_counter[0] if is_image_figure else -1  # -1 = don't use image_map
         figure = _serialize_figure(
             tag,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
-            figure_index=image_index,
+            image_stem_map=image_stem_map,
+            figure_counter=figure_counter,
+            consume_image_slots=is_image_figure,
             images_dir=images_dir,
         )
-        if is_image_figure:
-            figure_counter[0] += 1
         return [figure] if figure else []
 
     if tag.name == "table":
@@ -382,6 +558,7 @@ def _serialize_block(
         tag,
         remove_inline_citations=remove_inline_citations,
         image_map=image_map,
+        image_stem_map=image_stem_map,
         figure_counter=figure_counter,
         images_dir=images_dir,
     )
@@ -414,6 +591,7 @@ def _serialize_paragraph_maybe_with_figures(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
@@ -446,17 +624,17 @@ def _serialize_paragraph_maybe_with_figures(
                         blocks.append(para)
                     current_text_parts = []
                 # Serialize figure
-                image_index = figure_counter[0]
                 fig_md = _serialize_figure(
                     child,
                     remove_inline_citations=remove_inline_citations,
                     image_map=image_map,
-                    figure_index=image_index,
+                    image_stem_map=image_stem_map,
+                    figure_counter=figure_counter,
+                    consume_image_slots=True,
                     images_dir=images_dir,
                 )
                 if fig_md:
                     blocks.append(fig_md)
-                figure_counter[0] += 1
             else:
                 current_text_parts.append(child)
     if current_text_parts:
@@ -580,8 +758,9 @@ def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = Fals
 
 
 def _cleanup_inline_text(text: str) -> str:
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\s*\n\s*", "\n", text)
+    # Collapse multiple whitespace (including newlines) to single space
+    # This fixes unwanted line breaks within paragraphs
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
@@ -608,6 +787,72 @@ def _serialize_toc(toc_nav: Tag) -> str:
     if not list_tag:
         return ""
     lines = _serialize_list(list_tag)
+    return "\n".join(lines)
+
+
+def _is_ltx_tabular_row(tag: Tag) -> bool:
+    return bool(tag.get("class")) and "ltx_tr" in " ".join(tag.get("class", []))
+
+
+def _is_ltx_tabular_cell(tag: Tag) -> bool:
+    cc = " ".join(tag.get("class", []))
+    return "ltx_td" in cc or "ltx_th" in cc
+
+
+def _rows_from_ltx_span_tabular(
+    tabular: Tag,
+    *,
+    remove_inline_citations: bool = False,
+) -> list[list[str]]:
+    """Extract grid rows from ar5iv/LaTeXML ``span.ltx_tabular`` (not real HTML tables)."""
+    rows: list[list[str]] = []
+
+    def append_row(row: Tag) -> None:
+        vals: list[str] = []
+        for cell in row.children:
+            if not isinstance(cell, Tag) or not _is_ltx_tabular_cell(cell):
+                continue
+            cell_text = _cleanup_inline_text(
+                _serialize_inline(cell, remove_inline_citations=remove_inline_citations)
+            ).replace("\n", "<br>")
+            vals.append(cell_text)
+        if vals:
+            rows.append(vals)
+
+    # Rows directly under ltx_tabular (uncommon)
+    for child in tabular.children:
+        if isinstance(child, Tag) and _is_ltx_tabular_row(child):
+            append_row(child)
+    if rows:
+        return rows
+
+    # thead / tbody / tfoot with ltx_tr rows (typical ar5iv output)
+    for child in tabular.children:
+        if not isinstance(child, Tag):
+            continue
+        cc = " ".join(child.get("class", []))
+        if not re.search(r"\bltx_t(head|body|foot)\b", cc):
+            continue
+        for row in child.children:
+            if isinstance(row, Tag) and _is_ltx_tabular_row(row):
+                append_row(row)
+
+    return rows
+
+
+def _pipe_table_from_rows(rows: list[list[str]]) -> str:
+    """Build GitHub-flavored markdown pipe table from cell rows."""
+    if not rows:
+        return ""
+    max_cols = max(len(row) for row in rows)
+    normalized = [row + [""] * (max_cols - len(row)) for row in rows]
+    header = normalized[0]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    for row in normalized[1:]:
+        lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
 
@@ -668,21 +913,32 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
             for cell in cells:
                 cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations)).replace("\n", "<br>")
                 values.append(cell_text)
-            rows.append(values)
+                rows.append(values)
 
-    if not rows:
-        return ""
+    return _pipe_table_from_rows(rows)
 
-    max_cols = max(len(row) for row in rows)
-    normalized = [row + [""] * (max_cols - len(row)) for row in rows]
-    header = normalized[0]
-    lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join("---" for _ in header) + " |",
-    ]
-    for row in normalized[1:]:
-        lines.append("| " + " | ".join(row) + " |")
-    return "\n".join(lines)
+
+def _find_tabular_in_figure(figure: Tag) -> Tag | None:
+    """Locate tabular content: HTML ``<table>`` or ar5iv ``span``/``div.ltx_tabular``."""
+    t = figure.find("table")
+    if t is not None:
+        return t
+    for name in ("span", "div"):
+        el = figure.find(name, class_=re.compile(r"(^|\s)ltx_tabular(\s|$)"))
+        if el is not None:
+            return el
+    return None
+
+
+def _serialize_tabular_node(tag: Tag, *, remove_inline_citations: bool = False) -> str:
+    """Serialize either a real ``<table>`` or an ar5iv ``span``/``div.ltx_tabular`` grid."""
+    if tag.name == "table":
+        return _serialize_table(tag, remove_inline_citations=remove_inline_citations)
+    classes = " ".join(tag.get("class", []))
+    if "ltx_tabular" in classes and tag.name in ("span", "div"):
+        rows = _rows_from_ltx_span_tabular(tag, remove_inline_citations=remove_inline_citations)
+        return _pipe_table_from_rows(rows)
+    return ""
 
 
 def _serialize_figure(
@@ -690,10 +946,12 @@ def _serialize_figure(
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
-    figure_index: int = 0,
+    image_stem_map: dict[str, Path] | None = None,
+    figure_counter: list[int] | None = None,
+    consume_image_slots: bool = True,
     images_dir: Path | None = None,
 ) -> str:
-    """Serialize figure with image map support.
+    """Serialize figure with image map support (multi-panel: multiple ``<img>`` per float).
 
     Parameters
     ----------
@@ -702,155 +960,154 @@ def _serialize_figure(
     remove_inline_citations : bool
         Remove inline citations
     image_map : dict[int, Path] | None
-        Mapping from figure index to local image path
-    figure_index : int
-        Current figure index (0-based). A negative value means the
-        figure should not consume an entry from ``image_map`` (used
-        for non-image figures such as algorithm floats or inline SVGs).
+        Mapping from TeX raster index (0-based) to local image path
+    image_stem_map : dict[str, Path] | None
+        If set, ``<img src>`` basename is matched to TeX assets before using ``image_map``.
+    figure_counter : list[int] | None
+        Mutable shared counter for the next ``image_map`` index (one slot per emitted raster
+        when ``consume_image_slots`` is True).
+    consume_image_slots : bool
+        If False, do not advance ``figure_counter`` (e.g. algorithm floats, or non-image figures).
     """
-    # Check figure type
+    if figure_counter is None:
+        figure_counter = [0]
+
     figure_classes = " ".join(figure.get("class", []))
     is_table_figure = "ltx_table" in figure_classes
-    is_algorithm_figure = "ltx_float_algorithm" in figure_classes
+    is_algorithm_figure = "ltx_float_algorithm" in figure_classes or "ltx_algorithm" in figure_classes
 
     caption_tag = figure.find("figcaption") or figure.find("span", class_=re.compile(r"ltx_caption"))
     caption = _normalize_text(_serialize_inline(caption_tag, remove_inline_citations=remove_inline_citations)) if caption_tag else ""
 
-    lines = []
+    lines: list[str] = []
 
     if is_table_figure:
-        # Handle table figures - find and serialize the embedded table
-        # Note: fix_tabular_tables strips attributes, so search for any table element
-        table = figure.find("table")
-        if table:
-            table_md = _serialize_table(table, remove_inline_citations=remove_inline_citations)
-            # Add anchor for internal links (e.g. Table 1: ... -> #table-1)
+        tabular = _find_tabular_in_figure(figure)
+        if tabular:
+            table_md = _serialize_tabular_node(tabular, remove_inline_citations=remove_inline_citations)
             m = re.match(r"Table\s+(\d+)\s*[:.]", caption, re.I)
             if m:
                 lines.append(f'<a id="table-{m.group(1)}"></a>')
-                lines.append("")  # Newline after tag to separate from content
+                lines.append("")
             if caption:
-                lines.append(f"> {caption}")  # Blockquote for table caption
-                lines.append("")  # Newline after caption before table
+                lines.append(f"> {caption}")
+                lines.append("")
             if table_md:
                 lines.append(table_md)
         elif caption:
-            # Fallback if no table found but has caption
             lines.append(f"> Table: {caption}")
-    else:
-        # Handle regular image figures (including inline SVG) and algorithms
-        img = figure.find("img")
-        if img is None:
-            prev = figure.find_previous_sibling()
-            if isinstance(prev, Tag):
-                img = prev.find("img")
-        src = img.get("src") if img else None
-        alt = img.get("alt") if img else None
-        svg_tag = figure.find("svg")
-        if svg_tag is not None:
-            # 确保导出的 SVG 作为独立文件时是合法的 SVG 文档
-            if not svg_tag.get("xmlns"):
-                svg_tag["xmlns"] = "http://www.w3.org/2000/svg"
-            # ar5iv/HTML 中常用小写 viewbox，标准 SVG 需要 viewBox
-            if "viewbox" in svg_tag.attrs and "viewBox" not in svg_tag.attrs:
-                svg_tag["viewBox"] = svg_tag["viewbox"]
-            svg_html = str(svg_tag)
-        else:
-            svg_html = ""
+        return "\n".join(lines).strip()
 
-        # Try to use image_map if available (figure_index >= 0 for image figures only)
-        if image_map and figure_index >= 0 and figure_index in image_map:
-            image_path = image_map[figure_index]
-            # Use relative path for markdown
+    if is_algorithm_figure:
+        m = re.match(r"Algorithm\s+(\d+)\s*[:.\s]", caption, re.I)
+        if m:
+            lines.append(f'<a id="algorithm-{m.group(1)}"></a>')
+            lines.append("")
+        if caption:
+            lines.append(f"**{caption}**")
+        for listing in figure.find_all(
+            "div",
+            class_=lambda c: bool(c) and "ltx_listing" in c and "ltx_listingline" not in c,
+        ):
+            block = _serialize_ltx_listing_div(listing, remove_inline_citations=remove_inline_citations)
+            if block:
+                lines.append(block)
+                lines.append("")
+        return "\n".join(lines).strip()
+
+    imgs = _collect_figure_images_before_caption(figure)
+    svg_tag = figure.find("svg")
+    svg_html = ""
+    if svg_tag is not None:
+        if not svg_tag.get("xmlns"):
+            svg_tag["xmlns"] = "http://www.w3.org/2000/svg"
+        if "viewbox" in svg_tag.attrs and "viewBox" not in svg_tag.attrs:
+            svg_tag["viewBox"] = svg_tag["viewbox"]
+        svg_html = str(svg_tag)
+
+    raster_paths: list[tuple[str, str]] = []
+    for img in imgs:
+        src = img.get("src")
+        image_path: Path | None = None
+        if image_stem_map is not None:
+            image_path = _resolve_image_by_html_src(src, image_stem_map)
+        if image_path is None and image_map is not None and consume_image_slots:
+            idx = figure_counter[0]
+            if idx in image_map:
+                image_path = image_map[idx]
+        if image_path is not None:
             image_path_str = str(image_path)
-            # Add anchor for internal links (e.g. Figure 1: ... -> #figure-1)
-            m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
-            if m:
-                lines.append(f'<a id="figure-{m.group(1)}"></a>')
-                lines.append("")  # Newline after tag to separate from content
-            # Alt text: filename stem (e.g. fig1_v4); caption goes in blockquote below
             alt_text = Path(image_path_str).stem
-            lines.append(f"![{alt_text}]({image_path_str})")
-            lines.append("")  # Newline after image before caption
+            raster_paths.append((image_path_str, alt_text))
+            if consume_image_slots:
+                figure_counter[0] += 1
+
+    if raster_paths:
+        m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
+        if m:
+            lines.append(f'<a id="figure-{m.group(1)}"></a>')
+            lines.append("")
+        block = _format_figure_raster_block(raster_paths)
+        if block:
+            lines.append(block)
+            lines.append("")
+        if caption:
+            lines.append(f"> {caption}")
+        return "\n".join(lines).strip()
+
+    if svg_html and images_dir is not None:
+        m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
+        figure_num = m.group(1) if m else None
+        if figure_num:
+            base_name = f"figure_{figure_num}"
+        else:
+            base_name = figure.get("id") or (svg_tag.get("id") if svg_tag and svg_tag.get("id") else "svg_figure")
+        base_name = re.sub(r"[^A-Za-z0-9_.-]", "_", str(base_name))
+        filename = base_name if base_name.lower().endswith(".svg") else f"{base_name}.svg"
+        svg_path = images_dir / filename
+        dup = 1
+        while svg_path.exists():
+            filename = f"{base_name}_{dup}.svg"
+            svg_path = images_dir / filename
+            dup += 1
+        try:
+            svg_content = _svg_replace_foreignobject_with_text(svg_html)
+            if not svg_content.lstrip().startswith("<?xml"):
+                svg_content = '<?xml version="1.0" encoding="UTF-8"?>\n' + svg_content
+            svg_path.write_text(svg_content, encoding="utf-8")
+        except Exception:
+            if figure_num:
+                lines.append(f'<a id="figure-{figure_num}"></a>')
+                lines.append("")
+            lines.append(svg_html.strip())
             if caption:
                 lines.append(f"> {caption}")
-        elif svg_html and images_dir is not None:
-            # Inline SVG figure (no external image file). Save the SVG to the images
-            # directory and reference it from Markdown.
-            m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
-            figure_num = m.group(1) if m else None
-            base_name = None
+        else:
             if figure_num:
-                base_name = f"figure_{figure_num}"
-            else:
-                base_name = figure.get("id") or (svg_tag.get("id") if svg_tag and svg_tag.get("id") else "svg_figure")
-            # Sanitize filename
-            base_name = re.sub(r"[^A-Za-z0-9_.-]", "_", base_name)
-            filename = base_name if base_name.lower().endswith(".svg") else f"{base_name}.svg"
-            svg_path = images_dir / filename
-            counter = 1
-            while svg_path.exists():
-                filename = f"{base_name}_{counter}.svg"
-                svg_path = images_dir / filename
-                counter += 1
-            try:
-                # 将 foreignObject（内嵌 HTML 文字）转为 SVG <text>，否则作为图片加载时文字不显示
-                svg_content = _svg_replace_foreignobject_with_text(svg_html)
-                # 为独立 SVG 文件添加 XML 声明，提升兼容性
-                if not svg_content.lstrip().startswith("<?xml"):
-                    svg_content = '<?xml version="1.0" encoding="UTF-8"?>\n' + svg_content
-                svg_path.write_text(svg_content, encoding="utf-8")
-            except Exception:
-                # If writing fails, fall back to inlining the SVG
-                if figure_num:
-                    lines.append(f'<a id="figure-{figure_num}"></a>')
-                    lines.append("")  # Newline after tag to separate from content
-                lines.append(svg_html.strip())
-                if caption:
-                    lines.append(f"> {caption}")
-            else:
-                # Add anchor for internal links (e.g. Figure 1: ... -> #figure-1)
-                if figure_num:
-                    lines.append(f'<a id="figure-{figure_num}"></a>')
-                    lines.append("")  # Newline after tag to separate from content
-                rel_path = Path(images_dir.name) / filename
-                alt_text = Path(filename).stem
-                lines.append(f"![{alt_text}]({rel_path.as_posix()})")
-                lines.append("")  # Newline after image before caption
-                if caption:
-                    lines.append(f"> {caption}")
-        elif is_algorithm_figure:
-            # Algorithm figure: add anchor and serialize as markdown list
-            # Structure: ltx_listing contains ltx_listingline divs (one per algorithm line)
-            m = re.match(r"Algorithm\s+(\d+)\s*[:.\s]", caption, re.I)
-            if m:
-                lines.append(f'<a id="algorithm-{m.group(1)}"></a>')
-                lines.append("")  # Newline after tag to separate from content
+                lines.append(f'<a id="figure-{figure_num}"></a>')
+                lines.append("")
+            rel_path = Path(images_dir.name) / filename
+            alt_text = Path(filename).stem
+            lines.append(f"![{alt_text}]({rel_path.as_posix()})")
+            lines.append("")
             if caption:
-                lines.append(f"**{caption}**")
-            # Find listing container(s) and extract each line as list item
-            for listing in figure.find_all("div", class_=re.compile(r"ltx_algorithm|ltx_listing")):
-                # Skip if this is a nested listing (e.g. inside another)
-                if listing.find_parent("div", class_=re.compile(r"ltx_algorithm|ltx_listing")):
-                    continue
-                line_divs = listing.find_all("div", class_=re.compile(r"ltx_listingline"))
-                if line_divs:
-                    # Each ltx_listingline -> markdown list item (- line_content)
-                    for line_div in line_divs:
-                        line_text = _normalize_text(line_div.get_text(" ", strip=True))
-                        if line_text:
-                            lines.append(f"- {line_text}")
-                else:
-                    # Fallback: single block as code
-                    block_text = _normalize_text(listing.get_text(" ", strip=True))
-                    if block_text:
-                        lines.append(f"```\n{block_text}\n```")
-        elif src:
-            # Fallback to original behavior
-            if caption:
-                lines.append(f"Figure: {caption}")
-            image_label = alt or "Image"
-            lines.append(f"{image_label}: {src}")
+                lines.append(f"> {caption}")
+        if consume_image_slots:
+            figure_counter[0] += 1
+        return "\n".join(lines).strip()
+
+    img0 = imgs[0] if imgs else None
+    if img0 is None:
+        prev = figure.find_previous_sibling()
+        if isinstance(prev, Tag):
+            img0 = prev.find("img")
+    src = img0.get("src") if img0 else None
+    alt = img0.get("alt") if img0 else None
+    if src:
+        if caption:
+            lines.append(f"Figure: {caption}")
+        image_label = alt or "Image"
+        lines.append(f"{image_label}: {src}")
 
     return "\n".join(lines).strip()
 

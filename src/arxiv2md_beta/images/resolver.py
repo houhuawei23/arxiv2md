@@ -58,6 +58,8 @@ class ProcessedImages(NamedTuple):
     image_map: dict[int, Path]  # figure_index -> relative_path
     images_dir: Path  # Directory containing processed images
     filename_map: dict[int, str]  # figure_index -> original_filename (for reference)
+    # TeX source stem / output basename -> relative path (for HTML <img src> matching)
+    stem_to_image_path: dict[str, Path]
 
 
 def process_images(
@@ -92,7 +94,9 @@ def process_images(
 
     if not image_files:
         logger.warning("No images found in TeX source")
-        return ProcessedImages(image_map={}, images_dir=images_dir, filename_map={})
+        return ProcessedImages(
+            image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={}
+        )
 
     logger.info(f"Processing {len(image_files)} images...")
 
@@ -101,6 +105,7 @@ def process_images(
 
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
+    stem_to_image_path: dict[str, Path] = {}
     iterator = tqdm(image_files, desc="Processing images", disable=disable_tqdm)
     for idx, source_image_path in enumerate(iterator):
         try:
@@ -114,11 +119,19 @@ def process_images(
             )
             image_map[idx] = relative_path
             filename_map[idx] = original_filename
+            # HTML figure order often differs from \includegraphics order; match by name.
+            stem_to_image_path[original_filename] = relative_path
+            stem_to_image_path[relative_path.name] = relative_path
         except Exception as e:
             logger.error(f"Failed to process image {source_image_path}: {e}")
             # Continue with other images
 
-    return ProcessedImages(image_map=image_map, images_dir=images_dir, filename_map=filename_map)
+    return ProcessedImages(
+        image_map=image_map,
+        images_dir=images_dir,
+        filename_map=filename_map,
+        stem_to_image_path=stem_to_image_path,
+    )
 
 
 def _process_single_image(
@@ -181,7 +194,7 @@ def _process_single_image(
                 if trim_whitespace:
                     pil_img = _trim_whitespace(pil_img, tolerance=trim_tolerance)
                 pil_img.save(output_path, "PNG")
-                logger.debug(f"Converted PDF {source_path.name} to {output_filename}")
+                logger.debug(f"Converted PDF to PNG: {source_path} -> {output_path}")
             else:
                 raise ImageProcessingError(f"Failed to extract image from PDF: {source_path}")
         except Exception as e:
@@ -192,7 +205,8 @@ def _process_single_image(
         output_filename = source_path.name
         output_path = output_dir / output_filename
         shutil.copy2(source_path, output_path)
-        logger.debug(f"Copied image {source_path.name} to {output_filename}")
+        # Basename matches by design; paths differ (TeX tree -> paper images/)
+        logger.debug(f"Copied raster to output dir: {source_path} -> {output_path}")
 
     elif suffix in {".eps", ".ps"}:
         # Convert EPS/PS to PNG, keep original filename
@@ -207,13 +221,14 @@ def _process_single_image(
             if trim_whitespace:
                 img = _trim_whitespace(img, tolerance=trim_tolerance)
             img.save(output_path, "PNG")
-            logger.debug(f"Converted {suffix} {source_path.name} to {output_filename}")
+            logger.debug(f"Converted {suffix} to PNG: {source_path} -> {output_path}")
         except Exception as e:
             logger.warning(f"Failed to convert {suffix} {source_path}, copying as-is: {e}")
             # Fallback: copy as-is
             output_filename = source_path.name
             output_path = output_dir / output_filename
             shutil.copy2(source_path, output_path)
+            logger.debug(f"Copied {suffix} as-is (fallback): {source_path} -> {output_path}")
 
     else:
         # Unknown format, copy as-is
@@ -221,6 +236,7 @@ def _process_single_image(
         output_filename = source_path.name
         output_path = output_dir / output_filename
         shutil.copy2(source_path, output_path)
+        logger.debug(f"Copied unknown format as-is: {source_path} -> {output_path}")
 
     # Return relative path from output_dir's parent and original filename
     return Path(output_dir.name) / output_filename, original_filename
