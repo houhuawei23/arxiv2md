@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,15 +32,25 @@ def _write_split_markdown_sidecars(
     result: IngestionResult,
 ) -> None:
     """Write ``-References.md`` and ``-Appendix.md`` when HTML ingestion produced a split."""
-    if result.content_references is None:
+    has_ref = bool(result.content_references and result.content_references.strip())
+    has_app = bool(result.content_appendix and result.content_appendix.strip())
+    if not has_ref and not has_app:
         return
     stem = Path(output_filename).stem
     ref_path = paper_output_dir / f"{stem}-References.md"
     app_path = paper_output_dir / f"{stem}-Appendix.md"
-    ref_path.write_text(result.content_references, encoding="utf-8")
-    app_path.write_text(result.content_appendix or "", encoding="utf-8")
-    logger.info(f"References written to: {ref_path}")
-    logger.info(f"Appendix written to: {app_path}")
+    if has_ref:
+        ref_path.write_text(result.content_references or "", encoding="utf-8")
+        logger.info(f"References written to: {ref_path}")
+    elif ref_path.exists():
+        ref_path.unlink()
+        logger.info(f"References removed (empty split): {ref_path}")
+    if has_app:
+        app_path.write_text(result.content_appendix or "", encoding="utf-8")
+        logger.info(f"Appendix written to: {app_path}")
+    elif app_path.exists():
+        app_path.unlink()
+        logger.info(f"Appendix removed (empty split): {app_path}")
 
 
 @dataclass(frozen=True)
@@ -71,8 +80,7 @@ def _emit_result_json_line(paper_output_dir: Path, *, params: ConvertParams) -> 
     payload = {"paper_output_dir": str(paper_output_dir.resolve())}
     line = f"ARXIV2MD_RESULT_JSON={json.dumps(payload, ensure_ascii=False)}"
     print(line, flush=True)
-    # 与 stdout 相同一行写入 stderr，便于父进程只捕获 stderr（如 tqdm 占 stdout）时仍能解析
-    print(line, file=sys.stderr, flush=True)
+    # 不再重复写 stderr：父进程若合并 stdout+stderr 会得到重复行；侧车 JSON 已作唯一真源
 
 
 def _result_json_filename_key(arxiv_id: str) -> str:

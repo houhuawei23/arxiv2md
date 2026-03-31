@@ -11,6 +11,7 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 
 async def fetch_arxiv_html(
@@ -152,22 +153,18 @@ async def fetch_arxiv_pdf(
 
                         cache_dir.mkdir(parents=True, exist_ok=True)
 
-                        from tqdm import tqdm
-
                         disable_tqdm = s.images.disable_tqdm
 
                         total_size = int(response.headers.get("content-length", 0))
-                        with open(cache_path, "wb") as f:
-                            with tqdm(
-                                total=total_size,
-                                unit="B",
-                                unit_scale=True,
-                                desc="Downloading PDF",
-                                disable=disable_tqdm,
-                            ) as pbar:
+                        async with async_byte_download_progress(
+                            "Downloading PDF",
+                            total_size if total_size > 0 else None,
+                            disable=disable_tqdm,
+                        ) as advance:
+                            with open(cache_path, "wb") as f:
                                 async for chunk in response.aiter_bytes():
                                     f.write(chunk)
-                                    pbar.update(len(chunk))
+                                    advance(len(chunk))
 
                         output_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(cache_path, output_path)

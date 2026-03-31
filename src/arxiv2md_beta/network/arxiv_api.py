@@ -98,31 +98,37 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
             async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
                 response = await client.get(api_url)
 
-            if response.status_code not in retry_status:
-                response.raise_for_status()
-                arxiv_metadata = _parse_api_response(response.text)
+            # Check if status needs retry (429, 5xx)
+            if response.status_code in retry_status:
+                response.raise_for_status()  # Triggers retry via except block
 
-                # Try to enrich with Crossref API if DOI is available
-                doi = arxiv_metadata.get("doi")
-                if doi:
-                    try:
-                        from arxiv2md_beta.network.crossref_api import (
-                            fetch_crossref_metadata,
-                            is_arxiv_doi,
-                        )
+            # Success path - raise for 4xx errors that shouldn't be retried
+            response.raise_for_status()
 
-                        # Skip arXiv DOIs
-                        if not is_arxiv_doi(doi):
-                            crossref_metadata = await fetch_crossref_metadata(doi)
-                            if crossref_metadata:
-                                # Merge metadata: arXiv as base, Crossref as supplement
-                                merged = _merge_metadata(arxiv_metadata, crossref_metadata)
-                                return fill_arxiv_metadata_defaults(merged, base_id)
-                    except Exception as e:
-                        # Crossref failure should not break the flow
-                        logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
+            # Parse successful response
+            arxiv_metadata = _parse_api_response(response.text)
 
-                return fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
+            # Try to enrich with Crossref API if DOI is available
+            doi = arxiv_metadata.get("doi")
+            if doi:
+                try:
+                    from arxiv2md_beta.network.crossref_api import (
+                        fetch_crossref_metadata,
+                        is_arxiv_doi,
+                    )
+
+                    # Skip arXiv DOIs
+                    if not is_arxiv_doi(doi):
+                        crossref_metadata = await fetch_crossref_metadata(doi)
+                        if crossref_metadata:
+                            # Merge metadata: arXiv as base, Crossref as supplement
+                            merged = _merge_metadata(arxiv_metadata, crossref_metadata)
+                            return fill_arxiv_metadata_defaults(merged, base_id)
+                except Exception as e:
+                    # Crossref failure should not break the flow
+                    logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
+
+            return fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
         except (httpx.RequestError, httpx.HTTPStatusError):
             pass
 

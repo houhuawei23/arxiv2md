@@ -137,7 +137,7 @@ def convert_cmd(
     no_progress: bool = typer.Option(
         False,
         "--no-progress",
-        help="Disable tqdm progress bars (downloads, images); logs still show milestones.",
+        help="Disable Rich progress bars (downloads, images); logs still show milestones.",
     ),
     emit_result_json: bool = typer.Option(
         False,

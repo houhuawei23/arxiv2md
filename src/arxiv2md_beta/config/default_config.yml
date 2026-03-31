@@ -6,8 +6,8 @@ app:
 
 http:
   fetch_timeout_s: 10.0
-  fetch_max_retries: 2
-  fetch_backoff_s: 0.5
+  fetch_max_retries: 3
+  fetch_backoff_s: 3.0
   user_agent: "arxiv2md-beta/0.1 (+https://github.com/arxiv2md-beta)"
   retry_status_codes: [429, 500, 502, 503, 504]
   large_transfer_timeout_multiplier: 5.0
@@ -23,8 +23,8 @@ paths:
 urls:
   arxiv_host: "arxiv.org"
   ar5iv_html_base: "https://ar5iv.labs.arxiv.org/html"
-  # Use http: export.arxiv.org HTTPS may not match hostname on some systems (MITM/proxy).
-  arxiv_api_query_template: "http://export.arxiv.org/api/query?id_list={base_id}"
+  # Use HTTPS for export.arxiv.org (avoids 301 redirect)
+  arxiv_api_query_template: "https://export.arxiv.org/api/query?id_list={base_id}"
   arxiv_pdf_template: "https://arxiv.org/pdf/{base_id}.pdf"
   arxiv_src_template: "https://arxiv.org/src/{arxiv_id}"
   crossref_works_template: "https://api.crossref.org/works/{doi}"

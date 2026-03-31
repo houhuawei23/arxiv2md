@@ -9,9 +9,9 @@ from typing import NamedTuple
 from loguru import logger
 from pdf2image import convert_from_path
 from PIL import Image, ImageChops
-from tqdm import tqdm
 
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.progress import iterable_task_progress
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
 
 
@@ -106,25 +106,30 @@ def process_images(
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
     stem_to_image_path: dict[str, Path] = {}
-    iterator = tqdm(image_files, desc="Processing images", disable=disable_tqdm)
-    for idx, source_image_path in enumerate(iterator):
-        try:
-            relative_path, original_filename = _process_single_image(
-                source_image_path,
-                images_dir,
-                idx,
-                dpi=img_cfg.pdf_to_png_dpi,
-                trim_whitespace=img_cfg.trim_whitespace,
-                trim_tolerance=img_cfg.trim_whitespace_tolerance,
-            )
-            image_map[idx] = relative_path
-            filename_map[idx] = original_filename
-            # HTML figure order often differs from \includegraphics order; match by name.
-            stem_to_image_path[original_filename] = relative_path
-            stem_to_image_path[relative_path.name] = relative_path
-        except Exception as e:
-            logger.error(f"Failed to process image {source_image_path}: {e}")
-            # Continue with other images
+    with iterable_task_progress(
+        "Processing images",
+        len(image_files),
+        disable=disable_tqdm,
+    ) as advance:
+        for idx, source_image_path in enumerate(image_files):
+            try:
+                relative_path, original_filename = _process_single_image(
+                    source_image_path,
+                    images_dir,
+                    idx,
+                    dpi=img_cfg.pdf_to_png_dpi,
+                    trim_whitespace=img_cfg.trim_whitespace,
+                    trim_tolerance=img_cfg.trim_whitespace_tolerance,
+                )
+                image_map[idx] = relative_path
+                filename_map[idx] = original_filename
+                # HTML figure order often differs from \includegraphics order; match by name.
+                stem_to_image_path[original_filename] = relative_path
+                stem_to_image_path[relative_path.name] = relative_path
+            except Exception as e:
+                logger.error(f"Failed to process image {source_image_path}: {e}")
+                # Continue with other images
+            advance()
 
     return ProcessedImages(
         image_map=image_map,

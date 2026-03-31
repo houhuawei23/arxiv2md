@@ -51,9 +51,9 @@ def format_paper(
         content = _render_content(abstract=abstract, sections=main_sections, include_toc=include_toc)
         content = _format_markdown_output(content)
         ref_raw = _render_content(abstract=None, sections=ref_sections, include_toc=False)
-        content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else ""
+        content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else None
         app_raw = _render_content(abstract=None, sections=appendix_sections, include_toc=False)
-        content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else ""
+        content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else None
     else:
         content = _render_content(abstract=abstract, sections=sections, include_toc=include_toc)
         content = _format_markdown_output(content)

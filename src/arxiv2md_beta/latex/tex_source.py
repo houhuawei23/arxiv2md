@@ -14,9 +14,9 @@ from typing import NamedTuple
 
 import httpx
 from loguru import logger
-from tqdm import tqdm
 
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 
 class TexSourceInfo(NamedTuple):
@@ -302,17 +302,15 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                         output_path.parent.mkdir(parents=True, exist_ok=True)
                         disable_tqdm = s.images.disable_tqdm
 
-                        with open(output_path, "wb") as f:
-                            with tqdm(
-                                total=total_size,
-                                unit="B",
-                                unit_scale=True,
-                                desc="Downloading TeX source",
-                                disable=disable_tqdm,
-                            ) as pbar:
+                        async with async_byte_download_progress(
+                            "Downloading TeX source",
+                            total_size if total_size > 0 else None,
+                            disable=disable_tqdm,
+                        ) as advance:
+                            with open(output_path, "wb") as f:
                                 async for chunk in response.aiter_bytes():
                                     f.write(chunk)
-                                    pbar.update(len(chunk))
+                                    advance(len(chunk))
 
                         return
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:

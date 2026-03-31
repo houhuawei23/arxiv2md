@@ -11,7 +11,9 @@ from arxiv2md_beta.schemas import SectionNode
 def normalize_section_title(title: str) -> str:
     """Normalize section titles for comparison."""
     title = title.strip().lower()
-    title = re.sub(r"^[\dA-Za-z.\-]+\s+", "", title)
+    # Strip numeric/alphanumeric index prefixes (e.g., "1 ", "4.2 ", "A.1 ", "A ")
+    # but keep semantic words like "Appendix" / "References".
+    title = re.sub(r"^(?:\d+(?:\.\d+)*|[a-z]\.\d+|[a-z])\s+", "", title)
     return re.sub(r"\s+", " ", title)
 
 
@@ -66,8 +68,25 @@ def split_sections_at_reference(
     if not ref_set:
         return list(sections), [], []
 
+    def _is_appendix_title(title: str) -> bool:
+        n = normalize_section_title(title)
+        return n.startswith("appendix ")
+
+    first_ref_idx: int | None = None
+    first_app_idx: int | None = None
     for i, sec in enumerate(sections):
-        if normalize_section_title(sec.title) in ref_set:
-            return sections[:i], [sections[i]], sections[i + 1 :]
+        n = normalize_section_title(sec.title)
+        if first_ref_idx is None and n in ref_set:
+            first_ref_idx = i
+        if first_app_idx is None and _is_appendix_title(sec.title):
+            first_app_idx = i
+
+    # Preferred split: references block starts first matched reference section.
+    if first_ref_idx is not None:
+        return sections[:first_ref_idx], [sections[first_ref_idx]], sections[first_ref_idx + 1 :]
+
+    # Fallback split: no references heading, but appendix exists.
+    if first_app_idx is not None:
+        return sections[:first_app_idx], [], sections[first_app_idx:]
 
     return list(sections), [], []
