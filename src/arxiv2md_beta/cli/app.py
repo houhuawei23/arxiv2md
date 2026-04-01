@@ -9,7 +9,14 @@ from typing import Optional
 
 import typer
 
-from arxiv2md_beta.cli.runner import ConvertParams, ImagesParams, run_convert_sync, run_images_sync
+from arxiv2md_beta.cli.runner import (
+    ConvertParams,
+    ImagesParams,
+    PaperYmlParams,
+    run_convert_sync,
+    run_images_sync,
+    run_paper_yml_sync,
+)
 from arxiv2md_beta.settings import ConfigurationError, apply_cli_overrides, get_settings, load_settings, set_settings
 from arxiv2md_beta.utils.logging_config import configure_logging, get_logger
 
@@ -209,6 +216,69 @@ def convert_cmd(
     )
     try:
         run_convert_sync(params)
+    except Exception as exc:
+        logger.error(f"Error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("paper-yml")
+def paper_yml_cmd(
+    arxiv: Optional[str] = typer.Argument(
+        None,
+        metavar="ARXIV",
+        help="arXiv ID or URL (required when not using --update).",
+    ),
+    update: Optional[Path] = typer.Option(
+        None,
+        "--update",
+        "-u",
+        metavar="PATH",
+        help="Existing paper.yml to refresh in place (reads identifiers.arxiv / paper.id).",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        metavar="PATH",
+        help="Output paper.yml path (file or directory ending in paper.yml). If the file exists, writes paper.1.yml, paper.2.yml, … unless --force.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Overwrite --output path when it already exists (no numeric suffix).",
+    ),
+) -> None:
+    """Fetch arXiv metadata only and write or refresh ``paper.yml`` (no Markdown conversion)."""
+    logger = get_logger()
+    if update is not None:
+        if arxiv:
+            logger.warning("Ignoring ARXIV argument because --update is set.")
+        params = PaperYmlParams(
+            update_path=update,
+            arxiv_input=None,
+            output=None,
+            force=False,
+        )
+    else:
+        if not arxiv:
+            typer.echo("Error: provide ARXIV id/URL or use --update PATH/to/paper.yml", err=True)
+            raise typer.Exit(code=2)
+        arxiv_stripped = arxiv.strip()
+        if not arxiv_stripped:
+            typer.echo("Error: provide ARXIV id/URL or use --update PATH/to/paper.yml", err=True)
+            raise typer.Exit(code=2)
+        if not output or not output.strip():
+            typer.echo("Error: --output is required when not using --update.", err=True)
+            raise typer.Exit(code=2)
+        params = PaperYmlParams(
+            update_path=None,
+            arxiv_input=arxiv_stripped,
+            output=output.strip(),
+            force=force,
+        )
+    try:
+        run_paper_yml_sync(params)
     except Exception as exc:
         logger.error(f"Error: {exc}")
         raise typer.Exit(code=1) from exc

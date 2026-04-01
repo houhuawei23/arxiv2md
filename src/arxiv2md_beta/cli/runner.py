@@ -384,6 +384,63 @@ async def _process_local_archive(params: ConvertParams) -> None:
         print(result.summary.encode("utf-8", errors="replace").decode("utf-8"))
 
 
+@dataclass(frozen=True)
+class PaperYmlParams:
+    """Parameters for the ``paper-yml`` command."""
+
+    update_path: Path | None
+    arxiv_input: str | None
+    output: str | None
+    force: bool
+
+
+async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
+    """Fetch arXiv metadata and write ``paper.yml`` (refresh existing or new path)."""
+    from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
+    from arxiv2md_beta.output.metadata import arxiv_id_from_paper_yml, write_paper_yml_file
+    from arxiv2md_beta.output.paper_yml_path import resolve_paper_yml_output_path
+
+    if params.update_path is not None:
+        path = Path(params.update_path).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"paper.yml not found: {path}")
+        aid = arxiv_id_from_paper_yml(path)
+        logger.info(f"paper-yml --update: read arXiv id {aid!r} from {path}")
+        meta = await fetch_arxiv_metadata(aid)
+        write_paper_yml_file(meta, path)
+        print(str(path.resolve()))
+        return path
+
+    raw = (params.arxiv_input or "").strip()
+    if not raw:
+        raise ValueError("Provide ARXIV (id or URL) or use --update PATH")
+    out = (params.output or "").strip()
+    if not out:
+        raise ValueError("Provide --output /path/to/paper.yml when not using --update")
+
+    query = parse_arxiv_input(raw)
+    logger.info(f"paper-yml: fetching metadata for {query.arxiv_id}")
+    meta = await fetch_arxiv_metadata(query.arxiv_id)
+    out_path = Path(out).expanduser()
+    primary = out_path
+    if primary.is_dir():
+        primary = primary / "paper.yml"
+    elif primary.suffix.lower() not in (".yml", ".yaml"):
+        primary = primary / "paper.yml"
+    primary = primary.resolve()
+    dest = resolve_paper_yml_output_path(out_path, force=params.force)
+    if not params.force and primary.exists() and dest.resolve() != primary:
+        logger.info(f"Primary output {primary} exists; writing to {dest} (use --force to overwrite)")
+    write_paper_yml_file(meta, dest)
+    print(str(dest.resolve()))
+    return dest
+
+
+def run_paper_yml_sync(params: PaperYmlParams) -> Path:
+    """Run paper-yml flow in a fresh event loop."""
+    return asyncio.run(run_paper_yml_flow(params))
+
+
 def run_convert_sync(params: ConvertParams) -> None:
     """Run convert flow in a fresh event loop (Typer entry)."""
     asyncio.run(run_convert_flow(params))

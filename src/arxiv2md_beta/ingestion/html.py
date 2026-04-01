@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata, fill_arxiv_metadata_defaults
+from arxiv2md_beta.network.arxiv_api import (
+    author_display_names_from_metadata,
+    fetch_arxiv_metadata,
+    fill_arxiv_metadata_defaults,
+)
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.images.resolver import process_images
@@ -75,6 +79,9 @@ async def ingest_paper_html(
 
     # Fetch metadata from API to get submission date (more reliable)
     api_metadata = await fetch_arxiv_metadata(arxiv_id)
+    # Summary / sidecars: use Atom API author names (order + spelling), not HTML ltx_authors
+    # (HTML mixes affiliation lines like "Google Brain" into the author list).
+    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed.authors)
     # Use API date if available, otherwise use parsed date
     submission_date = api_metadata.get("submission_date") or parsed.submission_date
     # Use API title if parsed title is None
@@ -162,7 +169,7 @@ async def ingest_paper_html(
         arxiv_id=arxiv_id,
         version=version,
         title=parsed.title,
-        authors=parsed.authors,
+        authors=display_author_names,
         abstract=abstract_md if include_abstract else None,
         sections=filtered_sections,
         include_toc=not remove_toc,
@@ -204,7 +211,7 @@ async def ingest_paper_html(
                 arxiv_id=arxiv_id,
                 arxiv_version=version,
                 title=parsed.title,
-                authors=list(parsed.authors or []),
+                authors=list(display_author_names or []),
                 submission_date=submission_date,
                 html_url=html_url,
                 ar5iv_url=ar5iv_url,
@@ -225,7 +232,7 @@ async def ingest_paper_html(
 
     metadata = {
         "title": parsed.title,
-        "authors": parsed.authors,
+        "authors": display_author_names,
         "abstract": parsed.abstract,
         "submission_date": submission_date,
         "paper_output_dir": paper_output_dir,  # Return the directory path

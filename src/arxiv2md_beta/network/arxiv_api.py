@@ -30,6 +30,25 @@ def submission_date_from_new_style_arxiv_id(arxiv_id: str) -> str | None:
     return f"{year:04d}{mm:02d}01"
 
 
+def author_display_names_from_metadata(
+    metadata: dict[str, str | list | dict | None],
+) -> list[str]:
+    """Return ordered author ``name`` strings from Atom API metadata (for summaries and sidecars).
+
+    Prefer this over HTML/TeX-parsed author lists, which may mix in affiliation lines.
+    """
+    raw = metadata.get("authors")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for a in raw:
+        if isinstance(a, dict):
+            n = (a.get("name") or "").strip()
+            if n:
+                out.append(n)
+    return out
+
+
 def fill_arxiv_metadata_defaults(
     metadata: dict[str, str | list | dict | None],
     base_id: str,
@@ -66,6 +85,36 @@ def fill_arxiv_metadata_defaults(
             arxiv_id=out.get("arxiv_id"),  # type: ignore[arg-type]
         )
     return out
+
+
+async def _enrich_authors_and_refresh_citation(
+    metadata: dict[str, str | list | dict | None],
+    arxiv_id: str,
+) -> dict[str, str | list | dict | None]:
+    """Pull abs-page HTML + OpenAlex affiliations, then refresh BibTeX / citation strings."""
+    from arxiv2md_beta.network.author_enrichment import enrich_authors_with_abs_html_and_openalex
+
+    metadata = await enrich_authors_with_abs_html_and_openalex(metadata, arxiv_id)
+    authors = metadata.get("authors")
+    if not isinstance(authors, list) or not authors:
+        return metadata
+    if metadata.get("title") and metadata.get("year") and metadata.get("arxiv_id"):
+        metadata["bibtex"] = _generate_bibtex(
+            title=metadata.get("title"),
+            authors=authors,
+            year=str(metadata["year"]),
+            arxiv_id=metadata.get("arxiv_id"),
+            primary_category=metadata.get("primary_category"),
+            abstract_url=metadata.get("abstract_url"),
+        )
+    if metadata.get("title"):
+        metadata["citation"] = _generate_citation(
+            authors=authors,
+            year=str(metadata["year"]) if metadata.get("year") is not None else None,
+            title=metadata.get("title"),
+            arxiv_id=metadata.get("arxiv_id"),
+        )
+    return metadata
 
 
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | None]:
@@ -123,12 +172,14 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
                         if crossref_metadata:
                             # Merge metadata: arXiv as base, Crossref as supplement
                             merged = _merge_metadata(arxiv_metadata, crossref_metadata)
-                            return fill_arxiv_metadata_defaults(merged, base_id)
+                            filled = fill_arxiv_metadata_defaults(merged, base_id)
+                            return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
                 except Exception as e:
                     # Crossref failure should not break the flow
                     logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
 
-            return fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
+            filled = fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
+            return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
         except (httpx.RequestError, httpx.HTTPStatusError):
             pass
 
@@ -144,7 +195,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
         f"arXiv API metadata fetch failed for {base_id} after retries; "
         "using id-derived date and HTML fallbacks where available"
     )
-    return fill_arxiv_metadata_defaults(
+    failed = fill_arxiv_metadata_defaults(
         {
             "title": None,
             "published": None,
@@ -152,6 +203,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
         },
         base_id,
     )
+    return await _enrich_authors_and_refresh_citation(failed, arxiv_id)
 
 
 def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
+from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, fetch_arxiv_metadata
 from arxiv2md_beta.images.resolver import process_images
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.output.formatter import format_paper
@@ -116,12 +116,14 @@ async def ingest_paper_latex(
         )
     ]
 
+    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed_latex.authors or [])
+
     # Format output (single blob; no HTML section tree — do not split into References/Appendix files)
     result = format_paper(
         arxiv_id=arxiv_id,
         version=version,
         title=parsed_latex.title,
-        authors=parsed_latex.authors,
+        authors=display_author_names,
         abstract=parsed_latex.abstract,
         sections=sections,
         include_toc=False,  # LaTeX mode doesn't use TOC

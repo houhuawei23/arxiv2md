@@ -43,6 +43,49 @@ def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
         logger.warning(f"Failed to save paper.yml: {e}")
 
 
+def write_paper_yml_file(metadata: dict, output_path: Path) -> None:
+    """Serialize metadata to a ``paper.yml`` (or ``*.yml``) file at ``output_path``."""
+    if yaml is None:
+        logger.warning("PyYAML not installed, cannot write paper.yml. Install with: pip install pyyaml")
+        return
+    output_path = Path(output_path)
+    paper_yml_data = _metadata_to_paper_yml(metadata)
+    if not paper_yml_data:
+        logger.warning("No metadata to write (missing arxiv_id); skipping")
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        yaml.dump(paper_yml_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    logger.info(f"Paper metadata written to: {output_path}")
+
+
+def load_paper_yml(path: Path) -> dict:
+    """Load a YAML file and return the top-level mapping (e.g. ``{'paper': {...}}``)."""
+    if yaml is None:
+        raise RuntimeError("PyYAML is required; install with: pip install pyyaml")
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected YAML mapping at root, got {type(data).__name__}")
+    return data
+
+
+def arxiv_id_from_paper_yml(path: Path) -> str:
+    """Extract arXiv id string from ``paper.yml`` (``identifiers.arxiv`` or ``paper.id``)."""
+    data = load_paper_yml(path)
+    paper = data.get("paper")
+    if not isinstance(paper, dict):
+        raise ValueError("Invalid paper.yml: missing 'paper' object")
+    ids = paper.get("identifiers")
+    if isinstance(ids, dict) and ids.get("arxiv"):
+        return str(ids["arxiv"]).strip()
+    pid = paper.get("id")
+    if isinstance(pid, str) and pid.startswith("arxiv:"):
+        return pid.split(":", 1)[1].strip()
+    raise ValueError("Could not find arXiv id in paper.yml (identifiers.arxiv or paper.id)")
+
+
 def _metadata_to_paper_yml(metadata: dict) -> dict:
     """Convert arXiv API metadata to nested paper.yml structure.
 
@@ -117,6 +160,8 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     identifiers["arxiv"] = arxiv_id
     if metadata.get("doi"):
         identifiers["doi"] = metadata["doi"]
+    if metadata.get("openalex_work_id"):
+        identifiers["openalex_work"] = metadata["openalex_work_id"]
 
     # urls
     urls = OrderedDict()
@@ -131,7 +176,11 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
         author_dict = {}
         if author.get("name"):
             author_dict["name"] = author["name"]
-        if author.get("affiliation"):
+        affs = author.get("affiliations")
+        if isinstance(affs, list) and affs:
+            author_dict["affiliations"] = [str(x) for x in affs if x]
+        elif author.get("affiliation"):
+            # Only emit string when no structured list (avoids duplicating join(affiliations))
             author_dict["affiliation"] = author["affiliation"]
         if author.get("orcid"):
             author_dict["orcid"] = author["orcid"]
