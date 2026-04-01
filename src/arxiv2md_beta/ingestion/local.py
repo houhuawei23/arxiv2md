@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -36,6 +37,8 @@ async def ingest_local_archive(
     remove_inline_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process a local archive file (tar.gz, tgz, or zip) and convert to Markdown.
 
@@ -97,6 +100,8 @@ async def ingest_local_archive(
             source=source,
             short=short,
             no_images=no_images,
+            structured_output=structured_output,
+            emit_graph_csv=emit_graph_csv,
         )
     else:
         # Check for HTML files
@@ -116,6 +121,8 @@ async def ingest_local_archive(
                 remove_inline_citations=remove_inline_citations,
                 section_filter_mode=section_filter_mode,
                 sections=sections,
+                structured_output=structured_output,
+                emit_graph_csv=emit_graph_csv,
             )
         else:
             raise LocalIngestionError(
@@ -131,6 +138,8 @@ async def _ingest_latex_archive(
     source: str,
     short: str | None,
     no_images: bool,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process a LaTeX-based local archive."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
@@ -239,6 +248,36 @@ async def _ingest_latex_archive(
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")
 
+    structured_export: dict[str, Any] = {}
+    try:
+        from arxiv2md_beta.output.structured_export import (
+            normalize_structured_mode,
+            write_minimal_structured,
+        )
+
+        sm = normalize_structured_mode(structured_output)
+        if sm != "none":
+            stem_map = processed_images.stem_to_image_path if processed_images else None
+            img_map = processed_images.image_map if processed_images else None
+            structured_export = write_minimal_structured(
+                paper_output_dir=paper_output_dir,
+                mode=sm,
+                emit_graph_csv=emit_graph_csv,
+                arxiv_id=query.archive_path.stem,
+                arxiv_version=None,
+                title=title,
+                authors=list(authors) if authors else [],
+                submission_date=query.submission_date,
+                parser="local",
+                sections=sections_list,
+                abstract_md=abstract,
+                stem_to_image_path=stem_map,
+                image_map=img_map,
+                images_subdir=images_dir_name,
+            )
+    except Exception as e:
+        logger.warning(f"Structured JSON export failed: {e}")
+
     metadata = {
         "title": title or "Unknown",
         "authors": authors,
@@ -246,6 +285,8 @@ async def _ingest_latex_archive(
         "submission_date": query.submission_date,
         "paper_output_dir": paper_output_dir,
         "archive_path": str(query.archive_path),
+        "arxiv_id": query.archive_path.stem,
+        "structured_export": structured_export,
     }
 
     return result, metadata
@@ -264,6 +305,8 @@ async def _ingest_html_archive(
     remove_inline_citations: bool,
     section_filter_mode: str,
     sections: list[str],
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process an HTML-based local archive."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
@@ -370,6 +413,39 @@ async def _ingest_html_archive(
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")
 
+    structured_export: dict[str, Any] = {}
+    try:
+        from arxiv2md_beta.output.structured_export import (
+            normalize_structured_mode,
+            write_structured_bundle,
+        )
+
+        sm = normalize_structured_mode(structured_output)
+        if sm != "none":
+            structured_export = write_structured_bundle(
+                paper_output_dir=paper_output_dir,
+                mode=sm,
+                emit_graph_csv=emit_graph_csv,
+                arxiv_id=query.archive_path.stem,
+                arxiv_version=None,
+                title=title,
+                authors=list(authors or []),
+                submission_date=query.submission_date,
+                html_url=None,
+                ar5iv_url=None,
+                parser="local",
+                sections=filtered_sections,
+                abstract_md=abstract_md if include_abstract else None,
+                abstract_html=parsed.abstract_html,
+                front_matter_html=parsed.front_matter_html,
+                include_abstract_parts=include_abstract,
+                image_map=None,
+                stem_to_image_path=None,
+                images_subdir=images_dir_name,
+            )
+    except Exception as e:
+        logger.warning(f"Structured JSON export failed: {e}")
+
     metadata = {
         "title": title,
         "authors": authors,
@@ -377,6 +453,8 @@ async def _ingest_html_archive(
         "submission_date": query.submission_date,
         "paper_output_dir": paper_output_dir,
         "archive_path": str(query.archive_path),
+        "arxiv_id": query.archive_path.stem,
+        "structured_export": structured_export,
     }
 
     return result, metadata

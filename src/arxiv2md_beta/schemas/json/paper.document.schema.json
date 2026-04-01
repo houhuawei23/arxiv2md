@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "BlockJson": {
+      "description": "A coarse block inside a section (paragraph, figure, table, …).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "paragraph",
+            "figure",
+            "table",
+            "equation",
+            "list",
+            "code",
+            "heading",
+            "blockquote",
+            "other"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "order_index": {
+          "default": 0,
+          "title": "Order Index",
+          "type": "integer"
+        },
+        "text_plain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Plain"
+        },
+        "text_md": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Md"
+        },
+        "extra": {
+          "title": "Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "section_id"
+      ],
+      "title": "BlockJson",
+      "type": "object"
+    },
+    "SectionTreeNodeJson": {
+      "description": "One node in the section tree (no HTML bodies).",
+      "properties": {
+        "struct_id": {
+          "title": "Struct Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "level": {
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        },
+        "anchor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Anchor"
+        },
+        "html_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Html Sha256"
+        },
+        "markdown_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Markdown Sha256"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/SectionTreeNodeJson"
+          },
+          "title": "Children",
+          "type": "array"
+        }
+      },
+      "required": [
+        "struct_id",
+        "title",
+        "level"
+      ],
+      "title": "SectionTreeNodeJson",
+      "type": "object"
+    }
+  },
+  "description": "Section tree + blocks (``paper.document.json``).",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "arxiv_id": {
+      "title": "Arxiv Id",
+      "type": "string"
+    },
+    "abstract_blocks": {
+      "items": {
+        "$ref": "#/$defs/BlockJson"
+      },
+      "title": "Abstract Blocks",
+      "type": "array"
+    },
+    "front_matter_blocks": {
+      "items": {
+        "$ref": "#/$defs/BlockJson"
+      },
+      "title": "Front Matter Blocks",
+      "type": "array"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/SectionTreeNodeJson"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "blocks": {
+      "items": {
+        "$ref": "#/$defs/BlockJson"
+      },
+      "title": "Blocks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "arxiv_id"
+  ],
+  "title": "PaperDocumentJson",
+  "type": "object"
+}

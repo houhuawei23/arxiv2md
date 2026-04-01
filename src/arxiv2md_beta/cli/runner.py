@@ -71,13 +71,23 @@ class ConvertParams:
     section: list[str] | None
     include_tree: bool
     emit_result_json: bool = False
+    structured_output: str = "none"
+    emit_graph_csv: bool = False
 
 
-def _emit_result_json_line(paper_output_dir: Path, *, params: ConvertParams) -> None:
+def _emit_result_json_line(
+    paper_output_dir: Path,
+    *,
+    params: ConvertParams,
+    structured: dict[str, object] | None = None,
+) -> None:
     """单行机器可读结果，供父进程脚本解析（``ARXIV2MD_RESULT_JSON=...``）。"""
     if not params.emit_result_json:
         return
-    payload = {"paper_output_dir": str(paper_output_dir.resolve())}
+    payload: dict[str, object] = {"paper_output_dir": str(paper_output_dir.resolve())}
+    if structured and structured.get("paths"):
+        payload["schema_version"] = structured.get("schema_version")
+        payload["structured_paths"] = structured.get("paths")
     line = f"ARXIV2MD_RESULT_JSON={json.dumps(payload, ensure_ascii=False)}"
     print(line, flush=True)
     # 不再重复写 stderr：父进程若合并 stdout+stderr 会得到重复行；侧车 JSON 已作唯一真源
@@ -97,12 +107,19 @@ def _write_result_json_sidecar(
     paper_output_dir: Path,
     *,
     result_key: str,
+    arxiv_id: str | None = None,
+    structured: dict[str, object] | None = None,
 ) -> None:
     """在输出根目录写入 ``.arxiv2md-result-{key}.json``，供流水线在无捕获 stdio 时读取唯一真源。"""
-    payload = {
+    payload: dict[str, object] = {
         "paper_output_dir": str(paper_output_dir.resolve()),
         "result_key": result_key,
     }
+    if arxiv_id is not None:
+        payload["arxiv_id"] = arxiv_id
+    if structured and structured.get("paths"):
+        payload["schema_version"] = structured.get("schema_version")
+        payload["structured_paths"] = structured.get("paths")
     name = f".arxiv2md-result-{_result_json_filename_key(result_key)}.json"
     path = base_output_dir / name
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
@@ -195,6 +212,8 @@ async def _process_arxiv_paper(params: ConvertParams) -> None:
         no_images=params.no_images,
         source=params.source,
         short=params.short,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
     )
 
     submission_date = metadata.get("submission_date")
@@ -213,12 +232,17 @@ async def _process_arxiv_paper(params: ConvertParams) -> None:
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
-    _emit_result_json_line(paper_output_dir, params=params)
+    structured = metadata.get("structured_export")
+    if not isinstance(structured, dict):
+        structured = None
+    _emit_result_json_line(paper_output_dir, params=params, structured=structured)
     try:
         _write_result_json_sidecar(
             base_output_dir,
             paper_output_dir,
             result_key=query.arxiv_id,
+            arxiv_id=metadata.get("arxiv_id") or query.arxiv_id,
+            structured=structured,
         )
     except OSError as e:
         logger.warning(f"Could not write arxiv2md result sidecar: {e}")
@@ -289,6 +313,8 @@ async def _process_local_archive(params: ConvertParams) -> None:
         remove_inline_citations=params.remove_inline_citations,
         section_filter_mode=params.section_filter_mode,
         sections=sections,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
     )
 
     submission_date = metadata.get("submission_date")
@@ -307,12 +333,18 @@ async def _process_local_archive(params: ConvertParams) -> None:
         if isinstance(paper_output_dir, str):
             paper_output_dir = Path(paper_output_dir)
     logger.info(f"Output directory: {paper_output_dir}")
-    _emit_result_json_line(paper_output_dir, params=params)
+    structured = metadata.get("structured_export")
+    if not isinstance(structured, dict):
+        structured = None
+    _emit_result_json_line(paper_output_dir, params=params, structured=structured)
     try:
+        rk = str(metadata.get("arxiv_id") or query.archive_path.stem)
         _write_result_json_sidecar(
             base_output_dir,
             paper_output_dir,
             result_key=query.archive_path.stem,
+            arxiv_id=rk,
+            structured=structured,
         )
     except OSError as e:
         logger.warning(f"Could not write arxiv2md result sidecar: {e}")

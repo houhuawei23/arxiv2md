@@ -86,6 +86,31 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--sections` | 逗号分隔的 section 过滤 | - |
 | `--section` | 可重复的 section 标题 | - |
 | `--include-tree` | 输出 section 树 | False |
+| `--emit-result-json` | 打印一行 `ARXIV2MD_RESULT_JSON=...`（含 `paper_output_dir`） | False |
+| `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` | `none` |
+| `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
+
+### 结构化 JSON（`paper.*.json`）
+
+与 `paper.yml` 并行，可用 `--structured-output` 导出机器可读、带 `schema_version`（当前为 `1.0`）的接口，便于检索、图模型与下游脚本：
+
+| 文件 | 说明 |
+|------|------|
+| `paper.meta.json` | arXiv 标识、标题、作者、日期、URL、工具版本、`content_sha256` |
+| `paper.document.json` | 章节树摘要哈希 + 摘要/正文块级 IR（`blocks`） |
+| `paper.assets.json` | 图片路径与 TeX stem 映射（`full` / `all`） |
+| `paper.bib.json` | 参考文献占位（当前为空列表，预留 Phase D） |
+| `paper.graph.json` | 异构图节点/边（`all`） |
+
+JSON Schema 随包提供：`arxiv2md_beta/schemas/json/paper.meta.schema.json`、`paper.document.schema.json`。
+
+根目录侧车 `.arxiv2md-result-<id>.json` 在启用结构化导出时会额外包含 `schema_version` 与 `structured_paths`（相对论文目录的路径表）。
+
+示例：
+
+```bash
+arxiv2md-beta convert 2501.14622 --structured-output all --emit-graph-csv -o ./out
+```
 
 ### Python API
 
@@ -105,6 +130,8 @@ async def main():
         ar5iv_url=query.ar5iv_url,
         parser="html",
         base_output_dir=Path("output"),
+        structured_output="document",  # 或 "none" | "meta" | "full" | "all"
+        emit_graph_csv=False,
     )
     print(result.content)
 
@@ -129,7 +156,8 @@ arxiv2md-beta/
 │       ├── ingestion/            # pipeline、html、latex、local
 │       ├── config/               # 默认与环境 YAML
 │       ├── settings/             # Pydantic 配置加载
-│       ├── schemas/              # 数据模型
+│       ├── schemas/              # 数据模型与 JSON Schema（json/*.json）
+│       ├── ir/                   # 块级 IR（从 HTML 片段抽取）
 │       └── utils/
 │           └── logging_config.py
 ├── tests/

@@ -1,0 +1,118 @@
+{
+  "description": "Machine-oriented metadata (``paper.meta.json``).",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "arxiv_id": {
+      "title": "Arxiv Id",
+      "type": "string"
+    },
+    "arxiv_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Arxiv Version"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title"
+    },
+    "authors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Authors",
+      "type": "array"
+    },
+    "submission_date": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Submission Date"
+    },
+    "html_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Html Url"
+    },
+    "ar5iv_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ar5Iv Url"
+    },
+    "tool_name": {
+      "default": "arxiv2md-beta",
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.0.0",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    },
+    "parser": {
+      "default": "html",
+      "enum": [
+        "html",
+        "latex",
+        "local"
+      ],
+      "title": "Parser",
+      "type": "string"
+    }
+  },
+  "required": [
+    "arxiv_id"
+  ],
+  "title": "PaperMetaJson",
+  "type": "object"
+}

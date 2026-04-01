@@ -36,6 +36,7 @@ packages = { find = { where = ["src"] } }
 
 [tool.setuptools.package-data]
 "arxiv2md_beta.config" = ["*.yml", "environments/*.yml"]
+"arxiv2md_beta.schemas" = ["json/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

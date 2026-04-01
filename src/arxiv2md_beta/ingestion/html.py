@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata, fill_arxiv_metadata_defaults
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
@@ -31,6 +32,8 @@ async def ingest_paper_html(
     no_images: bool = False,
     source: str = "Arxiv",
     short: str | None = None,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Fetch, parse, and serialize an arXiv paper into Markdown with image support.
 
@@ -185,12 +188,49 @@ async def ingest_paper_html(
         from loguru import logger
         logger.warning(f"Failed to save paper.yml: {e}")
 
+    structured_export: dict[str, Any] = {}
+    try:
+        from arxiv2md_beta.output.structured_export import (
+            normalize_structured_mode,
+            write_structured_bundle,
+        )
+
+        sm = normalize_structured_mode(structured_output)
+        if sm != "none":
+            structured_export = write_structured_bundle(
+                paper_output_dir=paper_output_dir,
+                mode=sm,
+                emit_graph_csv=emit_graph_csv,
+                arxiv_id=arxiv_id,
+                arxiv_version=version,
+                title=parsed.title,
+                authors=list(parsed.authors or []),
+                submission_date=submission_date,
+                html_url=html_url,
+                ar5iv_url=ar5iv_url,
+                parser="html",
+                sections=filtered_sections,
+                abstract_md=abstract_md if include_abstract else None,
+                abstract_html=parsed.abstract_html,
+                front_matter_html=parsed.front_matter_html,
+                include_abstract_parts=include_abstract,
+                image_map=image_map,
+                stem_to_image_path=image_stem_map,
+                images_subdir=images_dir_name,
+            )
+    except Exception as e:
+        from loguru import logger
+
+        logger.warning(f"Structured JSON export failed: {e}")
+
     metadata = {
         "title": parsed.title,
         "authors": parsed.authors,
         "abstract": parsed.abstract,
         "submission_date": submission_date,
         "paper_output_dir": paper_output_dir,  # Return the directory path
+        "arxiv_id": arxiv_id,
+        "structured_export": structured_export,
     }
 
     return result, metadata

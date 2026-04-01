@@ -23,6 +23,8 @@ async def ingest_paper_latex(
     no_images: bool = False,
     source: str = "Arxiv",
     short: str | None = None,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown.
 
@@ -134,12 +136,44 @@ async def ingest_paper_latex(
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")
 
+    structured_export: dict[str, object] = {}
+    try:
+        from arxiv2md_beta.output.structured_export import (
+            normalize_structured_mode,
+            write_minimal_structured,
+        )
+
+        sm = normalize_structured_mode(structured_output)
+        if sm != "none":
+            stem_map = processed_images.stem_to_image_path if processed_images else None
+            img_map = processed_images.image_map if processed_images else None
+            structured_export = write_minimal_structured(
+                paper_output_dir=paper_output_dir,
+                mode=sm,
+                emit_graph_csv=emit_graph_csv,
+                arxiv_id=arxiv_id,
+                arxiv_version=version,
+                title=parsed_latex.title or title,
+                authors=list(parsed_latex.authors or []),
+                submission_date=submission_date,
+                parser="latex",
+                sections=sections,
+                abstract_md=parsed_latex.abstract,
+                stem_to_image_path=stem_map,
+                image_map=img_map,
+                images_subdir=images_dir_name,
+            )
+    except Exception as e:
+        logger.warning(f"Structured JSON export failed: {e}")
+
     metadata = {
         "title": parsed_latex.title or title,
         "authors": parsed_latex.authors,
         "abstract": parsed_latex.abstract,
         "submission_date": submission_date,
         "paper_output_dir": paper_output_dir,  # Return the directory path
+        "arxiv_id": arxiv_id,
+        "structured_export": structured_export,
     }
 
     return result, metadata

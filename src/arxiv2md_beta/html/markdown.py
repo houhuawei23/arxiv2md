@@ -662,15 +662,16 @@ def _is_internal_paper_link(href: str | None) -> bool:
     return "arxiv.org/html/" in href and "#" in href and "#bib" not in href
 
 
-def _arxiv_fragment_to_anchor(href: str | None) -> str | None:
-    """Convert arxiv HTML fragment to local markdown anchor.
+def _is_local_fragment_link(href: str | None) -> bool:
+    """Check if a link is a local arXiv-style fragment reference (e.g. #S2, #S4.SS1)."""
+    if not href:
+        return False
+    return href.startswith("#") and not href.startswith("#bib")
 
-    Maps arxiv.org/html/...#S1.F1 -> #figure-1, #S5.T1 -> #table-1,
-    #A1 -> #appendix-a, #alg1 -> #algorithm-1, #S4.SS2 -> #section-4-2, etc.
-    """
-    if not href or "arxiv.org/html/" not in href or "#" not in href or "#bib" in href:
-        return None
-    frag = href.split("#")[-1].strip()
+
+def _map_arxiv_fragment_to_anchor(fragment: str) -> str | None:
+    """Map arXiv fragment key to local markdown anchor."""
+    frag = fragment.strip()
     if not frag:
         return None
     # Figure: S1.F1, S5.F7 -> figure-1, figure-7
@@ -702,6 +703,18 @@ def _arxiv_fragment_to_anchor(href: str | None) -> str | None:
     return None
 
 
+def _arxiv_fragment_to_anchor(href: str | None) -> str | None:
+    """Convert arxiv HTML fragment to local markdown anchor.
+
+    Maps arxiv.org/html/...#S1.F1 -> #figure-1, #S5.T1 -> #table-1,
+    #A1 -> #appendix-a, #alg1 -> #algorithm-1, #S4.SS2 -> #section-4-2, etc.
+    """
+    if not href or "arxiv.org/html/" not in href or "#" not in href or "#bib" in href:
+        return None
+    frag = href.split("#")[-1].strip()
+    return _map_arxiv_fragment_to_anchor(frag)
+
+
 def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False) -> str:
     if isinstance(node, NavigableString):
         return str(node)
@@ -730,6 +743,11 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
                 return f"[{text or href}]({local_anchor})"
             if remove_inline_citations:
                 return text
+        # Handle local arXiv-like links: #S2, #S4.SS1, #alg1 ...
+        if _is_local_fragment_link(href):
+            local_anchor = _map_arxiv_fragment_to_anchor(href[1:])
+            if local_anchor:
+                return f"[{text or href}]({local_anchor})"
         # Regular links: keep full markdown link
         if href:
             return f"[{text or href}]({href})"

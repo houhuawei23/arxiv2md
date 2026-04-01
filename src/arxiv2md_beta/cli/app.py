@@ -144,6 +144,16 @@ def convert_cmd(
         "--emit-result-json",
         help="Print one line ARXIV2MD_RESULT_JSON={...} with paper_output_dir for scripting.",
     ),
+    structured_output: str = typer.Option(
+        "none",
+        "--structured-output",
+        help="Emit versioned JSON next to Markdown: none | meta | document | full | all.",
+    ),
+    emit_graph_csv: bool = typer.Option(
+        False,
+        "--emit-graph-csv",
+        help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -157,6 +167,13 @@ def convert_cmd(
     mode = section_filter_mode if section_filter_mode is not None else d.section_filter_mode
     if mode not in ("include", "exclude"):
         typer.echo(f"Invalid --section-filter-mode {mode!r}; expected include or exclude.", err=True)
+        raise typer.Exit(code=2)
+    so = structured_output.strip().lower()
+    if so not in ("none", "meta", "document", "full", "all"):
+        typer.echo(
+            f"Invalid --structured-output {structured_output!r}; expected none, meta, document, full, or all.",
+            err=True,
+        )
         raise typer.Exit(code=2)
 
     merged = apply_cli_overrides(
@@ -187,6 +204,8 @@ def convert_cmd(
         section=sec_list,
         include_tree=include_tree,
         emit_result_json=emit_result_json,
+        structured_output=so,
+        emit_graph_csv=emit_graph_csv,
     )
     try:
         run_convert_sync(params)

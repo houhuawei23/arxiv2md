@@ -25,6 +25,8 @@ async def ingest_paper(
     no_images: bool = False,
     source: str = "Arxiv",
     short: str | None = None,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Main ingestion function that routes to HTML or LaTeX parser.
 
@@ -70,6 +72,8 @@ async def ingest_paper(
             no_images=no_images,
             source=source,
             short=short,
+            structured_output=structured_output,
+            emit_graph_csv=emit_graph_csv,
         )
     else:  # html
         return await ingest_paper_html(
@@ -86,4 +90,6 @@ async def ingest_paper(
             no_images=no_images,
             source=source,
             short=short,
+            structured_output=structured_output,
+            emit_graph_csv=emit_graph_csv,
         )

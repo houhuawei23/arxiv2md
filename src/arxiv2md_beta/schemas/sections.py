@@ -11,6 +11,7 @@ class SectionNode(BaseModel):
     title: str
     level: int = Field(..., ge=1, le=6)
     anchor: str | None = None
+    struct_id: str | None = None
     html: str | None = None
     markdown: str | None = None
     children: list["SectionNode"] = Field(default_factory=list)

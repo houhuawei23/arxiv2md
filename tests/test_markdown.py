@@ -174,3 +174,15 @@ def test_paragraph_ltx_listing_decodes_base64_data_uri():
     assert "```text" in md
     assert "def foo():" in md
     assert "return 1" in md
+
+
+def test_local_arxiv_fragment_links_map_to_local_anchors():
+    """#S2/#S4.SS1 style links should map to local generated anchors."""
+    html = """
+    <p>
+      See <a href="#S2">Section 2</a> and <a href="#S4.SS1">Section 4.1</a>.
+    </p>
+    """
+    md = convert_fragment_to_markdown(html)
+    assert "[Section 2](#section-2)" in md
+    assert "[Section 4.1](#section-4-1)" in md
