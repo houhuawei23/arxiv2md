@@ -392,7 +392,7 @@ def paper_yml_cmd(
         "--update",
         "-u",
         metavar="PATH",
-        help="Existing paper.yml to refresh in place (reads identifiers.arxiv / paper.id).",
+        help="Existing paper.yml to refresh in place (reads identifiers.arxiv / paper.id). Merges with fetched metadata: keys you added (e.g. urls.website) are kept; API fields overwrite.",
     ),
     output: Optional[str] = typer.Option(
         None,

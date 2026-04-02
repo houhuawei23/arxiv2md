@@ -13,7 +13,12 @@ from arxiv2md_beta.ingestion import ingest_paper
 from arxiv2md_beta.ingestion.local import ingest_local_archive
 from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
 from arxiv2md_beta.output.layout import determine_output_dir
-from arxiv2md_beta.output.metadata import arxiv_id_from_paper_yml, write_paper_yml_file
+from arxiv2md_beta.output.metadata import (
+    arxiv_id_from_paper_yml_dict,
+    load_paper_yml,
+    write_paper_yml_file,
+)
+from arxiv2md_beta.output.metadata_tex import fetch_and_merge_tex_affiliations_for_metadata
 from arxiv2md_beta.output.paper_yml_path import resolve_paper_yml_output_path
 from arxiv2md_beta.query.parser import (
     is_local_archive_path,
@@ -175,10 +180,15 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
         path = Path(params.update_path).expanduser().resolve()
         if not path.is_file():
             raise FileNotFoundError(f"paper.yml not found: {path}")
-        aid = arxiv_id_from_paper_yml(path)
+        existing_yml = load_paper_yml(path)
+        aid = arxiv_id_from_paper_yml_dict(existing_yml)
         logger.info(f"paper-yml --update: read arXiv id {aid!r} from {path}")
         meta = await fetch_arxiv_metadata(aid)
-        write_paper_yml_file(meta, path)
+        query = parse_arxiv_input(aid)
+        await fetch_and_merge_tex_affiliations_for_metadata(
+            meta, query.arxiv_id, query.version
+        )
+        write_paper_yml_file(meta, path, merge_existing=existing_yml)
         print(str(path.resolve()))
         return path
 
@@ -192,6 +202,9 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
     query = parse_arxiv_input(raw)
     logger.info(f"paper-yml: fetching metadata for {query.arxiv_id}")
     meta = await fetch_arxiv_metadata(query.arxiv_id)
+    await fetch_and_merge_tex_affiliations_for_metadata(
+        meta, query.arxiv_id, query.version
+    )
     out_path = Path(out).expanduser()
     primary = out_path
     if primary.is_dir():

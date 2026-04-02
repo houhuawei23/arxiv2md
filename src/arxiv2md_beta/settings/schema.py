@@ -79,6 +79,14 @@ class IngestionSection(BaseModel):
     reference_section_titles: list[str]
     abstract_section_title: str
     latex_fallback_title: str
+    enrich_affiliations_from_tex: bool = Field(
+        default=True,
+        description="Parse TeX source for author affiliations and merge into paper.yml.",
+    )
+    fetch_tex_for_affiliations_when_no_images: bool = Field(
+        default=True,
+        description="When HTML mode skips images (--no-images), still download TeX to enrich affiliations.",
+    )
 
 
 class ParsingSection(BaseModel):

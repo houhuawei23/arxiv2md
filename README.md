@@ -12,6 +12,7 @@
   - 提取图片文件（PNG, JPG, PDF, EPS 等）
   - PDF 图片自动转换为 PNG
   - 将图片插入到 Markdown 文件中
+  - **与 ar5iv 对齐**：HTML 中插图常为 `x1.png`、`x2.png` 等匿名文件名；TeX 侧在统计 `\includegraphics` 时会排除 `\icmltitle{…}` / `\title{…}` 内的标题图（如会议 logo），避免与正文 Figure 序号错位；正文图在可用时按 `<img src>` 与 TeX 输出文件名匹配
 - **专业鲁棒**：
   - 完善的错误处理和异常处理
   - 使用 loguru 进行日志记录
@@ -165,10 +166,10 @@ arxiv2md-beta/
 │       ├── cli/                  # Typer：app.py、runner.py、params.py、convert_cli.py、output_finalize.py、helpers.py
 │       ├── network/              # fetch、http（httpx 连接复用）、arxiv_api、crossref_api
 │       ├── query/                # parser.py：arXiv ID / URL / 本地归档
-│       ├── output/               # layout、formatter、metadata
+│       ├── output/               # layout、formatter、metadata、metadata_tex（TeX 单位合并）
 │       ├── images/               # resolver、extract（仅图片子命令）
 │       ├── html/                 # parser、markdown、sections
-│       ├── latex/                # parser、tex_source
+│       ├── latex/                # parser、tex_source、author_affiliations（从 TeX 解析作者单位）
 │       ├── ingestion/            # pipeline、html、latex、local
 │       ├── config/               # 默认与环境 YAML
 │       ├── settings/             # Pydantic 配置加载
@@ -189,7 +190,7 @@ arxiv2md-beta/
 下载和提取 arXiv TeX Source：
 - 下载 TeX Source 压缩包
 - 解压并提取图片文件
-- 解析 LaTeX 文件中的图片引用
+- 解析 LaTeX 文件中的图片引用（展开 `\input`/`\include`；**不计入** `\icmltitle{…}` / `\title{…}` 内的 `\includegraphics`，以便与 ar5iv 正文插图顺序一致）
 - 建立图片映射关系
 
 ### `images/resolver.py`
@@ -197,14 +198,14 @@ arxiv2md-beta/
 处理图片文件：
 - 将 PDF 图片转换为 PNG
 - 复制其他格式的图片
-- 生成图片映射表（figure_index -> local_path）
+- 生成图片映射表（figure_index -> local_path）及 **stem → 路径** 映射（含源文件名与输出文件名别名），供 HTML `<img src>` 解析
 
 ### `html/markdown.py`
 
 HTML 到 Markdown 转换：
-- 支持图片路径替换
+- 支持图片路径替换（优先按 URL basename 与 TeX 产物 stem 匹配；否则按「未占用的最小 `image_map` 下标」兜底）
 - 处理表格、列表、数学公式等
-- 支持图片映射（image_map）
+- 支持图片映射（`image_map`）与 `image_stem_map`
 
 ### `latex/parser.py`
 
@@ -261,6 +262,8 @@ python demo/demo_arxiv2md_beta.py
 2. **LaTeX 解析**：需要系统安装 Pandoc 或使用 `pypandoc_binary`
 3. **网络访问**：需要能够访问 arXiv.org
 4. **缓存**：默认在 `~/.cache/arxiv2md-beta`（与当前工作目录无关）；相对路径配置会解析到 `$XDG_CACHE_HOME/arxiv2md-beta/` 下。路径与 TTL 见 `cache` 节或 `ARXIV2MD_BETA_CACHE__*` 环境变量
+5. **作者单位（TeX）**：默认尝试从已下载的 TeX 解析并合并到元数据；可在配置中关闭 `ingestion.enrich_affiliations_from_tex`
+6. **`paper.yml` 增量更新**：再次运行同一输出目录时，磁盘上已有文件中仅存在于用户侧的字段会保留（与 API 新结果深度合并）
 
 ## 更新日志
 

@@ -228,6 +228,48 @@ def _serialize_ltx_listing_div(tag: Tag, *, remove_inline_citations: bool = Fals
     return ""
 
 
+def _consume_raster_image_path(
+    src: str | None,
+    *,
+    image_map: dict[int, Path] | None,
+    image_stem_map: dict[str, Path] | None,
+    used_indices: set[int],
+) -> Path | None:
+    """Map ``<img src>`` to a processed asset without relying on HTML/TeX DOM order.
+
+    When the title (or other stripped blocks) contains ``\\includegraphics``, TeX raster
+    order can differ from the figure order left in the body. Positional
+    ``image_map[0], image_map[1], ...`` then pairs the wrong file with each caption.
+
+    Resolution order:
+
+    1. Match ``src`` basename/stem via ``image_stem_map`` (same as
+       :func:`_resolve_image_by_html_src`). If a path is found, also mark the
+       corresponding ``image_map`` index as used when filenames align.
+    2. Otherwise take the **smallest unused** index in ``image_map`` (sequential fallback).
+    """
+    path = _resolve_image_by_html_src(src, image_stem_map)
+    if path is not None:
+        if image_map is not None:
+            for idx in sorted(image_map.keys()):
+                if idx in used_indices:
+                    continue
+                p = image_map[idx]
+                if p.name == path.name or p == path:
+                    used_indices.add(idx)
+                    break
+        return path
+
+    if image_map is None:
+        return None
+    available = sorted(i for i in image_map if i not in used_indices)
+    if not available:
+        return None
+    idx = available[0]
+    used_indices.add(idx)
+    return image_map[idx]
+
+
 def _resolve_image_by_html_src(
     src: str | None,
     stem_map: dict[str, Path] | None,
@@ -425,11 +467,14 @@ def _serialize_children(
     image_map: dict[int, Path] | None = None,
     image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
+    used_image_indices: set[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
     """Serialize children with figure counter tracking."""
     if figure_counter is None:
         figure_counter = [0]  # Use list to allow mutation in nested calls
+    if used_image_indices is None:
+        used_image_indices = set()
 
     blocks: list[str] = []
     for child in container.children:
@@ -444,6 +489,7 @@ def _serialize_children(
                 image_map=image_map,
                 image_stem_map=image_stem_map,
                 figure_counter=figure_counter,
+                used_image_indices=used_image_indices,
                 images_dir=images_dir,
             )
         )
@@ -457,10 +503,13 @@ def _serialize_block(
     image_map: dict[int, Path] | None = None,
     image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
+    used_image_indices: set[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
     if figure_counter is None:
         figure_counter = [0]
+    if used_image_indices is None:
+        used_image_indices = set()
 
     # Handle span/div.ltx_figure (ar5iv uses this in abstract instead of <figure>)
     if tag.name in {"span", "div"} and "ltx_figure" in " ".join(tag.get("class", [])):
@@ -472,6 +521,7 @@ def _serialize_block(
         ):
             figure = _serialize_figure(
                 tag,
+                used_image_indices=used_image_indices,
                 remove_inline_citations=remove_inline_citations,
                 image_map=image_map,
                 image_stem_map=image_stem_map,
@@ -492,6 +542,7 @@ def _serialize_block(
             image_map=image_map,
             image_stem_map=image_stem_map,
             figure_counter=figure_counter,
+            used_image_indices=used_image_indices,
             images_dir=images_dir,
         )
 
@@ -509,6 +560,7 @@ def _serialize_block(
             image_map=image_map,
             image_stem_map=image_stem_map,
             figure_counter=figure_counter,
+            used_image_indices=used_image_indices,
             images_dir=images_dir,
         )
 
@@ -532,6 +584,7 @@ def _serialize_block(
         )
         figure = _serialize_figure(
             tag,
+            used_image_indices=used_image_indices,
             remove_inline_citations=remove_inline_citations,
             image_map=image_map,
             image_stem_map=image_stem_map,
@@ -560,6 +613,7 @@ def _serialize_block(
         image_map=image_map,
         image_stem_map=image_stem_map,
         figure_counter=figure_counter,
+        used_image_indices=used_image_indices,
         images_dir=images_dir,
     )
 
@@ -593,11 +647,14 @@ def _serialize_paragraph_maybe_with_figures(
     image_map: dict[int, Path] | None = None,
     image_stem_map: dict[str, Path] | None = None,
     figure_counter: list[int] | None = None,
+    used_image_indices: set[int] | None = None,
     images_dir: Path | None = None,
 ) -> list[str]:
     """Serialize a <p> tag, splitting out embedded span.ltx_figure as block-level figures."""
     if figure_counter is None:
         figure_counter = [0]
+    if used_image_indices is None:
+        used_image_indices = set()
     blocks: list[str] = []
     current_text_parts: list[Tag | NavigableString] = []
     for child in tag.children:
@@ -626,6 +683,7 @@ def _serialize_paragraph_maybe_with_figures(
                 # Serialize figure
                 fig_md = _serialize_figure(
                     child,
+                    used_image_indices=used_image_indices,
                     remove_inline_citations=remove_inline_citations,
                     image_map=image_map,
                     image_stem_map=image_stem_map,
@@ -962,6 +1020,7 @@ def _serialize_tabular_node(tag: Tag, *, remove_inline_citations: bool = False) 
 def _serialize_figure(
     figure: Tag,
     *,
+    used_image_indices: set[int],
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,
     image_stem_map: dict[str, Path] | None = None,
@@ -982,8 +1041,10 @@ def _serialize_figure(
     image_stem_map : dict[str, Path] | None
         If set, ``<img src>`` basename is matched to TeX assets before using ``image_map``.
     figure_counter : list[int] | None
-        Mutable shared counter for the next ``image_map`` index (one slot per emitted raster
-        when ``consume_image_slots`` is True).
+        Mutable shared counter incremented once per emitted raster (for tests / diagnostics).
+    used_image_indices : set[int]
+        TeX ``image_map`` indices already paired with a figure; fallback uses the smallest
+        unused index (fixes title-strip / DOM order skew vs ``\\includegraphics`` order).
     consume_image_slots : bool
         If False, do not advance ``figure_counter`` (e.g. algorithm floats, or non-image figures).
     """
@@ -1047,12 +1108,13 @@ def _serialize_figure(
     for img in imgs:
         src = img.get("src")
         image_path: Path | None = None
-        if image_stem_map is not None:
-            image_path = _resolve_image_by_html_src(src, image_stem_map)
-        if image_path is None and image_map is not None and consume_image_slots:
-            idx = figure_counter[0]
-            if idx in image_map:
-                image_path = image_map[idx]
+        if consume_image_slots and (image_map is not None or image_stem_map is not None):
+            image_path = _consume_raster_image_path(
+                src,
+                image_map=image_map,
+                image_stem_map=image_stem_map,
+                used_indices=used_image_indices,
+            )
         if image_path is not None:
             image_path_str = str(image_path)
             alt_text = Path(image_path_str).stem

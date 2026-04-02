@@ -50,6 +50,8 @@ ingestion:
     - bibliography
   abstract_section_title: abstract
   latex_fallback_title: Document
+  enrich_affiliations_from_tex: true
+  fetch_tex_for_affiliations_when_no_images: true
 
 parsing:
   max_author_part_length: 80

@@ -43,16 +43,59 @@ def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
         logger.warning(f"Failed to save paper.yml: {e}")
 
 
-def write_paper_yml_file(metadata: dict, output_path: Path) -> None:
-    """Serialize metadata to a ``paper.yml`` (or ``*.yml``) file at ``output_path``."""
+def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
+    """Merge API ``fresh`` output into a previously saved ``paper.yml`` (incremental update).
+
+    - **Fresh wins** on keys present in both mappings at the same path (scalar or list).
+    - **Keys only in** ``existing`` are preserved (e.g. manual ``urls.website``, ``urls.github``).
+    - **Nested dicts** are merged recursively with the same rules.
+
+    Parameters
+    ----------
+    existing
+        Parsed YAML already on disk (may contain user-added fields).
+    fresh
+        Result of :func:`_metadata_to_paper_yml` from the latest fetch.
+    """
+    if not isinstance(existing, dict) or not isinstance(fresh, dict):
+        return fresh
+    return _deep_merge_preserve_user_only_missing(fresh, existing)
+
+
+def _deep_merge_preserve_user_only_missing(new: dict, old: dict) -> dict:
+    """Start from ``new`` (authoritative); add keys from ``old`` only where missing in ``new``."""
+    out = dict(new)
+    for k, v_old in old.items():
+        if k not in out:
+            out[k] = v_old
+        elif isinstance(v_old, dict) and isinstance(out[k], dict):
+            out[k] = _deep_merge_preserve_user_only_missing(out[k], v_old)
+    return out
+
+
+def write_paper_yml_file(
+    metadata: dict,
+    output_path: Path,
+    *,
+    merge_existing: dict | None = None,
+) -> None:
+    """Serialize metadata to a ``paper.yml`` (or ``*.yml``) file at ``output_path``.
+
+    If ``merge_existing`` is set (e.g. from ``paper-yml --update``), user-only keys from the
+    existing file are preserved while fresh API fields overwrite.
+    """
     if yaml is None:
         logger.warning("PyYAML not installed, cannot write paper.yml. Install with: pip install pyyaml")
         return
     output_path = Path(output_path)
-    paper_yml_data = _metadata_to_paper_yml(metadata)
-    if not paper_yml_data:
+    fresh = _metadata_to_paper_yml(metadata)
+    if not fresh:
         logger.warning("No metadata to write (missing arxiv_id); skipping")
         return
+    if merge_existing is not None:
+        paper_yml_data = merge_paper_yml_preserve_user_fields(merge_existing, fresh)
+    else:
+        paper_yml_data = fresh
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(paper_yml_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
@@ -71,9 +114,8 @@ def load_paper_yml(path: Path) -> dict:
     return data
 
 
-def arxiv_id_from_paper_yml(path: Path) -> str:
-    """Extract arXiv id string from ``paper.yml`` (``identifiers.arxiv`` or ``paper.id``)."""
-    data = load_paper_yml(path)
+def arxiv_id_from_paper_yml_dict(data: dict) -> str:
+    """Extract arXiv id from a loaded ``paper.yml`` mapping."""
     paper = data.get("paper")
     if not isinstance(paper, dict):
         raise ValueError("Invalid paper.yml: missing 'paper' object")
@@ -84,6 +126,11 @@ def arxiv_id_from_paper_yml(path: Path) -> str:
     if isinstance(pid, str) and pid.startswith("arxiv:"):
         return pid.split(":", 1)[1].strip()
     raise ValueError("Could not find arXiv id in paper.yml (identifiers.arxiv or paper.id)")
+
+
+def arxiv_id_from_paper_yml(path: Path) -> str:
+    """Extract arXiv id string from ``paper.yml`` (``identifiers.arxiv`` or ``paper.id``)."""
+    return arxiv_id_from_paper_yml_dict(load_paper_yml(path))
 
 
 def _metadata_to_paper_yml(metadata: dict) -> dict:

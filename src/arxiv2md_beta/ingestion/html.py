@@ -15,6 +15,7 @@ from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.images.resolver import process_images
 from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
 from arxiv2md_beta.output.formatter import format_paper
+from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.html.sections import filter_sections
@@ -111,9 +112,10 @@ async def ingest_paper_html(
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
     
-    # Process images if enabled
+    # Process images if enabled; keep TeX extraction for affiliation enrichment when possible
     image_map: dict[int, Path] | None = None
     image_stem_map: dict[str, Path] | None = None
+    tex_source_info = None
     if not no_images:
         try:
             tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
@@ -127,6 +129,20 @@ async def ingest_paper_html(
             # Log error but continue
             from loguru import logger
             logger.warning(f"Failed to process images: {e}")
+
+    if (
+        ing.enrich_affiliations_from_tex
+        and tex_source_info is None
+        and no_images
+        and ing.fetch_tex_for_affiliations_when_no_images
+    ):
+        try:
+            tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
+        except TexSourceNotFoundError:
+            pass
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"TeX fetch for affiliations failed: {e}")
 
     # Populate markdown with image map (shared figure_counter across abstract + sections)
     figure_counter: list[int] = [0]
@@ -190,6 +206,7 @@ async def ingest_paper_html(
         if not paper_meta.get("authors") and parsed.authors:
             paper_meta["authors"] = [{"name": a} for a in parsed.authors if a]
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
+        merge_tex_affiliations_if_configured(paper_meta, tex_source_info)
         save_paper_metadata(paper_meta, paper_output_dir)
     except Exception as e:
         from loguru import logger

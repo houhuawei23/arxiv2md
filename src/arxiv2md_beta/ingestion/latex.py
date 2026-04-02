@@ -8,6 +8,7 @@ from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, 
 from arxiv2md_beta.images.resolver import process_images
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.output.formatter import format_paper
+from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
@@ -134,6 +135,8 @@ async def ingest_paper_latex(
     # Save paper metadata to paper.yml
     try:
         from arxiv2md_beta.output.metadata import save_paper_metadata
+
+        merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
         save_paper_metadata(api_metadata, paper_output_dir)
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")

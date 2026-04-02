@@ -126,6 +126,8 @@ def process_images(
                 # HTML figure order often differs from \includegraphics order; match by name.
                 stem_to_image_path[original_filename] = relative_path
                 stem_to_image_path[relative_path.name] = relative_path
+                if source_image_path.name != relative_path.name:
+                    stem_to_image_path[source_image_path.name] = relative_path
             except Exception as e:
                 logger.error(f"Failed to process image {source_image_path}: {e}")
                 # Continue with other images

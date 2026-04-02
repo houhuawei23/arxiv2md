@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.output.metadata import arxiv_id_from_paper_yml, load_paper_yml
+from arxiv2md_beta.output.metadata import (
+    arxiv_id_from_paper_yml,
+    arxiv_id_from_paper_yml_dict,
+    load_paper_yml,
+    merge_paper_yml_preserve_user_fields,
+)
 from arxiv2md_beta.output.paper_yml_path import resolve_paper_yml_output_path
 
 
@@ -61,3 +66,44 @@ def test_load_paper_yml_roundtrip(tmp_path: Path) -> None:
     p.write_text("paper:\n  title: T\n", encoding="utf-8")
     d = load_paper_yml(p)
     assert d["paper"]["title"] == "T"
+
+
+def test_merge_paper_yml_preserves_user_only_urls_and_top_level() -> None:
+    existing = {
+        "paper": {
+            "urls": {
+                "pdf": "https://arxiv.org/pdf/old",
+                "website": "https://example.org",
+                "github": "https://github.com/o/r",
+            },
+            "title": "Old title",
+        },
+        "notes": "manual",
+    }
+    fresh = {
+        "paper": {
+            "urls": {
+                "pdf": "https://arxiv.org/pdf/new",
+                "abstract": "https://arxiv.org/abs/new",
+            },
+            "title": "New title",
+        }
+    }
+    merged = merge_paper_yml_preserve_user_fields(existing, fresh)
+    assert merged["notes"] == "manual"
+    assert merged["paper"]["title"] == "New title"
+    u = merged["paper"]["urls"]
+    assert u["pdf"] == "https://arxiv.org/pdf/new"
+    assert u["abstract"] == "https://arxiv.org/abs/new"
+    assert u["website"] == "https://example.org"
+    assert u["github"] == "https://github.com/o/r"
+
+
+def test_arxiv_id_from_paper_yml_dict_matches_path(tmp_path: Path) -> None:
+    p = tmp_path / "p.yml"
+    p.write_text(
+        "paper:\n  identifiers:\n    arxiv: 1706.03762v7\n",
+        encoding="utf-8",
+    )
+    d = load_paper_yml(p)
+    assert arxiv_id_from_paper_yml_dict(d) == arxiv_id_from_paper_yml(p)

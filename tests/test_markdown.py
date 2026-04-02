@@ -76,6 +76,47 @@ def test_figure_image_stem_map_overrides_mismatched_index():
     assert "Teaser caption" in md
 
 
+def test_title_strip_skew_html_order_differs_from_tex_includegraphics_order():
+    """Title/strip can remove the first raster; HTML figure order then != TeX order.
+
+    Pair by ``<img src>`` stem via ``image_stem_map`` and mark ``image_map`` slots used;
+    do not assign rasters by sequential figure index alone.
+    """
+    html = """
+    <figure class="ltx_figure">
+        <img src="https://arxiv.org/html/2602.10090/figures/teaser.001.png" alt="" />
+        <figcaption class="ltx_caption">Figure 1: Teaser caption.</figcaption>
+    </figure>
+    <figure class="ltx_figure">
+        <img src="https://arxiv.org/html/2602.10090/figures/logo8.png" alt="" />
+        <figcaption class="ltx_caption">Figure 2: Logo caption.</figcaption>
+    </figure>
+    """
+    logo = Path("images/logo8.png")
+    teaser = Path("images/teaser.001.png")
+    # TeX / resolver order: logo first (e.g. title), teaser second; HTML shows teaser then logo.
+    image_map = {0: logo, 1: teaser}
+    stem_map = {
+        "teaser.001": teaser,
+        "teaser.001.png": teaser,
+        "logo8": logo,
+        "logo8.png": logo,
+    }
+    md = convert_fragment_to_markdown(
+        html,
+        image_map=image_map,
+        image_stem_map=stem_map,
+        figure_counter=[0],
+    )
+    assert "teaser.001" in md
+    assert "logo8" in md
+    pos_teaser_img = md.find("teaser.001")
+    pos_logo_img = md.find("logo8")
+    pos_cap1 = md.find("Teaser caption")
+    pos_cap2 = md.find("Logo caption")
+    assert pos_teaser_img < pos_cap1 < pos_logo_img < pos_cap2
+
+
 def test_convert_table():
     """Test converting table to Markdown."""
     html = """

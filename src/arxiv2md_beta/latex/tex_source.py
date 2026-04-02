@@ -99,7 +99,9 @@ async def fetch_and_extract_tex_source(
         and _mtime_within_ttl(tex_source_path)
     ):
         logger.info(f"Using cached TeX source for {arxiv_id}")
-        return _extract_info_from_dir(extracted_dir)
+        info = _extract_info_from_dir(extracted_dir)
+        _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
+        return info
 
     # Download TeX source
     tex_url = get_settings().urls.arxiv_src_template.format(arxiv_id=arxiv_id)
@@ -121,7 +123,24 @@ async def fetch_and_extract_tex_source(
         raise ImageExtractionError(f"Failed to extract TeX source: {e}") from e
 
     # Extract images and find main tex file
-    return _extract_info_from_dir(extracted_dir)
+    info = _extract_info_from_dir(extracted_dir)
+    _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
+    return info
+
+
+def _log_tex_source_paths(
+    arxiv_id: str,
+    cache_dir: Path,
+    extracted_dir: Path,
+    tex_archive_path: Path,
+    info: TexSourceInfo,
+) -> None:
+    """Log cache session directory and extracted tree for user inspection."""
+    logger.info(
+        f"TeX paths for {arxiv_id}: cache_dir={cache_dir} | "
+        f"extracted_dir={extracted_dir} | tarball={tex_archive_path.name} | "
+        f"main_tex={info.main_tex_file}"
+    )
 
 
 def extract_local_archive(
@@ -441,6 +460,83 @@ def _expand_tex_includes(
     return include_pattern.sub(replace_include, content)
 
 
+def expand_tex_source_for_parsing(tex_source_info: TexSourceInfo) -> str:
+    """Expand ``\\input`` / ``\\include`` from the main ``.tex`` for author/affiliation parsing."""
+    if not tex_source_info.main_tex_file:
+        return ""
+    return _expand_tex_includes(tex_source_info.main_tex_file, tex_source_info.extracted_dir)
+
+
+def _find_matching_brace_end(text: str, open_brace_idx: int) -> int | None:
+    """Return index of ``}`` that closes ``{`` at ``open_brace_idx`` (nested ``{}`` aware)."""
+    if open_brace_idx >= len(text) or text[open_brace_idx] != "{":
+        return None
+    depth = 0
+    i = open_brace_idx
+    while i < len(text):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _strip_title_blocks_for_image_extraction(text: str) -> str:
+    """Remove ``\\icmltitle{...}`` and ``\\title{...}`` blocks from TeX for image ordering.
+
+    ICML and similar templates often put a logo via ``\\includegraphics`` inside
+    ``\\icmltitle{...}``. ar5iv HTML does not emit that graphic as ``Figure~1``; it
+    renames body figures to ``x1.png``, ``x2.png``, … in **document** order. If we
+    keep title graphics in the TeX raster list, ``image_map[0]`` is the logo while
+    HTML ``x1`` is the first real figure (e.g. teaser), so positional fallback pairs
+    the wrong file with each caption.
+    """
+    # Longer command names share prefixes (e.g. \\icmltitlerunning); only strip bare macros.
+    icmltitle = "\\icmltitle"
+    title_cmd = "\\title"
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        stripped = False
+        for cmd in (icmltitle, title_cmd):
+            if not text.startswith(cmd, i):
+                continue
+            j = i + len(cmd)
+            if j < n and text[j].isalpha():
+                continue  # icmltitlerunning, titlepage, …
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] == "[":
+                depth = 1
+                j += 1
+                while j < n and depth > 0:
+                    if text[j] == "[":
+                        depth += 1
+                    elif text[j] == "]":
+                        depth -= 1
+                    j += 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j >= n or text[j] != "{":
+                continue
+            end = _find_matching_brace_end(text, j)
+            if end is None:
+                continue
+            out.append(" " * (end - i + 1))
+            i = end + 1
+            stripped = True
+            break
+        if not stripped:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def _parse_images_from_tex(
     tex_file: Path, base_dir: Path, all_images: list[Path]
 ) -> dict[str, Path]:
@@ -448,8 +544,12 @@ def _parse_images_from_tex(
 
     Expands \\input/\\include recursively so images in included files are found.
     Returns ordered mapping (label -> path) matching HTML figure order (x1, x2, ...).
+
+    Title-only graphics (e.g. inside ``\\icmltitle``) are excluded so indices align
+    with ar5iv ``xN`` numbering for body figures.
     """
     expanded = _expand_tex_includes(tex_file, base_dir)
+    expanded = _strip_title_blocks_for_image_extraction(expanded)
     includegraphics_pattern = re.compile(
         r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}"
     )
