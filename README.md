@@ -15,7 +15,7 @@
 - **专业鲁棒**：
   - 完善的错误处理和异常处理
   - 使用 loguru 进行日志记录
-  - 使用 tqdm 显示进度条
+  - 使用 [Rich](https://github.com/Textualize/rich) 显示下载与批处理进度
   - 清晰的类型注释和代码注释
 
 ## 安装
@@ -48,7 +48,7 @@ pip install pypandoc_binary
 
 ### 基本用法
 
-子命令 **`convert`** 将论文转为 Markdown；**`images`** 仅拉取并处理 TeX 中的图片（用于测试图片管线）。
+子命令 **`convert`** 将论文转为 Markdown；**`batch`** 从文件批量执行与 `convert` 相同的转换；**`images`** 仅拉取并处理 TeX 中的图片（用于测试图片管线）。
 
 ```bash
 # HTML 模式（默认）
@@ -63,11 +63,14 @@ arxiv2md-beta convert 2501.11120 -o ./out
 # 跳过图片下载
 arxiv2md-beta convert 2501.11120 --no-images
 
+# 批量：ids.txt 每行一个 ID/URL/本地路径（# 开头与空行忽略）
+arxiv2md-beta batch ids.txt -o ./out --no-images --max-concurrency 2
+
 # 仅提取图片到目录（无 Markdown）
 arxiv2md-beta images 2501.11120 -o ./img_test
 ```
 
-**迁移说明**：旧版省略子命令的写法（如 `arxiv2md-beta 2501.11120`）已改为必须写 `convert`（或 `images`）。
+**迁移说明**：旧版省略子命令的写法（如 `arxiv2md-beta 2501.11120`）已改为必须写 `convert`（或 `images` / `batch`）。
 
 ### 命令行参数（`convert`）
 
@@ -89,6 +92,19 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--emit-result-json` | 打印一行 `ARXIV2MD_RESULT_JSON=...`（含 `paper_output_dir`） | False |
 | `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` | `none` |
 | `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
+
+### 命令行参数（`batch`）
+
+与 `convert` 使用相同的解析与输出相关选项（`--parser`、`--output`、`--no-images`、`--structured-output` 等）。额外参数：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `INPUT_FILE` | 每行一个 INPUT（与 `convert` 的 INPUT 相同）；以 `#` 开头的行视为注释 | - |
+| `--max-concurrency`, `-j` | 最大并发转换数 | `3` |
+| `--delay-seconds` | 从第二条任务起，每条任务开始前休眠的秒数（礼貌限流） | `0` |
+| `--fail-fast` | 遇到首个错误即停止；默认处理完所有行并汇总 | 关闭 |
+
+结束时在终端打印 Rich 汇总表；若有任一项失败，进程退出码为 `1`。请合理设置并发，避免对 arXiv 造成过大压力。
 
 ### 结构化 JSON（`paper.*.json`）
 
@@ -146,8 +162,8 @@ arxiv2md-beta/
 │   └── arxiv2md_beta/
 │       ├── __init__.py
 │       ├── __main__.py           # python -m 入口（转调 cli.main）
-│       ├── cli/                  # Typer：app.py / runner.py / helpers.py
-│       ├── network/              # fetch、arxiv_api、crossref_api
+│       ├── cli/                  # Typer：app.py、runner.py、params.py、convert_cli.py、output_finalize.py、helpers.py
+│       ├── network/              # fetch、http（httpx 连接复用）、arxiv_api、crossref_api
 │       ├── query/                # parser.py：arXiv ID / URL / 本地归档
 │       ├── output/               # layout、formatter、metadata
 │       ├── images/               # resolver、extract（仅图片子命令）
@@ -232,7 +248,7 @@ python demo/demo_arxiv2md_beta.py
 - `httpx`: HTTP 客户端
 - `loguru`: 日志记录
 - `pydantic`: 配置模型与校验（环境变量在 loader 中合并）
-- `tqdm`: 进度条
+- `rich`: 终端进度条与批量结果表格
 - `tiktoken`: Token 计数
 - `Pillow`: 图片处理
 - `pdf2image`: PDF 转 PNG

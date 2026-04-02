@@ -15,7 +15,6 @@ from arxiv2md_beta.schemas.sections import SectionNode
 from arxiv2md_beta.schemas.structured import (
     SCHEMA_VERSION,
     AssetJson,
-    BibEntryJson,
     BlockJson,
     GraphEdgeJson,
     GraphNodeJson,

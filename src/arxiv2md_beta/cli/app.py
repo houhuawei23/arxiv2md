@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
+from arxiv2md_beta.cli.convert_cli import (
+    apply_convert_cli_settings,
+    make_convert_params,
+)
 from arxiv2md_beta.cli.runner import (
-    ConvertParams,
     ImagesParams,
     PaperYmlParams,
+    run_batch_sync,
     run_convert_sync,
     run_images_sync,
     run_paper_yml_sync,
 )
-from arxiv2md_beta.settings import ConfigurationError, apply_cli_overrides, get_settings, load_settings, set_settings
+from arxiv2md_beta.exceptions import Arxiv2mdError
+from arxiv2md_beta.settings import ConfigurationError, get_settings, load_settings
 from arxiv2md_beta.utils.logging_config import configure_logging, get_logger
 
 app = typer.Typer(
@@ -25,6 +31,15 @@ app = typer.Typer(
     help="Convert arXiv papers to Markdown with image support.",
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+
+
+def _handle_command_error(logger: object, exc: BaseException) -> None:
+    """Map typed errors to exit codes; generic exceptions exit with 1."""
+    if isinstance(exc, Arxiv2mdError):
+        logger.error(f"Error: {exc}")
+        raise typer.Exit(code=exc.exit_code) from exc
+    logger.error(f"Error: {exc}")
+    raise typer.Exit(code=1) from exc
 
 
 @app.callback()
@@ -164,61 +179,205 @@ def convert_cmd(
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
-    s = get_settings()
-    d = s.cli_defaults
-    parser_mode = parser if parser is not None else d.parser
-    if parser_mode not in ("html", "latex"):
-        typer.echo(f"Invalid --parser {parser_mode!r}; expected html or latex.", err=True)
-        raise typer.Exit(code=2)
-    source_v = source if source is not None else d.source
-    mode = section_filter_mode if section_filter_mode is not None else d.section_filter_mode
-    if mode not in ("include", "exclude"):
-        typer.echo(f"Invalid --section-filter-mode {mode!r}; expected include or exclude.", err=True)
-        raise typer.Exit(code=2)
-    so = structured_output.strip().lower()
-    if so not in ("none", "meta", "document", "full", "all"):
-        typer.echo(
-            f"Invalid --structured-output {structured_output!r}; expected none, meta, document, full, or all.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
-
-    merged = apply_cli_overrides(
-        s,
-        SimpleNamespace(parser=parser_mode, source=source_v, section_filter_mode=mode),
+    parser_mode, source_v, mode, so = apply_convert_cli_settings(
+        parser=parser,
+        source=source,
+        section_filter_mode=section_filter_mode,
+        structured_output=structured_output,
+        no_progress=no_progress,
     )
-    if no_progress:
-        merged = merged.model_copy(
-            update={
-                "images": merged.images.model_copy(update={"disable_tqdm": True}),
-            }
-        )
-    set_settings(merged)
-
-    sec_list = section if section else None
-    params = ConvertParams(
-        input_text=input_text.strip(),
-        parser=parser_mode,
+    params = make_convert_params(
+        input_text.strip(),
+        parser_mode=parser_mode,
         output=output,
-        source=source_v,
+        source_v=source_v,
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
         remove_toc=remove_toc,
         remove_inline_citations=remove_inline_citations,
-        section_filter_mode=mode,
+        mode=mode,
         sections=sections,
-        section=sec_list,
+        section=section,
         include_tree=include_tree,
         emit_result_json=emit_result_json,
-        structured_output=so,
+        so=so,
         emit_graph_csv=emit_graph_csv,
     )
     try:
         run_convert_sync(params)
-    except Exception as exc:
-        logger.error(f"Error: {exc}")
-        raise typer.Exit(code=1) from exc
+    except BaseException as exc:
+        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+            raise
+        _handle_command_error(logger, exc)
+
+
+@app.command("batch")
+def batch_cmd(
+    input_file: Path = typer.Argument(
+        ...,
+        metavar="INPUT_FILE",
+        exists=True,
+        readable=True,
+        help="Text file: one INPUT per line (arXiv ID, URL, or local archive). Lines starting with # are ignored.",
+    ),
+    parser: Optional[str] = typer.Option(
+        None,
+        "--parser",
+        help="Parser mode: html or latex.",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output directory; a subdirectory may be created inside.",
+    ),
+    source: Optional[str] = typer.Option(
+        None,
+        "--source",
+        help="Article source (conference/journal name).",
+    ),
+    short: Optional[str] = typer.Option(
+        None,
+        "--short",
+        help="Short name for the article.",
+    ),
+    no_images: bool = typer.Option(
+        False,
+        "--no-images",
+        help="Skip downloading and inserting images (HTML mode only).",
+    ),
+    remove_refs: bool = typer.Option(
+        False,
+        "--remove-refs",
+        help="Remove bibliography/references sections from output.",
+    ),
+    remove_toc: bool = typer.Option(
+        False,
+        "--remove-toc",
+        help="Remove table of contents from output.",
+    ),
+    remove_inline_citations: bool = typer.Option(
+        False,
+        "--remove-inline-citations",
+        help="Remove inline citation text from output.",
+    ),
+    section_filter_mode: Optional[str] = typer.Option(
+        None,
+        "--section-filter-mode",
+        help="Section filtering: include or exclude.",
+    ),
+    sections: Optional[str] = typer.Option(
+        None,
+        "--sections",
+        help='Comma-separated section titles (e.g. "Abstract,Introduction").',
+    ),
+    section: list[str] = typer.Option(
+        [],
+        "--section",
+        help="Repeatable section title filter.",
+    ),
+    include_tree: bool = typer.Option(
+        False,
+        "--include-tree",
+        help="Include the section tree before the Markdown content.",
+    ),
+    no_progress: bool = typer.Option(
+        False,
+        "--no-progress",
+        help="Disable Rich progress bars (downloads, images); logs still show milestones.",
+    ),
+    emit_result_json: bool = typer.Option(
+        False,
+        "--emit-result-json",
+        help="Print one line ARXIV2MD_RESULT_JSON={...} with paper_output_dir for scripting.",
+    ),
+    structured_output: str = typer.Option(
+        "none",
+        "--structured-output",
+        help="Emit versioned JSON next to Markdown: none | meta | document | full | all.",
+    ),
+    emit_graph_csv: bool = typer.Option(
+        False,
+        "--emit-graph-csv",
+        help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
+    ),
+    max_concurrency: int = typer.Option(
+        3,
+        "--max-concurrency",
+        "-j",
+        help="Maximum concurrent conversions.",
+    ),
+    delay_seconds: float = typer.Option(
+        0.0,
+        "--delay-seconds",
+        help="Seconds to sleep before each task after the first (rate limiting).",
+    ),
+    fail_fast: bool = typer.Option(
+        False,
+        "--fail-fast",
+        help="Stop on first error (default: process all lines and report failures).",
+    ),
+) -> None:
+    """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
+    logger = get_logger()
+    parser_mode, source_v, mode, so = apply_convert_cli_settings(
+        parser=parser,
+        source=source,
+        section_filter_mode=section_filter_mode,
+        structured_output=structured_output,
+        no_progress=no_progress,
+    )
+    template = make_convert_params(
+        "",
+        parser_mode=parser_mode,
+        output=output,
+        source_v=source_v,
+        short=short,
+        no_images=no_images,
+        remove_refs=remove_refs,
+        remove_toc=remove_toc,
+        remove_inline_citations=remove_inline_citations,
+        mode=mode,
+        sections=sections,
+        section=section,
+        include_tree=include_tree,
+        emit_result_json=emit_result_json,
+        so=so,
+        emit_graph_csv=emit_graph_csv,
+    )
+    lines = input_file.read_text(encoding="utf-8").splitlines()
+    try:
+        results = run_batch_sync(
+            lines,
+            params_template=template,
+            max_concurrency=max_concurrency,
+            continue_on_error=not fail_fast,
+            delay_seconds=delay_seconds,
+        )
+    except BaseException as exc:
+        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+            raise
+        _handle_command_error(logger, exc)
+
+    table = Table(title="batch results", show_lines=True)
+    table.add_column("input", overflow="fold")
+    table.add_column("status")
+    table.add_column("detail", overflow="fold")
+
+    any_err = False
+    for inp, err, pdir in results:
+        if err:
+            any_err = True
+            table.add_row(inp, "error", err)
+        elif pdir is None:
+            table.add_row(inp, "skip", "")
+        else:
+            table.add_row(inp, "ok", pdir)
+
+    Console(stderr=False).print(table)
+    if any_err:
+        raise typer.Exit(code=1)
 
 
 @app.command("paper-yml")
@@ -262,11 +421,17 @@ def paper_yml_cmd(
         )
     else:
         if not arxiv:
-            typer.echo("Error: provide ARXIV id/URL or use --update PATH/to/paper.yml", err=True)
+            typer.echo(
+                "Error: provide ARXIV id/URL or use --update PATH/to/paper.yml",
+                err=True,
+            )
             raise typer.Exit(code=2)
         arxiv_stripped = arxiv.strip()
         if not arxiv_stripped:
-            typer.echo("Error: provide ARXIV id/URL or use --update PATH/to/paper.yml", err=True)
+            typer.echo(
+                "Error: provide ARXIV id/URL or use --update PATH/to/paper.yml",
+                err=True,
+            )
             raise typer.Exit(code=2)
         if not output or not output.strip():
             typer.echo("Error: --output is required when not using --update.", err=True)
@@ -279,9 +444,10 @@ def paper_yml_cmd(
         )
     try:
         run_paper_yml_sync(params)
-    except Exception as exc:
-        logger.error(f"Error: {exc}")
-        raise typer.Exit(code=1) from exc
+    except BaseException as exc:
+        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+            raise
+        _handle_command_error(logger, exc)
 
 
 @app.command("images")
@@ -323,9 +489,10 @@ def images_cmd(
     )
     try:
         run_images_sync(params)
-    except Exception as exc:
-        logger.error(f"Error: {exc}")
-        raise typer.Exit(code=1) from exc
+    except BaseException as exc:
+        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+            raise
+        _handle_command_error(logger, exc)
 
 
 def main() -> None:

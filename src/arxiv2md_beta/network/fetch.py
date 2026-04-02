@@ -10,6 +10,8 @@ from pathlib import Path
 import httpx
 from loguru import logger
 
+from arxiv2md_beta.exceptions import NetworkError
+from arxiv2md_beta.network.http import async_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -37,7 +39,7 @@ async def fetch_arxiv_html(
         cache_dir.mkdir(parents=True, exist_ok=True)
         html_path.write_text(html_text, encoding="utf-8")
         return html_text
-    except RuntimeError as primary_error:
+    except NetworkError as primary_error:
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
@@ -53,36 +55,34 @@ async def _fetch_with_retries(url: str) -> str:
     s = get_settings()
     h = s.http
     retry_status = set(h.retry_status_codes)
-    timeout = httpx.Timeout(h.fetch_timeout_s)
-    headers = {"User-Agent": h.user_agent}
     last_exc: Exception | None = None
 
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    async with async_http_client(timeout_s=h.fetch_timeout_s) as client:
+        for attempt in range(h.fetch_max_retries + 1):
+            try:
                 response = await client.get(url)
 
-            if response.status_code == 404:
-                raise RuntimeError(
-                    "This paper does not have an HTML version available on arXiv. "
-                    "arxiv2md-beta requires papers to be available in HTML format. "
-                    "Older papers may only be available as PDF."
-                )
+                if response.status_code == 404:
+                    raise NetworkError(
+                        "This paper does not have an HTML version available on arXiv. "
+                        "arxiv2md-beta requires papers to be available in HTML format. "
+                        "Older papers may only be available as PDF."
+                    )
 
-            if response.status_code in retry_status:
-                last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
-            else:
-                response.raise_for_status()
-                _ensure_html_response(response)
-                return response.text
-        except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
-            last_exc = exc
+                if response.status_code in retry_status:
+                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
+                else:
+                    response.raise_for_status()
+                    _ensure_html_response(response)
+                    return response.text
+            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
+                last_exc = exc
 
-        if attempt < h.fetch_max_retries:
-            backoff = h.fetch_backoff_s * (2**attempt)
-            await asyncio.sleep(backoff)
+            if attempt < h.fetch_max_retries:
+                backoff = h.fetch_backoff_s * (2**attempt)
+                await asyncio.sleep(backoff)
 
-    raise RuntimeError(f"Failed to fetch HTML from {url}: {last_exc}")
+        raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}")
 
 
 def _ensure_html_response(response: httpx.Response) -> None:
@@ -135,19 +135,20 @@ async def fetch_arxiv_pdf(
     base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
     pdf_url = urls.arxiv_pdf_template.format(base_id=base_id)
 
-    timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
-    headers = {"User-Agent": h.user_agent}
+    pdf_timeout = h.fetch_timeout_s * h.large_transfer_timeout_multiplier
     last_exc: Exception | None = None
 
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+    async with async_http_client(timeout_s=pdf_timeout) as client:
+        for attempt in range(h.fetch_max_retries + 1):
+            try:
                 async with client.stream("GET", pdf_url) as response:
                     if response.status_code == 404:
-                        raise RuntimeError(f"PDF not found at {pdf_url}")
+                        raise NetworkError(f"PDF not found at {pdf_url}")
 
                     if response.status_code in retry_status:
-                        last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
+                        last_exc = NetworkError(
+                            f"HTTP {response.status_code} from arXiv"
+                        )
                     else:
                         response.raise_for_status()
 
@@ -169,11 +170,11 @@ async def fetch_arxiv_pdf(
                         output_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(cache_path, output_path)
                         return output_path
-        except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
-            last_exc = exc
+            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
+                last_exc = exc
 
-        if attempt < h.fetch_max_retries:
-            backoff = h.fetch_backoff_s * (2**attempt)
-            await asyncio.sleep(backoff)
+            if attempt < h.fetch_max_retries:
+                backoff = h.fetch_backoff_s * (2**attempt)
+                await asyncio.sleep(backoff)
 
-    raise RuntimeError(f"Failed to download PDF from {pdf_url}: {last_exc}")
+        raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}")

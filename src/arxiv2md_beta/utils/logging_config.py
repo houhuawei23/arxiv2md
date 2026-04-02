@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -23,7 +24,11 @@ def configure_logging(
     log = s.logging
     feats = s.features
     eff_level = level if level is not None else s.app.log_level
-    eff_file = enable_file_logging if enable_file_logging is not None else feats.enable_file_logging
+    eff_file = (
+        enable_file_logging
+        if enable_file_logging is not None
+        else feats.enable_file_logging
+    )
     eff_log_path = log_file
 
     logger.remove()
@@ -50,6 +55,6 @@ def configure_logging(
         )
 
 
-def get_logger():
-    """Return the configured loguru logger."""
+def get_logger() -> Any:
+    """Return the configured loguru logger (loguru ``logger`` singleton)."""
     return logger

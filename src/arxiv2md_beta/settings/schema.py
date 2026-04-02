@@ -10,7 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AppSection(BaseModel):
-    environment: str = Field(default="development", description="Logical env name; selects environments/<name>.yml")
+    environment: str = Field(
+        default="development",
+        description="Logical env name; selects environments/<name>.yml",
+    )
     log_level: str = "INFO"
 
 
@@ -21,6 +24,12 @@ class HttpSection(BaseModel):
     user_agent: str
     retry_status_codes: list[int]
     large_transfer_timeout_multiplier: float = Field(gt=0)
+    max_connections: int = Field(
+        default=100, ge=1, description="httpx connection pool size"
+    )
+    max_keepalive_connections: int = Field(
+        default=20, ge=0, description="httpx keep-alive limit"
+    )
 
 
 class CacheSection(BaseModel):
@@ -137,7 +146,11 @@ class AppSettings(BaseModel):
         if p.is_absolute():
             return p.resolve()
         xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
-        base = Path(xdg).expanduser().resolve() if xdg else (Path.home() / ".cache").resolve()
+        base = (
+            Path(xdg).expanduser().resolve()
+            if xdg
+            else (Path.home() / ".cache").resolve()
+        )
         return (base / "arxiv2md-beta" / p).resolve()
 
     def resolved_user_config_dir(self) -> Path:
