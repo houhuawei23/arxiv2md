@@ -12,7 +12,7 @@
   - 提取图片文件（PNG, JPG, PDF, EPS 等）
   - PDF 图片自动转换为 PNG
   - 将图片插入到 Markdown 文件中
-  - **与 ar5iv 对齐**：HTML 中插图常为 `x1.png`、`x2.png` 等匿名文件名；TeX 侧在统计 `\includegraphics` 时会排除 `\icmltitle{…}` / `\title{…}` 内的标题图（如会议 logo），避免与正文 Figure 序号错位；正文图在可用时按 `<img src>` 与 TeX 输出文件名匹配
+  - **与 ar5iv 对齐**：HTML 中插图常为 `x1.png`、`x2.png` 等匿名文件名；TeX 侧在统计 `\includegraphics` 时会排除 `\icmltitle{…}` / `\title{…}` 以及 **`\affiliation[…]{…}`** 内的机构 logo（fairmeta 等模板），避免与正文 Figure 序号错位；正文图在可用时按 `<img src>` 与 TeX 输出文件名匹配
 - **专业鲁棒**：
   - 完善的错误处理和异常处理
   - 使用 loguru 进行日志记录
@@ -190,7 +190,7 @@ arxiv2md-beta/
 下载和提取 arXiv TeX Source：
 - 下载 TeX Source 压缩包
 - 解压并提取图片文件
-- 解析 LaTeX 文件中的图片引用（展开 `\input`/`\include`；**不计入** `\icmltitle{…}` / `\title{…}` 内的 `\includegraphics`，以便与 ar5iv 正文插图顺序一致）
+- 解析 LaTeX 文件中的图片引用（展开 `\input`/`\include`；**不计入** `\icmltitle{…}` / `\title{…}` / `\affiliation{…}` 内的 `\includegraphics`，以便与 ar5iv 正文插图顺序一致）
 - 建立图片映射关系
 
 ### `images/resolver.py`

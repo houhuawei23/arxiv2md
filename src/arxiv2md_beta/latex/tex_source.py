@@ -537,6 +537,51 @@ def _strip_title_blocks_for_image_extraction(text: str) -> str:
     return "".join(out)
 
 
+def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
+    """Remove ``\\affiliation[...]{...}`` blocks so institution logos are not raster indices.
+
+    Templates such as *fairmeta* / NeurIPS-style put ``\\includegraphics`` inside
+    ``\\affiliation`` lines. Those images are not numbered figures in ar5iv HTML; body
+    figures still use ``x1.png``, ``xN`` in **figure** order. Counting affiliation
+    logos shifts ``image_map[0]`` to e.g. ``unc_logo`` while the first HTML figure may
+    reference ``x5`` (first float), breaking opaque-URL fallback pairing.
+    """
+    cmd = "\\affiliation"
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        stripped = False
+        if text.startswith(cmd, i):
+            j = i + len(cmd)
+            if j < n and text[j].isalpha():
+                pass  # longer command name
+            else:
+                while j < n and text[j] in " \t\r\n":
+                    j += 1
+                if j < n and text[j] == "[":
+                    depth = 1
+                    j += 1
+                    while j < n and depth > 0:
+                        if text[j] == "[":
+                            depth += 1
+                        elif text[j] == "]":
+                            depth -= 1
+                        j += 1
+                while j < n and text[j] in " \t\r\n":
+                    j += 1
+                if j < n and text[j] == "{":
+                    end = _find_matching_brace_end(text, j)
+                    if end is not None:
+                        out.append(" " * (end - i + 1))
+                        i = end + 1
+                        stripped = True
+        if not stripped:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def _parse_images_from_tex(
     tex_file: Path, base_dir: Path, all_images: list[Path]
 ) -> dict[str, Path]:
@@ -545,11 +590,13 @@ def _parse_images_from_tex(
     Expands \\input/\\include recursively so images in included files are found.
     Returns ordered mapping (label -> path) matching HTML figure order (x1, x2, ...).
 
-    Title-only graphics (e.g. inside ``\\icmltitle``) are excluded so indices align
-    with ar5iv ``xN`` numbering for body figures.
+    Graphics only used in the title block (``\\icmltitle``, ``\\title``) or author
+    metadata (``\\affiliation{...}`` logos) are excluded so indices align with ar5iv
+    numbered figures when HTML uses opaque names like ``xN.png``.
     """
     expanded = _expand_tex_includes(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
+    expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
     includegraphics_pattern = re.compile(
         r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}"
     )

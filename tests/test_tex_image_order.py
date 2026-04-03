@@ -40,3 +40,30 @@ def test_strip_does_not_confuse_icmltitlerunning() -> None:
     out = _strip_title_blocks_for_image_extraction(s)
     assert "icmltitlerunning" in out
     assert "figures/a.png" not in out
+
+
+def test_strip_affiliation_removes_institution_logos_from_includegraphics_order(tmp_path: Path) -> None:
+    """Fairmeta/NeurIPS-style \\affiliation[...]{\\includegraphics...} must not occupy figure indices."""
+    tex = tmp_path / "main.tex"
+    fig = tmp_path / "figs"
+    fig.mkdir(parents=True)
+    for name in ("unc_logo.png", "fig1.pdf"):
+        (fig / name).write_bytes(b"%PDF" if name.endswith(".pdf") else b"\x89PNG\r\n\x1a\n")
+    tex.write_text(
+        r"""
+\documentclass{article}
+\begin{document}
+\title{T}
+\affiliation[1]{\includegraphics[width=1em]{figs/unc_logo.png} UNC}
+\begin{figure}
+  \includegraphics[width=\linewidth]{figs/fig1.pdf}
+\end{figure}
+\end{document}
+""",
+        encoding="utf-8",
+    )
+    all_images = list(tmp_path.rglob("*.pdf")) + list(tmp_path.rglob("*.png"))
+    m = _parse_images_from_tex(tex, tmp_path, all_images)
+    paths = list(m.values())
+    assert len(paths) == 1
+    assert paths[0].name == "fig1.pdf"
