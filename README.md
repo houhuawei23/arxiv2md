@@ -4,8 +4,12 @@
 
 ## 功能特性
 
+- **多源支持**：
+  - arXiv 论文（ID 或 URL）
+  - 本地 HTML 文件（Science.org、IEEE、ACM 等保存的论文）
+  - 本地 arXiv 归档（tar.gz）
 - **双解析模式**：
-  - HTML 模式（默认）：解析 arXiv HTML 页面，提取内容并转换为 Markdown
+  - HTML 模式（默认）：解析 arXiv HTML 页面或本地 HTML 文件
   - LaTeX 模式：下载 TeX 源码，使用 pandoc 转换为 Markdown
 - **图片支持**：
   - 自动下载 arXiv TeX Source
@@ -64,6 +68,9 @@ arxiv2md-beta convert 2501.11120 -o ./out
 # 跳过图片下载
 arxiv2md-beta convert 2501.11120 --no-images
 
+# 本地 HTML 文件（如 Science.org、IEEE 等保存的论文）
+arxiv2md-beta convert ./paper.html -o ./out
+
 # 批量：ids.txt 每行一个 ID/URL/本地路径（# 开头与空行忽略）
 arxiv2md-beta batch ids.txt -o ./out --no-images --max-concurrency 2
 
@@ -79,7 +86,7 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `INPUT` | arXiv ID、URL 或本地归档路径 | - |
+| `INPUT` | arXiv ID、URL、本地归档路径或本地 HTML 文件 | - |
 | `--parser` | 解析模式：`html` 或 `latex` | 配置中 `cli_defaults.parser` |
 | `--output`, `-o` | 输出根目录 | 配置中 `cli_defaults.output_dir` |
 | `--no-images` | 不下载/插入图片（仅 HTML 模式） | False |

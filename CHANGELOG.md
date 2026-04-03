@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-03
+
+### Added
+
+- **Local HTML file ingestion**: Support for processing locally saved HTML papers (e.g., from Science.org, IEEE, ACM).
+  - New `LocalHtmlQuery` schema and `local_html.py` ingestion pipeline.
+  - Auto-detects HTML files by extension (.html, .htm) or path pattern.
+  - Extracts title, authors, abstract, and sections from HTML structure.
+  - Copies associated files (images) from `_files/` or `.files/` directories.
+  - CLI help text updated to mention local HTML file support.
+
+### Changed
+
+- **Citation format**: Changed from `*N*` to `[N]` for better readability and standard academic formatting.
+- **External citation links**: Removed URL from citation links (e.g., `[1]` instead of `[*1*](https://...)`).
+  - Supports arXiv bib links (`#bib.*`), Science.org collateral links (`#core-collateral-R*`), and common citation patterns.
+- **Figure rendering**: Improved figure output format with proper Markdown image syntax and blockquote caption.
+
+### Fixed
+
+- **Content extraction for local HTML**: Fixed `_collect_content_until_next_heading` to properly handle headings with nested elements (e.g., `<i>` inside `<h4>`).
+- **Duplicate content**: Fixed nested section content being collected twice in parent sections.
+- **`div role="paragraph"`**: Added support for Science.org HTML paragraph structure.
+
 ## [0.4.1] - 2026-04-03
 
 ### Fixed

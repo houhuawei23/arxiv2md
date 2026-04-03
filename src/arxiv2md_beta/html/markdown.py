@@ -535,6 +535,13 @@ def _serialize_block(
         md = _serialize_ltx_listing_div(tag, remove_inline_citations=remove_inline_citations)
         return [md] if md else []
 
+    # Handle div with role="paragraph" (common in Science.org HTML)
+    if tag.name == "div" and tag.get("role") == "paragraph":
+        content = _normalize_text(_serialize_inline(tag, remove_inline_citations=remove_inline_citations))
+        if content:
+            return [content]
+        return []
+
     if tag.name in {"section", "article", "div", "span"}:
         return _serialize_children(
             tag,
@@ -707,10 +714,25 @@ def _serialize_paragraph_maybe_with_figures(
 
 
 def _is_citation_link(href: str | None) -> bool:
-    """Check if a link is a citation reference (e.g., #bib.bib7)."""
+    """Check if a link is a citation reference (e.g., #bib.bib7, #core-collateral-R1).
+
+    Handles:
+    - arXiv bib links: #bib.bib7, #bib8
+    - Science.org collateral links: #core-collateral-R1
+    - Other external DOI citation links
+    """
     if not href:
         return False
-    return "#bib." in href or href.startswith("#bib")
+    # arXiv bib links
+    if "#bib." in href or href.startswith("#bib"):
+        return True
+    # Science.org and similar collateral/footnote links
+    if "#core-collateral-R" in href:
+        return True
+    # Other citation patterns (e.g., #ref1, #citation-1, etc.)
+    if re.search(r'#(ref|citation|cite|footnote|fn|endnote|note)[-_]?\d+', href, re.I):
+        return True
+    return False
 
 
 def _is_internal_paper_link(href: str | None) -> bool:
@@ -793,7 +815,9 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         if _is_citation_link(href):
             if remove_inline_citations:
                 return ""  # Completely remove citation
-            return text  # Keep text only, strip URL
+            # Format citation as [N] instead of *N*
+            citation_text = node.get_text(strip=True)
+            return f"[{citation_text}]"
         # Handle internal paper links: replace with local markdown anchor
         if _is_internal_paper_link(href):
             local_anchor = _arxiv_fragment_to_anchor(href)
@@ -1184,10 +1208,14 @@ def _serialize_figure(
     src = img0.get("src") if img0 else None
     alt = img0.get("alt") if img0 else None
     if src:
+        # Improved format: use markdown image syntax with caption
+        img_alt = alt or (caption[:50] + "..." if len(caption) > 50 else caption) if caption else "Figure"
+        lines.append(f"![{img_alt}]({src})")
+        lines.append("")
         if caption:
-            lines.append(f"Figure: {caption}")
-        image_label = alt or "Image"
-        lines.append(f"{image_label}: {src}")
+            # Format caption as blockquote for better visual separation
+            lines.append(f"> **{caption}**")
+        return "\n".join(lines).strip()
 
     return "\n".join(lines).strip()
 

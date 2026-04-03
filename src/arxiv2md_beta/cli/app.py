@@ -93,7 +93,7 @@ def convert_cmd(
     input_text: str = typer.Argument(
         ...,
         metavar="INPUT",
-        help="arXiv ID, URL, or local archive path.",
+        help="arXiv ID, URL, local archive path, or local HTML file path.",
     ),
     parser: Optional[str] = typer.Option(
         None,
@@ -219,7 +219,7 @@ def batch_cmd(
         metavar="INPUT_FILE",
         exists=True,
         readable=True,
-        help="Text file: one INPUT per line (arXiv ID, URL, or local archive). Lines starting with # are ignored.",
+        help="Text file: one INPUT per line (arXiv ID, URL, local archive, or local HTML file). Lines starting with # are ignored.",
     ),
     parser: Optional[str] = typer.Option(
         None,

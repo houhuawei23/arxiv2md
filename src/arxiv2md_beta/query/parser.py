@@ -8,7 +8,7 @@ from typing import Final
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from arxiv2md_beta.schemas import ArxivQuery, LocalArchiveQuery
+from arxiv2md_beta.schemas import ArxivQuery, LocalArchiveQuery, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
 
 _ARXIV_PATH_KINDS: Final = {"abs", "pdf", "html"}
@@ -89,6 +89,89 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
         input_text=raw,
         archive_path=archive_path,
         archive_type=archive_type,  # type: ignore[arg-type]
+        id=query_id,
+        cache_dir=get_settings().resolved_cache_path() / str(query_id),
+    )
+
+
+def is_local_html_path(input_text: str) -> bool:
+    """Check if input looks like a local HTML file path.
+
+    Parameters
+    ----------
+    input_text : str
+        Input string to check
+
+    Returns
+    -------
+    bool
+        True if input appears to be a local HTML file path
+    """
+    raw = input_text.strip()
+    if not raw:
+        return False
+
+    # Check if it looks like a path and ends with .html or .htm
+    if "/" in raw or raw.startswith((".", "~", "/")):
+        lower = raw.lower()
+        if lower.endswith((".html", ".htm")):
+            return True
+
+    # Also check if it's an existing HTML file
+    try:
+        path = Path(raw).expanduser()
+        if path.exists() and path.is_file():
+            return path.suffix.lower() in (".html", ".htm")
+    except (OSError, ValueError):
+        pass
+
+    return False
+
+
+def parse_local_html(input_text: str) -> LocalHtmlQuery:
+    """Parse a local HTML file path into a query object.
+
+    Parameters
+    ----------
+    input_text : str
+        Path to local HTML file (e.g., /path/to/paper.html)
+
+    Returns
+    -------
+    LocalHtmlQuery
+        Parsed query object
+
+    Raises
+    ------
+    ValueError
+        If the path is not a valid HTML file
+    FileNotFoundError
+        If the HTML file does not exist
+    """
+    raw = input_text.strip()
+    if not raw:
+        raise ValueError("input_text cannot be empty")
+
+    html_path = Path(raw).expanduser().resolve()
+
+    if not html_path.exists():
+        raise FileNotFoundError(f"HTML file not found: {html_path}")
+
+    if not html_path.is_file():
+        raise ValueError(f"Path is not a file: {html_path}")
+
+    # Validate it's an HTML file
+    if html_path.suffix.lower() not in (".html", ".htm"):
+        raise ValueError(
+            f"Unsupported file format: {html_path.suffix}. "
+            "Supported formats: .html, .htm"
+        )
+
+    query_id = uuid4()
+
+    return LocalHtmlQuery(
+        input_text=raw,
+        html_path=html_path,
         id=query_id,
         cache_dir=get_settings().resolved_cache_path() / str(query_id),
     )

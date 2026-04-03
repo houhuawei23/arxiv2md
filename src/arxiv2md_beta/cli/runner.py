@@ -11,6 +11,7 @@ from arxiv2md_beta.cli.params import ConvertParams, ImagesParams, PaperYmlParams
 from arxiv2md_beta.images.extract import extract_arxiv_images
 from arxiv2md_beta.ingestion import ingest_paper
 from arxiv2md_beta.ingestion.local import ingest_local_archive
+from arxiv2md_beta.ingestion.local_html import ingest_local_html
 from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
 from arxiv2md_beta.output.layout import determine_output_dir
 from arxiv2md_beta.output.metadata import (
@@ -22,8 +23,10 @@ from arxiv2md_beta.output.metadata_tex import fetch_and_merge_tex_affiliations_f
 from arxiv2md_beta.output.paper_yml_path import resolve_paper_yml_output_path
 from arxiv2md_beta.query.parser import (
     is_local_archive_path,
+    is_local_html_path,
     parse_arxiv_input,
     parse_local_archive,
+    parse_local_html,
 )
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.logging_config import get_logger
@@ -48,10 +51,12 @@ __all__ = [
 
 
 async def run_convert_flow(params: ConvertParams) -> Path:
-    """Route to local archive or arXiv ingestion; returns paper output directory."""
+    """Route to local HTML, local archive, or arXiv ingestion; returns paper output directory."""
     input_text = params.input_text.strip()
     if not input_text:
         raise ValueError("INPUT cannot be empty")
+    if is_local_html_path(input_text):  # Check HTML first (more specific)
+        return await _process_local_html(params)
     if is_local_archive_path(input_text):
         return await _process_local_archive(params)
     return await _process_arxiv_paper(params)
@@ -130,6 +135,46 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         fallback_md_stem=base_id,
         pdf_fetch=(query.arxiv_id, query.version),
         log_local_success=False,
+    )
+
+
+async def _process_local_html(params: ConvertParams) -> Path:
+    """Process a local HTML file."""
+    query = parse_local_html(params.input_text.strip())
+
+    sections = collect_sections(params.sections, params.section)
+
+    base_output_dir = determine_output_dir(params.output)
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Processing local HTML file: {query.html_path}")
+
+    result, metadata = await ingest_local_html(
+        query=query,
+        base_output_dir=base_output_dir,
+        source=params.source,
+        short=params.short,
+        no_images=params.no_images,
+        remove_refs=params.remove_refs,
+        remove_toc=params.remove_toc,
+        remove_inline_citations=params.remove_inline_citations,
+        section_filter_mode=params.section_filter_mode,
+        sections=sections,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
+    )
+
+    rk = str(metadata.get("arxiv_id") or query.html_path.stem)
+    return await finalize_convert_output(
+        result=result,
+        metadata=metadata,
+        params=params,
+        base_output_dir=base_output_dir,
+        result_key=query.html_path.stem,
+        arxiv_id_for_sidecar=rk,
+        fallback_md_stem=query.html_path.stem,
+        pdf_fetch=None,
+        log_local_success=True,
     )
 
 
