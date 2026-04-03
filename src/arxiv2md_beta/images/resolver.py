@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
@@ -10,15 +12,10 @@ from loguru import logger
 from pdf2image import convert_from_path
 from PIL import Image, ImageChops
 
+from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import iterable_task_progress
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
-
-
-class ImageProcessingError(Exception):
-    """Raised when image processing fails."""
-
-    pass
 
 
 def _trim_whitespace(img: Image.Image, tolerance: int = 100) -> Image.Image:
@@ -141,6 +138,124 @@ def process_images(
     )
 
 
+async def process_images_async(
+    tex_source_info: TexSourceInfo,
+    output_dir: Path,
+    images_dir_name: str = "images",
+    max_concurrency: int = 4,
+    max_pdf_workers: int | None = None,
+) -> ProcessedImages:
+    """Asynchronously process images from TeX source for use in Markdown.
+
+    PDF conversions are offloaded to a ``ProcessPoolExecutor`` (CPU-bound),
+    while raster copies are handled via ``asyncio.gather`` in a thread pool.
+    A semaphore limits total concurrent tasks.
+
+    Parameters
+    ----------
+    tex_source_info : TexSourceInfo
+        Information about extracted TeX source
+    output_dir : Path
+        Directory where Markdown file will be saved
+    images_dir_name : str
+        Name of images subdirectory
+    max_concurrency : int
+        Maximum concurrent image tasks (default 4)
+    max_pdf_workers : int | None
+        Maximum processes for PDF conversion; defaults to ``max_concurrency``
+
+    Returns
+    -------
+    ProcessedImages
+        Mapping from figure index to relative image path
+    """
+    images_dir = output_dir / images_dir_name
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    image_files = list(tex_source_info.image_files.values())
+    if not image_files:
+        image_files = tex_source_info.all_images
+
+    if not image_files:
+        logger.warning("No images found in TeX source")
+        return ProcessedImages(
+            image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={}
+        )
+
+    logger.info(f"Processing {len(image_files)} images...")
+
+    img_cfg = get_settings().images
+    disable_tqdm = img_cfg.disable_tqdm
+    sem = asyncio.Semaphore(max(1, max_concurrency))
+    pdf_workers = max_pdf_workers if max_pdf_workers is not None else max(1, max_concurrency)
+    process_pool = ProcessPoolExecutor(max_workers=pdf_workers)
+
+    image_map: dict[int, Path] = {}
+    filename_map: dict[int, str] = {}
+    stem_to_image_path: dict[str, Path] = {}
+
+    async def _process_one(idx: int, source_path: Path) -> None:
+        suffix = source_path.suffix.lower()
+        is_pdf = suffix == ".pdf"
+        async with sem:
+            loop = asyncio.get_running_loop()
+            try:
+                if is_pdf:
+                    relative_path, original_filename = await loop.run_in_executor(
+                        process_pool,
+                        _process_single_image,
+                        source_path,
+                        images_dir,
+                        idx,
+                        img_cfg.pdf_to_png_dpi,
+                        img_cfg.trim_whitespace,
+                        img_cfg.trim_whitespace_tolerance,
+                    )
+                else:
+                    relative_path, original_filename = await loop.run_in_executor(
+                        None,
+                        _process_single_image,
+                        source_path,
+                        images_dir,
+                        idx,
+                        img_cfg.pdf_to_png_dpi,
+                        img_cfg.trim_whitespace,
+                        img_cfg.trim_whitespace_tolerance,
+                    )
+                image_map[idx] = relative_path
+                filename_map[idx] = original_filename
+                stem_to_image_path[original_filename] = relative_path
+                stem_to_image_path[relative_path.name] = relative_path
+                if source_path.name != relative_path.name:
+                    stem_to_image_path[source_path.name] = relative_path
+            except ImageProcessingError as e:
+                logger.error(f"Failed to process image {source_path}: {e}")
+            except Exception as e:
+                logger.error(f"Failed to process image {source_path}: {e}")
+
+    try:
+        with iterable_task_progress(
+            "Processing images",
+            len(image_files),
+            disable=disable_tqdm,
+        ) as advance:
+            tasks = []
+            for idx, source_path in enumerate(image_files):
+                task = asyncio.create_task(_process_one(idx, source_path))
+                task.add_done_callback(lambda _f: advance())
+                tasks.append(task)
+            await asyncio.gather(*tasks)
+    finally:
+        process_pool.shutdown(wait=True)
+
+    return ProcessedImages(
+        image_map=image_map,
+        images_dir=images_dir,
+        filename_map=filename_map,
+        stem_to_image_path=stem_to_image_path,
+    )
+
+
 def _process_single_image(
     source_path: Path,
     output_dir: Path,
@@ -203,9 +318,9 @@ def _process_single_image(
                 pil_img.save(output_path, "PNG")
                 logger.debug(f"Converted PDF to PNG: {source_path} -> {output_path}")
             else:
-                raise ImageProcessingError(f"Failed to extract image from PDF: {source_path}")
-        except Exception as e:
-            raise ImageProcessingError(f"Failed to convert PDF {source_path}: {e}") from e
+                raise PDFConversionError(f"Failed to extract image from PDF: {source_path}")
+        except (OSError, PermissionError, ValueError) as e:
+            raise PDFConversionError(f"Failed to convert PDF {source_path}: {e}") from e
 
     elif suffix in {".png", ".jpg", ".jpeg"}:
         # Copy image files as-is, keep original filename
@@ -229,7 +344,7 @@ def _process_single_image(
                 img = _trim_whitespace(img, tolerance=trim_tolerance)
             img.save(output_path, "PNG")
             logger.debug(f"Converted {suffix} to PNG: {source_path} -> {output_path}")
-        except Exception as e:
+        except (OSError, PermissionError, ValueError) as e:
             logger.warning(f"Failed to convert {suffix} {source_path}, copying as-is: {e}")
             # Fallback: copy as-is
             output_filename = source_path.name

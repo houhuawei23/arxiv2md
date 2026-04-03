@@ -28,3 +28,21 @@ class IngestionError(Arxiv2mdError):
     """Paper parsing or conversion pipeline failures."""
 
     pass
+
+
+class ImageProcessingError(Arxiv2mdError):
+    """Image processing failure."""
+
+    pass
+
+
+class PDFConversionError(ImageProcessingError):
+    """PDF to PNG conversion failed."""
+
+    pass
+
+
+class StorageError(Arxiv2mdError):
+    """Local file or cache operation failures."""
+
+    pass

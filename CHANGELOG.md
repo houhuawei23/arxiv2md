@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-04
+
+### Added
+
+- **Async image parallel processing**: `images/resolver.py` gained `process_images_async()`.
+  - PDF-to-PNG conversions run in a `ProcessPoolExecutor` (CPU-bound).
+  - Raster copies run via `asyncio.gather` with a thread pool and semaphore-controlled concurrency.
+- **HTTP connection pool reuse**: `network/http.py` now exposes `get_http_client()` for a shared module-level `httpx.AsyncClient`, while `async_http_client()` is kept for scoped custom timeouts.
+- **Async file I/O**: New `utils/aiofiles_compat.py` wraps `aiofiles` for non-blocking reads/writes; integrated into `network/fetch.py` and `cli/output_finalize.py`.
+- **Performance monitoring**: New `utils/metrics.py` provides `timed_operation` / `async_timed_operation` context managers; wired into `run_convert_flow`, `run_batch_flow`, `run_images_flow`, `run_paper_yml_flow`, and `ingest_paper_latex`.
+- **Compiled regex patterns**: Module-level pre-compiled regexes in `output/formatter.py`, `latex/parser.py`, and `html/markdown.py` to reduce CPU overhead during parsing.
+
+### Changed
+
+- **CLI runner split**: `cli/runner.py` (369 lines) refactored into `cli/runner/` subpackage:
+  - `base.py` – shared helpers (`merge_convert_params`)
+  - `convert.py` – convert flow
+  - `images.py` – images flow
+  - `batch.py` – batch flow
+  - `paper_yml.py` – paper-yml flow
+- **Exception handling refined**: Replaced overly broad `except Exception` with specific types (`Arxiv2mdError`, `httpx.*`, `OSError`, `ValueError`, etc.) in `cli/runner/`, `network/fetch.py`, `images/resolver.py`, and `latex/parser.py`.
+- Added `aiofiles>=24.0.0` to core dependencies.
+
+### Fixed
+
+- Tests updated to `await` the now-async `write_split_markdown_sidecars` and `write_result_json_sidecar` helpers.
+
 ## [0.5.0] - 2026-04-03
 
 ### Added

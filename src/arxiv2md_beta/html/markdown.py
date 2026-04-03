@@ -22,6 +22,31 @@ _MATRIX_RE = re.compile(
     r"matrix\s*\(\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*\)",
     re.I,
 )
+_RAISEBOX_RE = re.compile(
+    r"\\raisebox\{[^}]+\}\{\\hbox to 0\.0\s*pt\{\\hss\\vbox to 0\.0\s*pt\{\\hbox\{\$([^$]*)\$\}\\vss\}\}\}",
+    re.DOTALL,
+)
+_TRAIL_EQN_RE = re.compile(r"\$\s*\((\d+)\)\s*$")
+_UNESCAPED_DOLLAR_RE = re.compile(r"(?<!\\)\$")
+_LATEX_COMMENT_RE = re.compile(r"(?<!\\)%")
+_LATEX_UNDERSCORE_RE = re.compile(r"\\([_^])")
+_LATEX_BRACKET_RE = re.compile(r"\\(?=[\[\]])")
+_WHITESPACE_RE = re.compile(r"\s+")
+_CITE_HREF_RE = re.compile(r'#\b(ref|citation|cite|footnote|fn|endnote|note)[-_]?\d+', re.I)
+_FIGURE_FRAG_RE = re.compile(r"S\d+\.F(\d+)$")
+_TABLE_FRAG_RE = re.compile(r"[SA]\d*\.?T(\d+)$")
+_APPENDIX_FRAG_RE = re.compile(r"A(\d+)$")
+_ALG_FRAG_RE = re.compile(r"alg(\d+)$")
+_SECTION_FRAG_RE = re.compile(r"S(\d+)$")
+_SUBSECTION_FRAG_RE = re.compile(r"S(\d+)\.SS(\d+)$")
+_TABLE_PART_RE = re.compile(r"\bltx_t(head|body|foot)\b")
+_INLINE_MATH_RE = re.compile(r"^\$([^$]+)\$\s*\((\d+)\)\s*$")
+_EQN_TRAIL_NUM_RE = re.compile(r"\s*\((\d+)\)\s*$")
+_DISPLAY_MATH_DOLLAR_RE = re.compile(r"^\$([^$]*)\$")
+_TABLE_CAPTION_RE = re.compile(r"Table\s+(\d+)\s*[:.]", re.I)
+_ALGORITHM_CAPTION_RE = re.compile(r"Algorithm\s+(\d+)\s*[:.\s]", re.I)
+_FIGURE_CAPTION_RE = re.compile(r"Figure\s+(\d+)\s*[:.]", re.I)
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def _simplify_display_math(content: str) -> str:
@@ -35,18 +60,13 @@ def _simplify_display_math(content: str) -> str:
     # 1. Simplify \raisebox{\hbox to 0.0pt{\hss\vbox to 0.0pt{\hbox{$X$}\vss}}} -> X
     #    ar5iv converts \ensuremath to \hbox{$...$}; in display math we don't need the $
     #    Allow \s* for line breaks (HTML annotation may have "0.0%\npt")
-    content = re.sub(
-        r"\\raisebox\{[^}]+\}\{\\hbox to 0\.0\s*pt\{\\hss\\vbox to 0\.0\s*pt\{\\hbox\{\$([^$]*)\$\}\\vss\}\}\}",
-        r"\1",
-        content,
-        flags=re.DOTALL,
-    )
+    content = _RAISEBOX_RE.sub(r"\1", content)
     # 2. Remove trailing $ before equation number: "$ (1)" -> "(1)"
-    content = re.sub(r"\$\s*\((\d+)\)\s*$", r"(\1)", content)
+    content = _TRAIL_EQN_RE.sub(r"(\1)", content)
     # 3. Replace $} with } (fix \hbox{...$} without breaking brace structure)
     content = content.replace("$}", "}")
     # 4. Remove all remaining unescaped $ (they break markdown $$ block parsing)
-    content = re.sub(r"(?<!\\)\$", "", content)
+    content = _UNESCAPED_DOLLAR_RE.sub("", content)
     return content
 
 
@@ -440,9 +460,9 @@ def convert_all_mathml_to_latex(root: BeautifulSoup) -> None:
         annotation = math.find("annotation", attrs={"encoding": "application/x-tex"})
         if annotation and annotation.text:
             latex_source = annotation.text.strip()
-            latex_source = re.sub(r"(?<!\\)%", "", latex_source)
-            latex_source = re.sub(r"\\([_^])", r"\1", latex_source)
-            latex_source = re.sub(r"\\(?=[\[\]])", "", latex_source)
+            latex_source = _LATEX_COMMENT_RE.sub("", latex_source)
+            latex_source = _LATEX_UNDERSCORE_RE.sub(r"\1", latex_source)
+            latex_source = _LATEX_BRACKET_RE.sub("", latex_source)
             math.replace_with(f"${latex_source}$")
         else:
             math.replace_with(math.get_text(" ", strip=True))
@@ -730,7 +750,7 @@ def _is_citation_link(href: str | None) -> bool:
     if "#core-collateral-R" in href:
         return True
     # Other citation patterns (e.g., #ref1, #citation-1, etc.)
-    if re.search(r'#(ref|citation|cite|footnote|fn|endnote|note)[-_]?\d+', href, re.I):
+    if _CITE_HREF_RE.search(href):
         return True
     return False
 
@@ -755,29 +775,29 @@ def _map_arxiv_fragment_to_anchor(fragment: str) -> str | None:
     if not frag:
         return None
     # Figure: S1.F1, S5.F7 -> figure-1, figure-7
-    m = re.match(r"S\d+\.F(\d+)$", frag)
+    m = _FIGURE_FRAG_RE.match(frag)
     if m:
         return f"#figure-{m.group(1)}"
     # Table: S5.T1, A2.T3 -> table-1, table-3
-    m = re.match(r"[SA]\d*\.?T(\d+)$", frag)
+    m = _TABLE_FRAG_RE.match(frag)
     if m:
         return f"#table-{m.group(1)}"
     # Appendix: A1, A2, A3 -> appendix-a, appendix-b, appendix-c
-    m = re.match(r"A(\d+)$", frag)
+    m = _APPENDIX_FRAG_RE.match(frag)
     if m:
         n = int(m.group(1))
         if 1 <= n <= 26:
             return f"#appendix-{chr(96 + n)}"
     # Algorithm: alg1, alg2 -> algorithm-1, algorithm-2
-    m = re.match(r"alg(\d+)$", frag)
+    m = _ALG_FRAG_RE.match(frag)
     if m:
         return f"#algorithm-{m.group(1)}"
     # Section: S1 -> section-1
-    m = re.match(r"S(\d+)$", frag)
+    m = _SECTION_FRAG_RE.match(frag)
     if m:
         return f"#section-{m.group(1)}"
     # Subsection: S4.SS1, S5.SS2 -> section-4-1, section-5-2
-    m = re.match(r"S(\d+)\.SS(\d+)$", frag)
+    m = _SUBSECTION_FRAG_RE.match(frag)
     if m:
         return f"#section-{m.group(1)}-{m.group(2)}"
     return None
@@ -860,7 +880,7 @@ def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = Fals
 def _cleanup_inline_text(text: str) -> str:
     # Collapse multiple whitespace (including newlines) to single space
     # This fixes unwanted line breaks within paragraphs
-    text = re.sub(r"\s+", " ", text)
+    text = _WHITESPACE_RE.sub(" ", text)
     return text.strip()
 
 
@@ -931,7 +951,7 @@ def _rows_from_ltx_span_tabular(
         if not isinstance(child, Tag):
             continue
         cc = " ".join(child.get("class", []))
-        if not re.search(r"\bltx_t(head|body|foot)\b", cc):
+        if not _TABLE_PART_RE.search(cc):
             continue
         for row in child.children:
             if isinstance(row, Tag) and _is_ltx_tabular_row(row):
@@ -964,13 +984,13 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
             return ""
         # Fix: convert_all_mathml replaces math with $formula$; eqn number is separate.
         # Pattern "$formula$ (n)" -> "formula(n)" for correct $$ formula(n) $$
-        eqn_match = re.match(r"^\$([^$]+)\$\s*\((\d+)\)\s*$", eqn_text.strip())
+        eqn_match = _INLINE_MATH_RE.match(eqn_text.strip())
         if eqn_match:
             eqn_text = f"{eqn_match.group(1)}({eqn_match.group(2)})"
         else:
             # Fallback: formula may contain $ from ar5iv annotations; strip outer $ and extract (n)
             stripped = eqn_text.strip()
-            num_match = re.search(r"\s*\((\d+)\)\s*$", stripped)
+            num_match = _EQN_TRAIL_NUM_RE.search(stripped)
             if num_match:
                 body = stripped[: num_match.start()].strip()
                 num = num_match.group(1)
@@ -981,7 +1001,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
                 if len(stripped) >= 2 and stripped.startswith("$") and stripped.endswith("$"):
                     eqn_text = stripped[1:-1]
                 else:
-                    eqn_text = re.sub(r"^\$([^$]*)\$", r"\1", stripped)
+                    eqn_text = _DISPLAY_MATH_DOLLAR_RE.sub(r"\1", stripped)
         # Escape $ inside $$ block so markdown doesn't parse as inline math
         eqn_text = _sanitize_display_math(eqn_text)
         return f"$$\n{eqn_text}\n$$"
@@ -1088,7 +1108,7 @@ def _serialize_figure(
         tabular = _find_tabular_in_figure(figure)
         if tabular:
             table_md = _serialize_tabular_node(tabular, remove_inline_citations=remove_inline_citations)
-            m = re.match(r"Table\s+(\d+)\s*[:.]", caption, re.I)
+            m = _TABLE_CAPTION_RE.match(caption)
             if m:
                 lines.append(f'<a id="table-{m.group(1)}"></a>')
                 lines.append("")
@@ -1102,7 +1122,7 @@ def _serialize_figure(
         return "\n".join(lines).strip()
 
     if is_algorithm_figure:
-        m = re.match(r"Algorithm\s+(\d+)\s*[:.\s]", caption, re.I)
+        m = _ALGORITHM_CAPTION_RE.match(caption)
         if m:
             lines.append(f'<a id="algorithm-{m.group(1)}"></a>')
             lines.append("")
@@ -1147,7 +1167,7 @@ def _serialize_figure(
                 figure_counter[0] += 1
 
     if raster_paths:
-        m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
+        m = _FIGURE_CAPTION_RE.match(caption)
         if m:
             lines.append(f'<a id="figure-{m.group(1)}"></a>')
             lines.append("")
@@ -1160,13 +1180,13 @@ def _serialize_figure(
         return "\n".join(lines).strip()
 
     if svg_html and images_dir is not None:
-        m = re.match(r"Figure\s+(\d+)\s*[:.]", caption, re.I)
+        m = _FIGURE_CAPTION_RE.match(caption)
         figure_num = m.group(1) if m else None
         if figure_num:
             base_name = f"figure_{figure_num}"
         else:
             base_name = figure.get("id") or (svg_tag.get("id") if svg_tag and svg_tag.get("id") else "svg_figure")
-        base_name = re.sub(r"[^A-Za-z0-9_.-]", "_", str(base_name))
+        base_name = _SAFE_NAME_RE.sub("_", str(base_name))
         filename = base_name if base_name.lower().endswith(".svg") else f"{base_name}.svg"
         svg_path = images_dir / filename
         dup = 1
@@ -1221,4 +1241,4 @@ def _serialize_figure(
 
 
 def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    return _WHITESPACE_RE.sub(" ", text).strip()

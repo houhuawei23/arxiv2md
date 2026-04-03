@@ -24,6 +24,20 @@ class ParsedLatex(NamedTuple):
     abstract: str | None
 
 
+# Pre-compiled regex patterns for LaTeX parsing
+_INCLUDE_PATTERN = re.compile(r"\\(?:input|include)\{([^}]+)\}")
+_LSTINPUT_PATTERN = re.compile(r"\\lstinputlisting(?:\[[^\]]*\])?\{([^}]+)\}")
+_ENV_PATTERN = re.compile(r"\\(begin|end)\{([a-zA-Z*]+)\}")
+_TITLE_PATTERN = re.compile(r"\\title\s*\{")
+_AUTHOR_PATTERN = re.compile(r"\\author\s*\{")
+_ABSTRACT_PATTERN = re.compile(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", re.DOTALL)
+_AND_SPLIT_RE = re.compile(r"\\and|\\AND")
+_COMMENT_CLEAN_RE = re.compile(r'^\s*%\s*')
+_LATEX_CMD_RE = re.compile(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?")
+_BRACES_RE = re.compile(r"\{|\}")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
 def parse_latex_to_markdown(
     main_tex_file: Path,
     base_dir: Path,
@@ -75,8 +89,10 @@ def parse_latex_to_markdown(
             format="latex",
             extra_args=["--wrap=none"],  # Don't wrap lines
         )
-    except Exception as e:
+    except RuntimeError as e:
         raise RuntimeError(f"Failed to convert LaTeX to Markdown: {e}") from e
+    except OSError as e:
+        raise RuntimeError(f"Failed to convert LaTeX to Markdown (pandoc not found?): {e}") from e
 
     # Post-process markdown: fix equations, tables, figures, references, remove divs
     markdown = _postprocess_markdown(markdown, image_map)
@@ -125,12 +141,6 @@ def _resolve_includes_recursive(
         return ""
 
     content = tex_file.read_text(encoding="utf-8", errors="ignore")
-
-    # Pattern for \input{file}, \include{file}, and \lstinputlisting[opts]{file}
-    include_pattern = re.compile(r"\\(?:input|include)\{([^}]+)\}")
-    lstinput_pattern = re.compile(
-        r"\\lstinputlisting(?:\[[^\]]*\])?\{([^}]+)\}"
-    )
 
     def replace_include(match: re.Match[str]) -> str:
         # Skip commented-out includes (line starts with %)
@@ -191,14 +201,14 @@ def _resolve_includes_recursive(
                 try:
                     body = p.read_text(encoding="utf-8", errors="ignore")
                     return "\n```\n" + body.rstrip() + "\n```\n"
-                except Exception:
+                except (OSError, PermissionError, UnicodeDecodeError):
                     pass
         logger.warning(f"lstinputlisting file not found: {path_str}")
         return ""
 
     # Replace all includes
-    content = include_pattern.sub(replace_include, content)
-    content = lstinput_pattern.sub(replace_lstinputlisting, content)
+    content = _INCLUDE_PATTERN.sub(replace_include, content)
+    content = _LSTINPUT_PATTERN.sub(replace_lstinputlisting, content)
 
     # Fix orphan \end{...} that can occur when missing/circular includes are replaced with ""
     content = _fix_orphan_ends(content)
@@ -208,11 +218,10 @@ def _resolve_includes_recursive(
 
 def _fix_orphan_ends(tex_content: str) -> str:
     """Remove or comment orphan \\end{env} that have no matching \\begin{env}."""
-    env_pattern = re.compile(r"\\(begin|end)\{([a-zA-Z*]+)\}")
     stack: list[str] = []
     result_lines: list[str] = []
     for line in tex_content.split("\n"):
-        for m in env_pattern.finditer(line):
+        for m in _ENV_PATTERN.finditer(line):
             cmd, env = m.group(1), m.group(2)
             if cmd == "begin":
                 stack.append(env)
@@ -248,9 +257,9 @@ def _extract_title(tex_content: str) -> str | None:
     except ImportError:
         # TexSoup not available, fall back to regex
         pass
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError) as e:
         logger.debug(f"TexSoup extraction failed, falling back to regex: {e}")
-    
+
     # Fallback: regex with balanced brace matching
     return _extract_title_regex(tex_content)
 
@@ -258,8 +267,7 @@ def _extract_title(tex_content: str) -> str | None:
 def _extract_title_regex(tex_content: str) -> str | None:
     """Extract title using regex with balanced brace matching."""
     # Find \title{...} with balanced braces
-    pattern = r"\\title\s*\{"
-    match = re.search(pattern, tex_content)
+    match = _TITLE_PATTERN.search(tex_content)
     if not match:
         return None
     
@@ -301,11 +309,11 @@ def _extract_authors(tex_content: str) -> list[str]:
             author_text = _texsoup_extract_text(author_cmd)
             if author_text:
                 # Split by \and or \AND
-                author_parts = re.split(r"\\and|\\AND", author_text)
+                author_parts = _AND_SPLIT_RE.split(author_text)
                 for part in author_parts:
                     cleaned = part.strip()
                     # Remove comment markers and clean
-                    cleaned = re.sub(r'^\s*%\s*', '', cleaned)  # Remove leading % and whitespace
+                    cleaned = _COMMENT_CLEAN_RE.sub('', cleaned)  # Remove leading % and whitespace
                     cleaned = _clean_latex_text(cleaned)
                     if cleaned:
                         authors.append(cleaned)
@@ -313,9 +321,9 @@ def _extract_authors(tex_content: str) -> list[str]:
     except ImportError:
         # TexSoup not available, fall back to regex
         pass
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError) as e:
         logger.debug(f"TexSoup extraction failed, falling back to regex: {e}")
-    
+
     # Fallback: regex with balanced brace matching
     return _extract_authors_regex(tex_content)
 
@@ -324,8 +332,7 @@ def _extract_authors_regex(tex_content: str) -> list[str]:
     """Extract authors using regex with balanced brace matching."""
     authors: list[str] = []
     # Find \author{...} with balanced braces
-    pattern = r"\\author\s*\{"
-    match = re.search(pattern, tex_content)
+    match = _AUTHOR_PATTERN.search(tex_content)
     if not match:
         return authors
     
@@ -358,11 +365,7 @@ def _extract_authors_regex(tex_content: str) -> list[str]:
 def _extract_abstract(tex_content: str) -> str | None:
     """Extract abstract from LaTeX content."""
     # Look for \begin{abstract}...\end{abstract}
-    abstract_match = re.search(
-        r"\\begin\{abstract\}(.*?)\\end\{abstract\}",
-        tex_content,
-        re.DOTALL,
-    )
+    abstract_match = _ABSTRACT_PATTERN.search(tex_content)
     if abstract_match:
         return _clean_latex_text(abstract_match.group(1))
     return None
@@ -420,20 +423,20 @@ def _texsoup_extract_text(node) -> str:
         content = str(node)
     
     # Clean up: remove LaTeX commands that might remain
-    content = re.sub(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?", "", content)
-    content = re.sub(r"\{|\}", "", content)
-    content = re.sub(r"\s+", " ", content)
+    content = _LATEX_CMD_RE.sub("", content)
+    content = _BRACES_RE.sub("", content)
+    content = _WHITESPACE_RE.sub(" ", content)
     return content.strip()
 
 
 def _clean_latex_text(text: str) -> str:
     """Clean LaTeX text by removing commands and formatting."""
     # Remove comment markers first
-    text = re.sub(r'^\s*%\s*', '', text)
+    text = _COMMENT_CLEAN_RE.sub('', text)
     # Remove common LaTeX commands
-    text = re.sub(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?", "", text)
-    text = re.sub(r"\{|\}", "", text)
-    text = re.sub(r"\s+", " ", text)
+    text = _LATEX_CMD_RE.sub("", text)
+    text = _BRACES_RE.sub("", text)
+    text = _WHITESPACE_RE.sub(" ", text)
     return text.strip()
 
 

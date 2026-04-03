@@ -37,7 +37,8 @@ def test_resolve_paper_output_dir_from_metadata_str(tmp_path: Path) -> None:
     assert got == sub
 
 
-def test_write_split_markdown_sidecars(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_write_split_markdown_sidecars(tmp_path: Path) -> None:
     r = IngestionResult(
         summary="s",
         sections_tree="",
@@ -45,15 +46,16 @@ def test_write_split_markdown_sidecars(tmp_path: Path) -> None:
         content_references="refs",
         content_appendix="app",
     )
-    write_split_markdown_sidecars(tmp_path, "paper.md", r)
+    await write_split_markdown_sidecars(tmp_path, "paper.md", r)
     assert (tmp_path / "paper-References.md").read_text() == "refs"
     assert (tmp_path / "paper-Appendix.md").read_text() == "app"
 
 
-def test_write_result_json_sidecar(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_write_result_json_sidecar(tmp_path: Path) -> None:
     pdir = tmp_path / "p"
     pdir.mkdir()
-    write_result_json_sidecar(
+    await write_result_json_sidecar(
         tmp_path,
         pdir,
         result_key="1234.5678",

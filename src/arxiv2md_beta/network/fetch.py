@@ -11,8 +11,9 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.exceptions import NetworkError
-from arxiv2md_beta.network.http import async_http_client
+from arxiv2md_beta.network.http import async_http_client, get_http_client
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.aiofiles_compat import async_write_text
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 
@@ -36,17 +37,15 @@ async def fetch_arxiv_html(
 
     try:
         html_text = await _fetch_with_retries(html_url)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        html_path.write_text(html_text, encoding="utf-8")
+        await async_write_text(html_path, html_text, encoding="utf-8")
         return html_text
     except NetworkError as primary_error:
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                html_path.write_text(html_text, encoding="utf-8")
+                await async_write_text(html_path, html_text, encoding="utf-8")
                 return html_text
-            except Exception:
+            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError):
                 pass
         raise primary_error
 
@@ -57,32 +56,32 @@ async def _fetch_with_retries(url: str) -> str:
     retry_status = set(h.retry_status_codes)
     last_exc: Exception | None = None
 
-    async with async_http_client(timeout_s=h.fetch_timeout_s) as client:
-        for attempt in range(h.fetch_max_retries + 1):
-            try:
-                response = await client.get(url)
+    client = get_http_client()
+    for attempt in range(h.fetch_max_retries + 1):
+        try:
+            response = await client.get(url)
 
-                if response.status_code == 404:
-                    raise NetworkError(
-                        "This paper does not have an HTML version available on arXiv. "
-                        "arxiv2md-beta requires papers to be available in HTML format. "
-                        "Older papers may only be available as PDF."
-                    )
+            if response.status_code == 404:
+                raise NetworkError(
+                    "This paper does not have an HTML version available on arXiv. "
+                    "arxiv2md-beta requires papers to be available in HTML format. "
+                    "Older papers may only be available as PDF."
+                )
 
-                if response.status_code in retry_status:
-                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
-                else:
-                    response.raise_for_status()
-                    _ensure_html_response(response)
-                    return response.text
-            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
-                last_exc = exc
+            if response.status_code in retry_status:
+                last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
+            else:
+                response.raise_for_status()
+                _ensure_html_response(response)
+                return response.text
+        except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
+            last_exc = exc
 
-            if attempt < h.fetch_max_retries:
-                backoff = h.fetch_backoff_s * (2**attempt)
-                await asyncio.sleep(backoff)
+        if attempt < h.fetch_max_retries:
+            backoff = h.fetch_backoff_s * (2**attempt)
+            await asyncio.sleep(backoff)
 
-        raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}")
+    raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}")
 
 
 def _ensure_html_response(response: httpx.Response) -> None:

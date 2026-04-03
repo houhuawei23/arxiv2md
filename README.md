@@ -17,6 +17,12 @@
   - PDF 图片自动转换为 PNG
   - 将图片插入到 Markdown 文件中
   - **与 ar5iv 对齐**：HTML 中插图常为 `x1.png`、`x2.png` 等匿名文件名；TeX 侧在统计 `\includegraphics` 时会排除 `\icmltitle{…}` / `\title{…}` 以及 **`\affiliation[…]{…}`** 内的机构 logo（fairmeta 等模板），避免与正文 Figure 序号错位；正文图在可用时按 `<img src>` 与 TeX 输出文件名匹配
+- **性能优化**：
+  - HTTP 连接池复用：减少批量处理时的连接建立开销
+  - 图片异步并行处理：PDF 转换使用 `ProcessPoolExecutor`，普通图片使用线程池并发
+  - 正则表达式预编译：提升 HTML/LaTeX 解析性能
+  - 异步文件 I/O：避免文件操作阻塞事件循环
+  - 关键路径性能监控：内置 `timed_operation` 上下文管理器
 - **专业鲁棒**：
   - 完善的错误处理和异常处理
   - 使用 loguru 进行日志记录
@@ -170,7 +176,7 @@ arxiv2md-beta/
 │   └── arxiv2md_beta/
 │       ├── __init__.py
 │       ├── __main__.py           # python -m 入口（转调 cli.main）
-│       ├── cli/                  # Typer：app.py、runner.py、params.py、convert_cli.py、output_finalize.py、helpers.py
+│       ├── cli/                  # Typer：app.py、runner/、params.py、convert_cli.py、output_finalize.py、helpers.py
 │       ├── network/              # fetch、http（httpx 连接复用）、arxiv_api、crossref_api
 │       ├── query/                # parser.py：arXiv ID / URL / 本地归档
 │       ├── output/               # layout、formatter、metadata、metadata_tex（TeX 单位合并）
@@ -202,10 +208,11 @@ arxiv2md-beta/
 
 ### `images/resolver.py`
 
-处理图片文件：
-- 将 PDF 图片转换为 PNG
-- 复制其他格式的图片
+处理图片文件（支持异步并行）：
+- 将 PDF 图片转换为 PNG（CPU 密集型任务放入 `ProcessPoolExecutor`）
+- 复制其他格式的图片（通过线程池并发执行）
 - 生成图片映射表（figure_index -> local_path）及 **stem → 路径** 映射（含源文件名与输出文件名别名），供 HTML `<img src>` 解析
+- 通过信号量控制最大并发数，避免资源争用
 
 ### `html/markdown.py`
 
@@ -221,6 +228,7 @@ LaTeX 到 Markdown 转换：
 - 支持递归解析 `\input` 和 `\include`
 - 提取标题、作者、摘要等元数据
 - 替换图片引用为本地路径
+- 正则表达式预编译，减少解析时的 CPU 开销
 
 ## 测试
 
@@ -260,6 +268,7 @@ python demo/demo_arxiv2md_beta.py
 - `tiktoken`: Token 计数
 - `Pillow`: 图片处理
 - `pdf2image`: PDF 转 PNG
+- `aiofiles`: 异步文件 I/O
 - `typer`: 命令行子命令与帮助
 - `pypandoc` (可选): LaTeX 解析
 

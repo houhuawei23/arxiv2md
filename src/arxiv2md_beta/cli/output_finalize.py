@@ -5,17 +5,22 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+
+import httpx
+
 from arxiv2md_beta.cli.params import ConvertParams
+from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.output.layout import build_output_basename
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.aiofiles_compat import async_write_text
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
 
 
-def write_split_markdown_sidecars(
+async def write_split_markdown_sidecars(
     paper_output_dir: Path,
     output_filename: str,
     result: IngestionResult,
@@ -29,13 +34,13 @@ def write_split_markdown_sidecars(
     ref_path = paper_output_dir / f"{stem}-References.md"
     app_path = paper_output_dir / f"{stem}-Appendix.md"
     if has_ref:
-        ref_path.write_text(result.content_references or "", encoding="utf-8")
+        await async_write_text(ref_path, result.content_references or "", encoding="utf-8")
         logger.info(f"References written to: {ref_path}")
     elif ref_path.exists():
         ref_path.unlink()
         logger.info(f"References removed (empty split): {ref_path}")
     if has_app:
-        app_path.write_text(result.content_appendix or "", encoding="utf-8")
+        await async_write_text(app_path, result.content_appendix or "", encoding="utf-8")
         logger.info(f"Appendix written to: {app_path}")
     elif app_path.exists():
         app_path.unlink()
@@ -68,7 +73,7 @@ def _result_json_filename_key(arxiv_id: str) -> str:
     return s.replace("/", "_")
 
 
-def write_result_json_sidecar(
+async def write_result_json_sidecar(
     base_output_dir: Path,
     paper_output_dir: Path,
     *,
@@ -88,8 +93,10 @@ def write_result_json_sidecar(
         payload["structured_paths"] = structured.get("paths")
     name = f".arxiv2md-result-{_result_json_filename_key(result_key)}.json"
     path = base_output_dir / name
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=0) + "\n", encoding="utf-8"
+    await async_write_text(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=0) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -157,7 +164,7 @@ async def finalize_convert_output(
 
     emit_result_json_line(paper_output_dir, params=params, structured=structured)
     try:
-        write_result_json_sidecar(
+        await write_result_json_sidecar(
             base_output_dir,
             paper_output_dir,
             result_key=result_key,
@@ -190,9 +197,9 @@ async def finalize_convert_output(
         output_filename = f"{fallback_md_stem}.md"
 
     output_path = paper_output_dir / output_filename
-    output_path.write_text(output_text, encoding="utf-8")
+    await async_write_text(output_path, output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
-    write_split_markdown_sidecars(paper_output_dir, output_filename, result)
+    await write_split_markdown_sidecars(paper_output_dir, output_filename, result)
 
     if pdf_fetch is not None:
         arxiv_id, version = pdf_fetch
@@ -201,7 +208,7 @@ async def finalize_convert_output(
             pdf_path = paper_output_dir / pdf_filename
             await fetch_arxiv_pdf(arxiv_id, pdf_path, version)
             logger.info(f"PDF downloaded to: {pdf_path}")
-        except Exception as e:
+        except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
             logger.warning(f"Failed to download PDF: {e}")
 
     if log_local_success:

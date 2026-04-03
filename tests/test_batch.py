@@ -36,7 +36,7 @@ def _template() -> ConvertParams:
 async def test_run_batch_flow_skips_comments_and_blank() -> None:
     mock = AsyncMock(return_value=Path("/tmp/out"))
     lines = ["", "  ", "# comment", "2501.11120"]
-    with patch("arxiv2md_beta.cli.runner.run_convert_flow", mock):
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", mock):
         out = await run_batch_flow(
             lines,
             params_template=_template(),
@@ -60,7 +60,7 @@ async def test_run_batch_flow_continue_on_error_collects() -> None:
         return Path("/ok")
 
     lines = ["good1", "bad", "good2"]
-    with patch("arxiv2md_beta.cli.runner.run_convert_flow", side_effect=side_effect):
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
         out = await run_batch_flow(
             lines,
             params_template=_template(),
@@ -85,7 +85,7 @@ async def test_run_batch_flow_fail_fast_stops() -> None:
         return Path("/ok")
 
     lines = ["good1", "bad", "good2"]
-    with patch("arxiv2md_beta.cli.runner.run_convert_flow", side_effect=side_effect):
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
         out = await run_batch_flow(
             lines,
             params_template=_template(),

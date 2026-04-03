@@ -5,18 +5,44 @@ from __future__ import annotations
 from pathlib import Path
 
 from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, fetch_arxiv_metadata
-from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
+from arxiv2md_beta.utils.metrics import async_timed_operation
 
 from loguru import logger
 
 
 async def ingest_paper_latex(
+    *,
+    arxiv_id: str,
+    version: str | None,
+    base_output_dir: Path,
+    no_images: bool = False,
+    source: str = "Arxiv",
+    short: str | None = None,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
+) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+    """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown."""
+    async with async_timed_operation(f"ingest_paper_latex({arxiv_id})"):
+        return await _ingest_paper_latex_impl(
+            arxiv_id=arxiv_id,
+            version=version,
+            base_output_dir=base_output_dir,
+            no_images=no_images,
+            source=source,
+            short=short,
+            structured_output=structured_output,
+            emit_graph_csv=emit_graph_csv,
+        )
+
+
+async def _ingest_paper_latex_impl(
     *,
     arxiv_id: str,
     version: str | None,
@@ -74,7 +100,7 @@ async def ingest_paper_latex(
     # Process images if enabled
     processed_images = None
     if not no_images:
-        processed_images = process_images(tex_source_info, paper_output_dir, images_dir_name)
+        processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
 
     # Build image map from LaTeX labels/paths to local paths
     # The image_map from tex_source_info uses labels, we need to map them to processed images
@@ -182,3 +208,4 @@ async def ingest_paper_latex(
     }
 
     return result, metadata
+
