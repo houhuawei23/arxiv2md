@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from arxiv2md_beta.cli.config_cmd import app as config_app
 from arxiv2md_beta.cli.convert_cli import (
     apply_convert_cli_settings,
     make_convert_params,
@@ -176,6 +177,11 @@ def convert_cmd(
         "--emit-graph-csv",
         help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
     ),
+    no_use_cache: bool = typer.Option(
+        False,
+        "--no-use-cache",
+        help="Disable result-level caching (re-convert even if cached result exists).",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -203,6 +209,7 @@ def convert_cmd(
         emit_result_json=emit_result_json,
         so=so,
         emit_graph_csv=emit_graph_csv,
+        use_cache=not no_use_cache,
     )
     try:
         run_convert_sync(params)
@@ -318,6 +325,11 @@ def batch_cmd(
         "--fail-fast",
         help="Stop on first error (default: process all lines and report failures).",
     ),
+    no_use_cache: bool = typer.Option(
+        False,
+        "--no-use-cache",
+        help="Disable result-level caching for batch conversions.",
+    ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -345,6 +357,7 @@ def batch_cmd(
         emit_result_json=emit_result_json,
         so=so,
         emit_graph_csv=emit_graph_csv,
+        use_cache=not no_use_cache,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:
@@ -489,6 +502,98 @@ def images_cmd(
     )
     try:
         run_images_sync(params)
+    except BaseException as exc:
+        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+            raise
+        _handle_command_error(logger, exc)
+
+
+app.add_typer(config_app, name="config")
+
+
+@app.command("bibtex")
+def bibtex_cmd(
+    arxiv_input: str = typer.Argument(
+        ...,
+        metavar="ARXIV",
+        help="arXiv ID, URL, or path to local HTML/Markdown file containing bibliography.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        metavar="FILE",
+        help="Output BibTeX file path (default: stdout).",
+    ),
+    resolve: bool = typer.Option(
+        True,
+        "--resolve/--no-resolve",
+        help="Resolve DOIs to full metadata via Crossref.",
+    ),
+) -> None:
+    """Extract bibliography and export as BibTeX."""
+    import asyncio
+
+    from arxiv2md_beta.citations import (
+        export_bibtex,
+        parse_citations_from_html,
+        parse_citations_from_text,
+    )
+    from arxiv2md_beta.network.fetch import fetch_arxiv_html
+    from arxiv2md_beta.query.parser import parse_arxiv_input
+
+    logger = get_logger()
+
+    async def _run():
+        # Check if input is a local file
+        input_path = Path(arxiv_input)
+        if input_path.exists():
+            content = input_path.read_text(encoding="utf-8")
+            if input_path.suffix.lower() in (".html", ".htm"):
+                citations = parse_citations_from_html(content)
+            else:
+                # Assume plain text/markdown
+                citations = parse_citations_from_text(content)
+        else:
+            # Fetch from arXiv
+            query = parse_arxiv_input(arxiv_input)
+            html = await fetch_arxiv_html(
+                query.html_url,
+                arxiv_id=query.arxiv_id,
+                version=query.version,
+                ar5iv_url=query.ar5iv_url,
+            )
+            citations = parse_citations_from_html(html)
+
+        if not citations:
+            typer.echo("No citations found.", err=True)
+            raise typer.Exit(code=1)
+
+        if resolve:
+            bibtex = await export_bibtex(citations)
+        else:
+            # Export without resolving
+            from arxiv2md_beta.citations.formatter import format_bibtex_database
+            from arxiv2md_beta.citations.models import CitationEntry
+
+            entries = [
+                CitationEntry(
+                    key=c.key,
+                    raw_text=c.text,
+                    entry_type="misc",
+                )
+                for c in citations
+            ]
+            bibtex = format_bibtex_database(entries)
+
+        if output:
+            output.write_text(bibtex, encoding="utf-8")
+            typer.echo(f"BibTeX exported to {output}")
+        else:
+            typer.echo(bibtex)
+
+    try:
+        asyncio.run(_run())
     except BaseException as exc:
         if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
             raise

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from arxiv2md_beta.cache import get_result_cache
 from arxiv2md_beta.ingestion.html import ingest_paper_html
 from arxiv2md_beta.ingestion.latex import ingest_paper_latex
 from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.utils.logging_config import get_logger
+
+logger = get_logger()
 
 
 async def ingest_paper(
@@ -27,6 +31,7 @@ async def ingest_paper(
     short: str | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
+    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Main ingestion function that routes to HTML or LaTeX parser.
 
@@ -56,6 +61,8 @@ async def ingest_paper(
         Base output directory (paper-specific directory will be created inside)
     no_images : bool
         Skip image processing
+    use_cache : bool
+        Use result-level caching (default: True)
 
     Returns
     -------
@@ -64,8 +71,28 @@ async def ingest_paper(
     """
     sections = sections or []
 
+    # Try cache first if enabled
+    if use_cache:
+        cache = get_result_cache()
+        cached = await cache.get(
+            arxiv_id=arxiv_id,
+            version=version,
+            parser=parser,
+            remove_refs=remove_refs,
+            remove_toc=remove_toc,
+            remove_inline_citations=remove_inline_citations,
+            section_filter_mode=section_filter_mode,
+            sections=sections,
+            no_images=no_images,
+        )
+        if cached:
+            logger.info(f"Returning cached result for {arxiv_id}")
+            result = IngestionResult(content=cached.content)
+            return result, cached.metadata
+
+    # Perform ingestion
     if parser == "latex":
-        return await ingest_paper_latex(
+        result, metadata = await ingest_paper_latex(
             arxiv_id=arxiv_id,
             version=version,
             base_output_dir=base_output_dir,
@@ -76,7 +103,7 @@ async def ingest_paper(
             emit_graph_csv=emit_graph_csv,
         )
     else:  # html
-        return await ingest_paper_html(
+        result, metadata = await ingest_paper_html(
             arxiv_id=arxiv_id,
             version=version,
             html_url=html_url,
@@ -93,3 +120,21 @@ async def ingest_paper(
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
         )
+
+    # Cache the result if caching is enabled
+    if use_cache:
+        await cache.set(
+            arxiv_id=arxiv_id,
+            version=version,
+            parser=parser,
+            result=result,
+            metadata=metadata,
+            remove_refs=remove_refs,
+            remove_toc=remove_toc,
+            remove_inline_citations=remove_inline_citations,
+            section_filter_mode=section_filter_mode,
+            sections=sections,
+            no_images=no_images,
+        )
+
+    return result, metadata

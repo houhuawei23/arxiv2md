@@ -184,6 +184,8 @@ arxiv2md-beta/
 │       ├── html/                 # parser、markdown、sections
 │       ├── latex/                # parser、tex_source、author_affiliations（从 TeX 解析作者单位）
 │       ├── ingestion/            # pipeline、html、latex、local
+│       ├── cache/                # 结果缓存等（与 HTTP 下载缓存目录配合）
+│       ├── citations/            # 参考文献解析与 BibTeX 等
 │       ├── config/               # 默认与环境 YAML
 │       ├── settings/             # Pydantic 配置加载
 │       ├── schemas/              # 数据模型与 JSON Schema（json/*.json）
@@ -237,6 +239,14 @@ LaTeX 到 Markdown 转换：
 ```bash
 pytest tests/
 ```
+
+可选：仅运行性能基准（需安装 `pytest-benchmark`，已包含在 `dev` 额外依赖中）：
+
+```bash
+pytest tests/benchmarks/ --benchmark-only
+```
+
+**说明**：集成测试里若未关闭 `use_cache`，可能命中 `~/.cache/arxiv2md-beta` 下已有缓存，从而绕过 `respx` 的 HTTP mock；仓库内相关用例已对 `fetch_arxiv_html` 使用 `use_cache=False`。
 
 运行 demo：
 

@@ -1242,3 +1242,129 @@ def _serialize_figure(
 
 def _normalize_text(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+# =============================================================================
+# REFACTORED: Pluggable Serializer Architecture (Phase 1)
+# =============================================================================
+# The following functions provide a new serializer-based approach for
+# converting HTML to Markdown. Each HTML element type has its own serializer
+# class, making the code more modular and maintainable.
+#
+# To use the new serializers:
+#   from arxiv2md_beta.html.serializers import get_default_registry, SerializerContext
+#   registry = get_default_registry()
+#   context = SerializerContext()
+#   markdown = registry.serialize_block(soup, context)
+#
+# This is a gradual refactoring - the original functions remain for backward
+# compatibility while the new serializers are being tested.
+# =============================================================================
+
+
+def convert_html_to_markdown_v2(
+    html: str,
+    *,
+    remove_refs: bool = False,
+    remove_toc: bool = False,
+    image_map: dict[int, Path] | None = None,
+    image_stem_map: dict[str, Path] | None = None,
+    images_dir: Path | None = None,
+) -> str:
+    """Convert arXiv HTML to Markdown using the new serializer architecture.
+
+    This is the refactored version using pluggable serializers.
+    Each HTML element type is handled by its own serializer class,
+    making the code more modular and easier to maintain.
+
+    Parameters
+    ----------
+    html : str
+        HTML content
+    remove_refs : bool
+        Remove bibliography sections
+    remove_toc : bool
+        Remove table of contents
+    image_map : dict[int, Path] | None
+        Mapping from figure index to local image path
+    image_stem_map : dict[str, Path] | None
+        TeX/source stem to processed path mapping
+    images_dir : Path | None
+        Directory containing processed images
+
+    Returns
+    -------
+    str
+        Markdown content
+    """
+    from arxiv2md_beta.html.serializers import get_default_registry, SerializerContext
+
+    soup = BeautifulSoup(html, "html.parser")
+    registry = get_default_registry()
+    context = SerializerContext(
+        image_map=image_map,
+        image_stem_map=image_stem_map,
+        images_dir=images_dir,
+    )
+
+    # Strip unwanted elements
+    _strip_unwanted_elements(soup)
+
+    # Handle TOC
+    toc_markdown = None
+    toc_nav = soup.find("nav", class_=re.compile(r"ltx_TOC"))
+    if toc_nav and not remove_toc:
+        toc_markdown = _serialize_toc(toc_nav)
+
+    # Remove bibliography if requested
+    if remove_refs:
+        for ref in soup.find_all("section", class_=re.compile(r"ltx_bibliography")):
+            ref.decompose()
+
+    # Convert MathML to LaTeX
+    convert_all_mathml_to_latex(soup)
+
+    # Fix tabular tables
+    fix_tabular_tables(soup)
+
+    # Find document root
+    root = _find_document_root(soup)
+
+    # Extract metadata elements
+    title_tag = root.find("h1", class_=re.compile(r"ltx_title_document"))
+    authors_tag = root.find("div", class_=re.compile(r"ltx_authors"))
+    abstract_tag = root.find("div", class_=re.compile(r"ltx_abstract"))
+
+    # Build output blocks
+    blocks: list[str] = []
+
+    if title_tag:
+        blocks.append(f"# {_normalize_text(title_tag.get_text(' ', strip=True))}")
+
+    if authors_tag:
+        authors_text = _normalize_text(authors_tag.get_text(" ", strip=True))
+        if authors_text:
+            blocks.append(f"Authors: {authors_text}")
+
+    if toc_markdown:
+        blocks.append("## Contents\n" + toc_markdown)
+
+    if abstract_tag:
+        blocks.extend(_serialize_abstract(abstract_tag))
+
+    # Remove processed elements
+    for tag in (title_tag, authors_tag, abstract_tag):
+        if tag:
+            tag.decompose()
+
+    # Serialize remaining content using new serializers
+    for child in root.children:
+        if isinstance(child, Tag):
+            block = registry.serialize_block(child, context)
+            if block:
+                if isinstance(block, list):
+                    blocks.extend(b for b in block if b)
+                else:
+                    blocks.append(block)
+
+    return "\n\n".join(block for block in blocks if block).strip()

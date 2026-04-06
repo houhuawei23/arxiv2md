@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2md-beta"
-version = "0.6.0"
+version = "0.6.1"
 description = "Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
@@ -24,6 +24,15 @@ latex = [
     "pypandoc>=1.12",
     "TexSoup>=0.3.0",
 ]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
+    "respx>=0.20.0",
+    "pre-commit>=3.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.8.0",
+]
 
 [project.scripts]
 arxiv2md-beta = "arxiv2md_beta.cli:main"
@@ -45,3 +54,61 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "D",   # pydocstyle
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "ASYNC", # flake8-async
+]
+ignore = [
+    "D100",  # Missing docstring in public module
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in __init__
+    "D203",  # 1 blank line required before class docstring (conflicts with D211)
+    "D213",  # Multi-line docstring summary should start at the second line (conflicts with D212)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["arxiv2md_beta"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+show_error_codes = true
+exclude = ["tests/", "demo/"]

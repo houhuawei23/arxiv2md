@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-06
+
+### Fixed
+
+- **Tests**: `tests/benchmarks/test_performance.py` no longer passes `timer="time.perf_counter"` as a string to `pytest.mark.benchmark` (pytest-benchmark requires a callable; a string broke timer calibration).
+- **Tests**: Mocked `fetch_arxiv_html` integration tests now call `use_cache=False` so results do not come from `~/.cache/arxiv2md-beta` and bypass the mocked HTTP layer.
+
+### Changed
+
+- **`__version__`**: Aligned `arxiv2md_beta.__version__` with `pyproject.toml` (was stale).
+
 ## [0.6.0] - 2026-04-04
 
 ### Added

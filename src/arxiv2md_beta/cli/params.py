@@ -26,6 +26,7 @@ class ConvertParams:
     emit_result_json: bool = False
     structured_output: str = "none"
     emit_graph_csv: bool = False
+    use_cache: bool = True
 
 
 @dataclass(frozen=True)

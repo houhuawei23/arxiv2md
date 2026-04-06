@@ -1,0 +1,18 @@
+{
+    "arxiv_id": "2501.12345",
+    "version": "v1",
+    "title": "A Sample Paper for Testing",
+    "authors": ["John Doe", "Jane Smith"],
+    "abstract": "This is a sample abstract for testing the arxiv2md-beta converter.",
+    "published": "2024-01-15",
+    "primary_category": "cs.CL",
+    "categories": ["cs.CL", "cs.LG"],
+    "doi": "10.1234/example.12345",
+    "journal_ref": null,
+    "comments": "12 pages, 5 figures",
+    "links": {
+        "abs": "https://arxiv.org/abs/2501.12345",
+        "pdf": "https://arxiv.org/pdf/2501.12345",
+        "html": "https://arxiv.org/html/2501.12345"
+    }
+}

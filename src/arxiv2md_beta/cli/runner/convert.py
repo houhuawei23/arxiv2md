@@ -72,6 +72,7 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         short=params.short,
         structured_output=params.structured_output,
         emit_graph_csv=params.emit_graph_csv,
+        use_cache=params.use_cache,
     )
 
     base_id = query.arxiv_id.split("v")[0] if "v" in query.arxiv_id else query.arxiv_id

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Sample Paper Title</title>
+</head>
+<body>
+    <article class="ltx_document">
+        <h1 class="ltx_title_document">A Sample Paper for Testing</h1>
+        <div class="ltx_authors">
+            <span class="ltx_author">
+                <span class="ltx_personname">John Doe</span>
+            </span>
+            <span class="ltx_author">
+                <span class="ltx_personname">Jane Smith</span>
+            </span>
+        </div>
+
+        <div class="ltx_abstract">
+            <h6 class="ltx_title">Abstract</h6>
+            <p>This is a sample abstract for testing the arxiv2md-beta converter.</p>
+        </div>
+
+        <nav class="ltx_TOC">
+            <h6 class="ltx_title">Contents</h6>
+            <ol>
+                <li><a href="#S1">Introduction</a></li>
+                <li><a href="#S2">Methods</a></li>
+                <li><a href="#S3">Results</a></li>
+                <li><a href="#S4">Conclusion</a></li>
+            </ol>
+        </nav>
+
+        <section id="S1" class="ltx_section">
+            <h2>1. Introduction</h2>
+            <p>This is the introduction section. It contains <em>emphasized</em> and <strong>strong</strong> text.</p>
+            <p>Here is an inline math example: <math><annotation encoding="application/x-tex">E = mc^2</annotation></math>.</p>
+        </section>
+
+        <section id="S2" class="ltx_section">
+            <h2>2. Methods</h2>
+            <p>We describe our methodology in this section.</p>
+            <figure class="ltx_figure" id="S2.F1">
+                <img src="x1.png" alt="Figure 1" class="ltx_graphics">
+                <figcaption>Figure 1: Sample figure showing experimental setup.</figcaption>
+            </figure>
+            <div class="ltx_listing">
+                <div class="ltx_listing_data">
+                    <a href="data:text/plain;base64,cHJpbnQoImhlbGxvIik=">code.py</a>
+                </div>
+            </div>
+        </section>
+
+        <section id="S3" class="ltx_section">
+            <h2>3. Results</h2>
+            <p>Our results are summarized in Table 1.</p>
+            <figure class="ltx_table" id="S3.T1">
+                <table class="ltx_tabular">
+                    <thead>
+                        <tr><th>Method</th><th>Accuracy</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>A</td><td>0.95</td></tr>
+                        <tr><td>B</td><td>0.92</td></tr>
+                    </tbody>
+                </table>
+                <figcaption>Table 1: Comparison of methods.</figcaption>
+            </figure>
+            <ul>
+                <li>First point</li>
+                <li>Second point</li>
+                <li>Third point with <a href="https://example.com">link</a></li>
+            </ul>
+        </section>
+
+        <section id="S4" class="ltx_section">
+            <h2>4. Conclusion</h2>
+            <p>We conclude with some final thoughts.</p>
+            <blockquote>
+                <p>This is a blockquote with important information.</p>
+            </blockquote>
+        </section>
+
+        <section class="ltx_bibliography" id="bib">
+            <h2>References</h2>
+            <ul>
+                <li id="bib.bib1">[1] Smith et al. (2024)</li>
+                <li id="bib.bib2">[2] Doe et al. (2023)</li>
+            </ul>
+        </section>
+    </article>
+</body>
+</html>

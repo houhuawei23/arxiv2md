@@ -1,0 +1,63 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+
+\title{A Sample Paper for Testing}
+\author{John Doe \\ Institution One \and Jane Smith \\ Institution Two}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This is a sample abstract for testing the arxiv2md-beta converter.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+This is the introduction section. We present our main equation:
+\begin{equation}
+    E = mc^2
+    \label{eq:emc2}
+\end{equation}
+
+\section{Methods}
+\label{sec:methods}
+
+We describe our methodology in this section. See Figure~\ref{fig:setup}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figure1.png}
+    \caption{Sample figure showing experimental setup.}
+    \label{fig:setup}
+\end{figure}
+
+\section{Results}
+\label{sec:results}
+
+Our results are summarized in Table~\ref{tab:comparison}.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lc}
+        \toprule
+        Method & Accuracy \\
+        \midrule
+        A & 0.95 \\
+        B & 0.92 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Comparison of methods.}
+    \label{tab:comparison}
+\end{table}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We conclude with some final thoughts.
+
+\bibliography{references}
+
+\end{document}

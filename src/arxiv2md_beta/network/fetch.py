@@ -10,6 +10,8 @@ from pathlib import Path
 import httpx
 from loguru import logger
 
+from aiofiles import open as aio_open
+
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.http import async_http_client, get_http_client
 from arxiv2md_beta.settings import get_settings
@@ -161,9 +163,9 @@ async def fetch_arxiv_pdf(
                             total_size if total_size > 0 else None,
                             disable=disable_tqdm,
                         ) as advance:
-                            with open(cache_path, "wb") as f:
+                            async with aio_open(cache_path, "wb") as f:
                                 async for chunk in response.aiter_bytes():
-                                    f.write(chunk)
+                                    await f.write(chunk)
                                     advance(len(chunk))
 
                         output_path.parent.mkdir(parents=True, exist_ok=True)
