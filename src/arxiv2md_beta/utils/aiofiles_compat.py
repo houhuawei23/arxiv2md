@@ -23,9 +23,13 @@ async def async_read_text(path: Path, encoding: str = "utf-8") -> str:
 
 
 async def async_write_json(path: Path, data: Any, encoding: str = "utf-8") -> None:
-    """Asynchronously write JSON *data* to *path*."""
+    """Asynchronously write JSON *data* to *path*.
+
+    Uses ``default=str`` so ``pathlib.Path`` and similar values in cached
+    metadata serialize as strings instead of failing the encoder.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = json.dumps(data, ensure_ascii=False, indent=2)
+    content = json.dumps(data, ensure_ascii=False, indent=2, default=str)
     async with aiofiles.open(path, "w", encoding=encoding) as f:
         await f.write(content)
 

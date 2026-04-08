@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from arxiv2md_beta.cache import ResultCache, get_result_cache, reset_result_cache
@@ -45,6 +47,37 @@ class TestResultCache:
         assert cached is not None
         assert cached.content == "Test markdown content"
         assert cached.metadata["title"] == "Test Paper"
+
+    @pytest.mark.asyncio
+    async def test_cache_set_with_posix_path_in_metadata(self, cache: ResultCache, tmp_path: Path):
+        """Ingestion passes paper_output_dir as Path; cache JSON must still serialize."""
+        result = IngestionResult(
+            content="Body",
+            summary="S",
+            sections_tree="[]",
+        )
+        out_dir = tmp_path / "paper_out"
+        metadata = {
+            "title": "P",
+            "arxiv_id": "2310.08864",
+            "paper_output_dir": out_dir,
+        }
+
+        await cache.set(
+            arxiv_id="2310.08864",
+            version=None,
+            parser="latex",
+            result=result,
+            metadata=metadata,
+        )
+
+        cached = await cache.get(
+            arxiv_id="2310.08864",
+            version=None,
+            parser="latex",
+        )
+        assert cached is not None
+        assert cached.metadata["paper_output_dir"] == str(out_dir)
 
     @pytest.mark.asyncio
     async def test_cache_miss(self, cache: ResultCache):

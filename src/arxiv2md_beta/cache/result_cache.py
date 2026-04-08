@@ -61,6 +61,8 @@ class CachedResult:
     metadata: dict
     cache_key: str
     cache_version: str = "1.0"
+    summary: str = ""
+    sections_tree: str = ""
 
 
 class ResultCache:
@@ -70,7 +72,7 @@ class ResultCache:
     keyed by a hash of the conversion parameters.
     """
 
-    CACHE_VERSION = "1.0"
+    CACHE_VERSION = "1.1"
     CACHE_SUBDIR = "results"
 
     def __init__(self, cache_dir: Path | None = None) -> None:
@@ -176,6 +178,8 @@ class ResultCache:
                 metadata=data["metadata"],
                 cache_key=key_hash,
                 cache_version=data.get("cache_version", "1.0"),
+                summary=data.get("summary", ""),
+                sections_tree=data.get("sections_tree", ""),
             )
         except (json.JSONDecodeError, KeyError, OSError) as e:
             logger.warning(f"Failed to read cache for {arxiv_id}: {e}")
@@ -235,6 +239,8 @@ class ResultCache:
             "version": version,
             "parser": parser,
             "content": result.content,
+            "summary": result.summary,
+            "sections_tree": result.sections_tree,
             "metadata": metadata,
         }
 

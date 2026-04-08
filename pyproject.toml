@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2md-beta"
-version = "0.6.1"
+version = "0.6.2"
 description = "Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }

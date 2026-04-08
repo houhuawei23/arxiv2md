@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-08
+
+### Fixed
+
+- **Cache**: Fixed validation error when loading cached results after `IngestionResult` schema added `summary` and `sections_tree` fields. Bumped `CACHE_VERSION` from `"1.0"` to `"1.1"` to invalidate old cache entries automatically.
+- **Cache**: Added `default=str` to `json.dumps()` in `async_write_json()` so `pathlib.Path` values in metadata (e.g., `paper_output_dir`) serialize correctly instead of raising `TypeError`.
+
 ## [0.6.1] - 2026-04-06
 
 ### Fixed

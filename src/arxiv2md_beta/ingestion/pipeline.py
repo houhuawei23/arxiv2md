@@ -87,7 +87,11 @@ async def ingest_paper(
         )
         if cached:
             logger.info(f"Returning cached result for {arxiv_id}")
-            result = IngestionResult(content=cached.content)
+            result = IngestionResult(
+                content=cached.content,
+                summary=cached.summary,
+                sections_tree=cached.sections_tree,
+            )
             return result, cached.metadata
 
     # Perform ingestion
