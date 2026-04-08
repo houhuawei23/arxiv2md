@@ -20,6 +20,11 @@ from arxiv2md_beta.utils.logging_config import get_logger
 logger = get_logger()
 
 
+def _fix_citation_links(content: str, refs_filename: str) -> str:
+    """Replace #ref-N anchors with relative links to References file."""
+    return re.sub(r'\(#(ref-\d+)\)', rf'({refs_filename}#\1)', content)
+
+
 async def write_split_markdown_sidecars(
     paper_output_dir: Path,
     output_filename: str,
@@ -197,6 +202,10 @@ async def finalize_convert_output(
         output_filename = f"{fallback_md_stem}.md"
 
     output_path = paper_output_dir / output_filename
+
+    # Citation links are kept as #ref-N format (no file prefix)
+    # If References are split, links will point to anchors in the separate file
+
     await async_write_text(output_path, output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
     await write_split_markdown_sidecars(paper_output_dir, output_filename, result)

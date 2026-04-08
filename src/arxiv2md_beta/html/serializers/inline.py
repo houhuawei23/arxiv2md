@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 # Regex for detecting citation links
 _CITE_HREF_RE = re.compile(r'#\b(ref|citation|cite|footnote|fn|endnote|note)[-_]?\d+', re.I)
 
+# Regex to extract citation number from #bib.bibN format
+_BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
+
 
 class InlineTextSerializer(InlineSerializer):
     """Serializer for basic inline text formatting."""
@@ -53,6 +56,9 @@ class LinkSerializer(InlineSerializer):
         if self._is_citation_link(href):
             if context.remove_inline_citations:
                 return ''
+            ref_anchor = self._extract_citation_ref(href)
+            if ref_anchor:
+                return f"[{text}](#{ref_anchor})"
             return f"[{text}]"
 
         # Handle internal arXiv fragment links
@@ -63,6 +69,13 @@ class LinkSerializer(InlineSerializer):
 
         # Regular link
         return f"[{text}]({href})"
+
+    def _extract_citation_ref(self, href: str) -> str | None:
+        """Extract citation reference number from href like #bib.bib7 -> ref-7."""
+        m = _BIB_REF_RE.match(href)
+        if m:
+            return f"ref-{m.group(1)}"
+        return None
 
     def _is_citation_link(self, href: str) -> bool:
         """Check if link is a citation reference."""

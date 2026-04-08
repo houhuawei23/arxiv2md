@@ -733,6 +733,18 @@ def _serialize_paragraph_maybe_with_figures(
     return blocks
 
 
+# Regex to extract citation number from #bib.bibN format
+_BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
+
+
+def _extract_citation_ref(href: str) -> str | None:
+    """Extract citation reference number from href like #bib.bib7 -> ref-7."""
+    m = _BIB_REF_RE.match(href)
+    if m:
+        return f"ref-{m.group(1)}"
+    return None
+
+
 def _is_citation_link(href: str | None) -> bool:
     """Check if a link is a citation reference (e.g., #bib.bib7, #core-collateral-R1).
 
@@ -835,8 +847,11 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         if _is_citation_link(href):
             if remove_inline_citations:
                 return ""  # Completely remove citation
-            # Format citation as [N] instead of *N*
+            # Format citation as [N] with link to specific reference entry
             citation_text = node.get_text(strip=True)
+            ref_anchor = _extract_citation_ref(href) if href else None
+            if ref_anchor:
+                return f"[{citation_text}](#{ref_anchor})"
             return f"[{citation_text}]"
         # Handle internal paper links: replace with local markdown anchor
         if _is_internal_paper_link(href):
@@ -884,9 +899,24 @@ def _cleanup_inline_text(text: str) -> str:
     return text.strip()
 
 
+def _is_bibitem(item: Tag) -> tuple[bool, str]:
+    """Check if li is a bibliography item and return (is_bibitem, ref_anchor)."""
+    classes = " ".join(item.get("class", []))
+    if "ltx_bibitem" not in classes:
+        return False, ""
+    item_id = item.get("id", "")
+    m = re.match(r"bib\.bib(\d+)", item_id)
+    if m:
+        return True, f"ref-{m.group(1)}"
+    return False, ""
+
+
 def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: bool = False) -> list[str]:
     lines: list[str] = []
     for item in list_tag.find_all("li", recursive=False):
+        # Check if this is a bibliography item
+        is_bib, ref_anchor = _is_bibitem(item)
+
         item_text_parts: list[str] = []
         nested_lists: list[Tag] = []
         for child in item.children:
@@ -896,7 +926,15 @@ def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: 
                 item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations))
         item_text = _cleanup_inline_text("".join(item_text_parts))
         prefix = "  " * indent + "- "
-        lines.append(prefix + item_text if item_text else prefix.rstrip())
+
+        # For bibliography items, add anchor with id attribute
+        if is_bib and ref_anchor:
+            # Extract ref number from ref-N
+            ref_num = ref_anchor.replace("ref-", "")
+            lines.append(f'{prefix}<a id="{ref_anchor}"></a> [{ref_num}] {item_text}')
+        else:
+            lines.append(prefix + item_text if item_text else prefix.rstrip())
+
         for nested in nested_lists:
             lines.extend(_serialize_list(nested, indent + 1, remove_inline_citations=remove_inline_citations))
     return lines

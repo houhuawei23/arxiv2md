@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-04-08
+
+### Added
+
+- **Citations**: Inline citation links now generate clickable anchors to specific reference entries.
+  - Citations like `[7]` are converted to `[[7](#ref-7)]` format.
+  - References in the bibliography get `<a id="ref-N"></a>` anchors.
+  - This enables navigation from inline citations to their corresponding bibliography entries.
+
+### Changed
+
+- **Citations**: Changed citation output from plain text `[N]` to linked format `[[N](#ref-N)]`.
+
 ## [0.6.2] - 2026-04-08
 
 ### Fixed
