@@ -36,6 +36,7 @@ async def ingest_paper_latex(
     short: str | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
+    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown."""
     async with async_timed_operation(f"ingest_paper_latex({arxiv_id})"):
@@ -52,6 +53,7 @@ async def ingest_paper_latex(
             short=short,
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
+            use_cache=use_cache,
         )
 
 
@@ -69,6 +71,7 @@ async def _ingest_paper_latex_impl(
     short: str | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
+    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown.
 
@@ -117,7 +120,9 @@ async def _ingest_paper_latex_impl(
     images_dir_name = get_settings().cli_defaults.images_subdir
 
     # Fetch and extract TeX source
-    tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
+    tex_source_info = await fetch_and_extract_tex_source(
+        arxiv_id, version=version, use_cache=use_cache
+    )
 
     if not tex_source_info.main_tex_file:
         raise TexSourceNotFoundError(f"No main LaTeX file found for {arxiv_id}")
@@ -125,7 +130,9 @@ async def _ingest_paper_latex_impl(
     # Process images if enabled
     processed_images = None
     if not no_images:
-        processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
+        processed_images = await process_images_async(
+            tex_source_info, paper_output_dir, images_dir_name
+        )
 
     # Build image map from LaTeX labels/paths to local paths
     # The image_map from tex_source_info uses labels, we need to map them to processed images
@@ -156,10 +163,10 @@ async def _ingest_paper_latex_impl(
         raise RuntimeError(f"Failed to parse LaTeX: {e}") from e
 
     # Get sections from parsed LaTeX (new structured parsing)
-    sections = parsed_latex.sections or []
-    if not sections:
+    parsed_sections = parsed_latex.sections or []
+    if not parsed_sections:
         # Fallback: create a single section with the full content
-        sections = [
+        parsed_sections = [
             SectionNode(
                 title=parsed_latex.title or fallback_title,
                 level=1,
@@ -172,7 +179,7 @@ async def _ingest_paper_latex_impl(
 
     # Apply section filtering
     sections_to_use = filter_sections(
-        sections,
+        parsed_sections,
         mode=section_filter_mode,
         selected=sections or [],
     )
@@ -189,7 +196,10 @@ async def _ingest_paper_latex_impl(
     # Enhance section markdown with anchors
     _enhance_section_markdown(sections_to_use)
 
-    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed_latex.authors or [])
+    display_author_names = (
+        author_display_names_from_metadata(api_metadata)
+        or list(parsed_latex.authors or [])
+    )
 
     # Format output with file splitting and TOC support
     result = format_paper(

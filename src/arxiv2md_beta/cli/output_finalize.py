@@ -215,7 +215,7 @@ async def finalize_convert_output(
         try:
             pdf_filename = output_filename.replace(".md", ".pdf")
             pdf_path = paper_output_dir / pdf_filename
-            await fetch_arxiv_pdf(arxiv_id, pdf_path, version)
+            await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
             logger.info(f"PDF downloaded to: {pdf_path}")
         except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
             logger.warning(f"Failed to download PDF: {e}")

@@ -177,10 +177,10 @@ def convert_cmd(
         "--emit-graph-csv",
         help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
     ),
-    no_use_cache: bool = typer.Option(
+    no_cache: bool = typer.Option(
         False,
-        "--no-use-cache",
-        help="Disable result-level caching (re-convert even if cached result exists).",
+        "--no-cache",
+        help="Disable download caching for TeX source, HTML, and PDF.",
     ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
@@ -209,7 +209,7 @@ def convert_cmd(
         emit_result_json=emit_result_json,
         so=so,
         emit_graph_csv=emit_graph_csv,
-        use_cache=not no_use_cache,
+        no_cache=no_cache,
     )
     try:
         run_convert_sync(params)
@@ -325,10 +325,10 @@ def batch_cmd(
         "--fail-fast",
         help="Stop on first error (default: process all lines and report failures).",
     ),
-    no_use_cache: bool = typer.Option(
+    no_cache: bool = typer.Option(
         False,
-        "--no-use-cache",
-        help="Disable result-level caching for batch conversions.",
+        "--no-cache",
+        help="Disable download caching for batch conversions.",
     ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
@@ -357,7 +357,7 @@ def batch_cmd(
         emit_result_json=emit_result_json,
         so=so,
         emit_graph_csv=emit_graph_csv,
-        use_cache=not no_use_cache,
+        no_cache=no_cache,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

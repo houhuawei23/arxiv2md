@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - 2026-04-13
+## [0.7.0] - 2026-04-14
 
 ### Added
 
@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **LaTeX Ingestion**: Now uses `split_for_reference=True` and `include_toc=True` by default
 - **CLI Parameters**: `--remove-refs`, `--remove-toc`, `--sections` now work with `--parser latex`
+- **CLI Cache Flag**: Renamed `--no-use-cache` to `--no-cache` for simplicity
+
+### Fixed
+
+- **Result Cache Removed**: Eliminated result-level caching that incorrectly bound output directory paths; now only download-level caches (TeX source, HTML, PDF) are kept
+- **Cache Propagation**: `--no-cache` now properly disables caching for TeX source, HTML, and PDF downloads across both parsers
+- **SectionNode Shadowing Bug**: Fixed a variable name collision in `ingest_paper_latex` that caused `'SectionNode' object has no attribute 'strip'` when section filtering was active
 
 ## [0.6.3] - 2026-04-08
 

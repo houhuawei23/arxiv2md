@@ -39,6 +39,7 @@ async def ingest_paper_html(
     short: str | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
+    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Fetch, parse, and serialize an arXiv paper into Markdown with image support.
 
@@ -73,7 +74,7 @@ async def ingest_paper_html(
         Ingestion result and metadata
     """
     html = await fetch_arxiv_html(
-        html_url, arxiv_id=arxiv_id, version=version, use_cache=True, ar5iv_url=ar5iv_url
+        html_url, arxiv_id=arxiv_id, version=version, use_cache=use_cache, ar5iv_url=ar5iv_url
     )
     parsed = parse_arxiv_html(html)
     ing = get_settings().ingestion
@@ -89,7 +90,9 @@ async def ingest_paper_html(
     if not parsed.title and api_metadata.get("title"):
         parsed.title = api_metadata["title"]
 
-    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
+    filtered_sections = filter_sections(
+        parsed.sections, mode=section_filter_mode, selected=sections
+    )
     if remove_refs:
         filtered_sections = filter_sections(
             filtered_sections, mode="exclude", selected=ing.reference_section_titles
@@ -118,7 +121,9 @@ async def ingest_paper_html(
     tex_source_info = None
     if not no_images:
         try:
-            tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
+            tex_source_info = await fetch_and_extract_tex_source(
+                arxiv_id, version=version, use_cache=use_cache
+            )
             processed_images = process_images(tex_source_info, paper_output_dir, images_dir_name)
             image_map = processed_images.image_map
             image_stem_map = processed_images.stem_to_image_path
@@ -137,7 +142,9 @@ async def ingest_paper_html(
         and ing.fetch_tex_for_affiliations_when_no_images
     ):
         try:
-            tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version)
+            tex_source_info = await fetch_and_extract_tex_source(
+                arxiv_id, version=version, use_cache=use_cache
+            )
         except TexSourceNotFoundError:
             pass
         except Exception as e:
