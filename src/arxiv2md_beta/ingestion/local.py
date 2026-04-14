@@ -11,13 +11,13 @@ from loguru import logger
 
 from arxiv2md_beta.images.resolver import process_images
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
-from arxiv2md_beta.output.formatter import format_paper
-from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery, SectionNode
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
     TexSourceInfo,
     extract_local_archive,
 )
+from arxiv2md_beta.output.formatter import format_paper
+from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery, SectionNode
 
 
 class LocalIngestionError(Exception):
@@ -68,12 +68,12 @@ async def ingest_local_archive(
     sections : list[str] | None
         Section titles to filter
 
-    Returns
+    Returns:
     -------
     tuple[IngestionResult, dict]
         Ingestion result and metadata
 
-    Raises
+    Raises:
     ------
     LocalIngestionError
         If ingestion fails
@@ -309,10 +309,10 @@ async def _ingest_html_archive(
     emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
     """Process an HTML-based local archive."""
-    from arxiv2md_beta.output.layout import create_paper_output_dir
-    from arxiv2md_beta.html.parser import parse_arxiv_html
     from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+    from arxiv2md_beta.html.parser import parse_arxiv_html
     from arxiv2md_beta.html.sections import filter_sections
+    from arxiv2md_beta.output.layout import create_paper_output_dir
 
     # Find main HTML file (look for index.html, abstract.html, or largest file)
     main_html_file = _find_main_html_file(extracted_dir, html_files)

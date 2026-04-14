@@ -64,7 +64,7 @@ async def ingest_paper(
     use_cache : bool
         Use result-level caching (default: True)
 
-    Returns
+    Returns:
     -------
     tuple[IngestionResult, dict]
         Result and metadata
@@ -100,6 +100,10 @@ async def ingest_paper(
             arxiv_id=arxiv_id,
             version=version,
             base_output_dir=base_output_dir,
+            remove_refs=remove_refs,
+            remove_toc=remove_toc,
+            section_filter_mode=section_filter_mode,
+            sections=sections,
             no_images=no_images,
             source=source,
             short=short,

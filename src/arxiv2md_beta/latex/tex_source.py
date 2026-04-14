@@ -72,12 +72,12 @@ async def fetch_and_extract_tex_source(
     use_cache : bool
         Whether to use cached files if available
 
-    Returns
+    Returns:
     -------
     TexSourceInfo
         Information about extracted TeX source including images
 
-    Raises
+    Raises:
     ------
     TexSourceNotFoundError
         If TeX source is not available
@@ -159,12 +159,12 @@ def extract_local_archive(
     use_cache : bool
         Whether to use cached extraction if available
 
-    Returns
+    Returns:
     -------
     TexSourceInfo
         Information about extracted source including images
 
-    Raises
+    Raises:
     ------
     ArchiveExtractionError
         If extraction fails
@@ -223,7 +223,7 @@ def _extract_zip_archive(archive_path: Path, output_dir: Path) -> None:
     output_dir : Path
         Directory to extract to
 
-    Raises
+    Raises:
     ------
     ArchiveExtractionError
         If extraction fails
@@ -258,7 +258,7 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
     output_dir : Path
         Directory to extract to
 
-    Raises
+    Raises:
     ------
     ArchiveExtractionError
         If extraction fails

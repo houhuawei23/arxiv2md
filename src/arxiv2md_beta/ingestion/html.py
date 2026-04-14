@@ -5,21 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.html.parser import parse_arxiv_html
+from arxiv2md_beta.html.sections import filter_sections
+from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 from arxiv2md_beta.network.arxiv_api import (
     author_display_names_from_metadata,
     fetch_arxiv_metadata,
     fill_arxiv_metadata_defaults,
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
-from arxiv2md_beta.html.parser import parse_arxiv_html
-from arxiv2md_beta.images.resolver import process_images
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
 from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.html.sections import filter_sections
-from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 
 
 async def ingest_paper_html(
@@ -67,7 +67,7 @@ async def ingest_paper_html(
     no_images : bool
         If True, skip image downloading and processing
 
-    Returns
+    Returns:
     -------
     tuple[IngestionResult, dict]
         Ingestion result and metadata
@@ -111,7 +111,7 @@ async def ingest_paper_html(
     images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Process images if enabled; keep TeX extraction for affiliation enrichment when possible
     image_map: dict[int, Path] | None = None
     image_stem_map: dict[str, Path] | None = None

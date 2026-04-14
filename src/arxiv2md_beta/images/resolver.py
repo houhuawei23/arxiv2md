@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import NamedTuple
 
@@ -199,28 +200,29 @@ async def process_images_async(
         is_pdf = suffix == ".pdf"
         async with sem:
             loop = asyncio.get_running_loop()
+            # Use partial to pass keyword-only arguments to _process_single_image
+            bound_func = partial(
+                _process_single_image,
+                dpi=img_cfg.pdf_to_png_dpi,
+                trim_whitespace=img_cfg.trim_whitespace,
+                trim_tolerance=img_cfg.trim_whitespace_tolerance,
+            )
             try:
                 if is_pdf:
                     relative_path, original_filename = await loop.run_in_executor(
                         process_pool,
-                        _process_single_image,
+                        bound_func,
                         source_path,
                         images_dir,
                         idx,
-                        img_cfg.pdf_to_png_dpi,
-                        img_cfg.trim_whitespace,
-                        img_cfg.trim_whitespace_tolerance,
                     )
                 else:
                     relative_path, original_filename = await loop.run_in_executor(
                         None,
-                        _process_single_image,
+                        bound_func,
                         source_path,
                         images_dir,
                         idx,
-                        img_cfg.pdf_to_png_dpi,
-                        img_cfg.trim_whitespace,
-                        img_cfg.trim_whitespace_tolerance,
                     )
                 image_map[idx] = relative_path
                 filename_map[idx] = original_filename

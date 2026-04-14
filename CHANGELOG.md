@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-13
+
+### Added
+
+- **LaTeX Parser Enhancement**: Full feature parity with HTML parser
+  - **File Splitting**: LaTeX mode now generates separate files (`xx.md`, `xx-References.md`, `xx-Appendix.md`)
+  - **Table of Contents (TOC)**: Auto-generated TOC with section links for LaTeX output
+  - **Section Structure Parsing**: Full hierarchy extraction from `\section`, `\subsection`, `\subsubsection`
+  - **Citation Links**: `\cite{key}` converted to `[N](#ref-N)` format with working anchors
+  - **Figure/Table/Equation Anchors**: `\label{fig:X}` generates `<a id="fig:X"></a>` for cross-referencing
+  - **Section Filtering**: `--sections` and `--section-filter-mode` now work with LaTeX parser
+  - **Bibliography Recognition**: Automatic detection of References/Bibliography sections
+  - **Appendix Detection**: Recognizes `\appendix` command and `Appendix X` sections
+  - **Markdown Beautification**: Enhanced table formatting, figure captions, code blocks, math display
+  - **Structured Export**: Full support for `paper.*.json` exports in LaTeX mode
+
+### Changed
+
+- **LaTeX Ingestion**: Now uses `split_for_reference=True` and `include_toc=True` by default
+- **CLI Parameters**: `--remove-refs`, `--remove-toc`, `--sections` now work with `--parser latex`
+
 ## [0.6.3] - 2026-04-08
 
 ### Added
