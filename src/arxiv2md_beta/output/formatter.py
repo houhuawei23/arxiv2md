@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 try:
     import tiktoken
@@ -22,6 +25,8 @@ _ANCHOR_SUBSECTION_RE = re.compile(r"^(\d+)\.(\d+)\s")
 _ANCHOR_SECTION_RE = re.compile(r"^(\d+)\s")
 _ANCHOR_TAG_NEWLINE_RE = re.compile(r'(<a id="[^"]+"></a>)\n(?!\n)(?!\s*$)')
 _TABLE_CAPTION_RE = re.compile(r'\n\*\*(Table\s+\d+[^*]*)\*\*\s*\n(\|[^\n]*)')
+_FIGURE_CAPTION_BLOCK_RE = re.compile(r'>\s*Figure\s+(\d+)', re.IGNORECASE)
+_FIGURE_ANCHOR_BLOCK_RE = re.compile(r'<a id="figure-(\d+)"></a>')
 _DISPLAY_MATH_RE = re.compile(r'\$\$\n(.*?)\n\$\$', re.DOTALL)
 _DUPLICATE_BULLET_RE = re.compile(r"(?m)^(\s*-\s+)[•·◦]\s+")
 _EXCESS_EMPTY_LINES_RE = re.compile(r"\n{3,}")
@@ -61,14 +66,20 @@ def format_paper(
         main_sections, ref_sections, appendix_sections = split_sections_at_reference(
             sections, reference_titles=ing.reference_section_titles
         )
-        content = _render_content(abstract=abstract, sections=main_sections, include_toc=include_toc)
+        content = _render_content(
+            abstract=abstract, sections=main_sections, include_toc=include_toc
+        )
+        content = reorder_figures_to_first_reference(content)
         content = _format_markdown_output(content)
         ref_raw = _render_content(abstract=None, sections=ref_sections, include_toc=False)
+        ref_raw = reorder_figures_to_first_reference(ref_raw)
         content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else None
         app_raw = _render_content(abstract=None, sections=appendix_sections, include_toc=False)
+        app_raw = reorder_figures_to_first_reference(app_raw)
         content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else None
     else:
         content = _render_content(abstract=abstract, sections=sections, include_toc=include_toc)
+        content = reorder_figures_to_first_reference(content)
         content = _format_markdown_output(content)
 
     summary_lines = []
@@ -202,7 +213,11 @@ def _render_child_toc(sections: list[SectionNode]) -> str:
     return "\n".join(lines)
 
 
-def _render_toc(sections: list[SectionNode], indent: int = 0, include_abstract: bool = False) -> str:
+def _render_toc(
+    sections: list[SectionNode],
+    indent: int = 0,
+    include_abstract: bool = False,
+) -> str:
     lines: list[str] = []
     if indent == 0 and include_abstract:
         lines.append("- [Abstract](#abstract)")
@@ -255,6 +270,111 @@ def _format_markdown_output(markdown: str) -> str:
     markdown = _EXCESS_EMPTY_LINES_RE.sub("\n\n", markdown)
 
     return markdown.strip()
+
+
+def _extract_figure_id_from_blocks(figure_blocks: list[str]) -> str | None:
+    """Extract figure number from caption or anchor in figure blocks."""
+    for block in figure_blocks:
+        m = _FIGURE_CAPTION_BLOCK_RE.search(block)
+        if m:
+            return m.group(1)
+    for block in figure_blocks:
+        m = _FIGURE_ANCHOR_BLOCK_RE.search(block)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _contains_figure_reference(text: str, figure_id: str) -> bool:
+    """Check if text contains a reference to the given figure number."""
+    if not figure_id or not text:
+        return False
+    patterns = [
+        rf"Figure\s+{re.escape(figure_id)}[a-z]?\b",
+        rf"Fig\.?\s*{re.escape(figure_id)}[a-z]?\b",
+        rf"\[Figure\s+{re.escape(figure_id)}[a-z]?\]\([^)]*\)",
+        rf"\[{re.escape(figure_id)}[a-z]?\]\(#figure-{re.escape(figure_id)}\)",
+        rf"Figure\s*\[{re.escape(figure_id)}[a-z]?\]\([^)]*\)",
+    ]
+    return any(re.search(pat, text, re.IGNORECASE) for pat in patterns)
+
+
+def reorder_figures_to_first_reference(markdown: str) -> str:
+    """Move figure blocks to immediately after the paragraph of their first citation.
+
+    If a figure is never cited, it remains at its original position.
+    """
+    if not markdown:
+        return markdown
+
+    blocks = markdown.split("\n\n")
+
+    figures: list[tuple[int, int, str, str]] = []
+
+    i = 0
+    while i < len(blocks):
+        stripped = blocks[i].strip()
+        is_anchor = stripped.startswith('<a id="') and stripped.endswith('"></a>')
+        is_image = stripped.startswith('![') and '](' in stripped
+
+        if is_anchor or is_image:
+            start = i
+            j = i
+            if is_anchor:
+                j += 1
+
+            def _is_image_container_block(block: str) -> bool:
+                s = block.strip()
+                return (
+                    (s.startswith('![') and '](' in s)
+                    or (s.startswith('<') and '<img ' in s)
+                )
+
+            while j < len(blocks) and _is_image_container_block(blocks[j]):
+                j += 1
+
+            if j < len(blocks) and _FIGURE_CAPTION_BLOCK_RE.match(blocks[j].strip()):
+                j += 1
+
+            if j > start:
+                figure_text = "\n\n".join(blocks[start:j])
+                figure_id = _extract_figure_id_from_blocks(blocks[start:j])
+                if figure_id:
+                    figures.append((start, j, figure_id, figure_text))
+                i = j
+            else:
+                i += 1
+        else:
+            i += 1
+
+    if not figures:
+        return markdown
+
+    remove_indices: set[int] = set()
+    for start, end, _, _ in figures:
+        for idx in range(start, end):
+            remove_indices.add(idx)
+
+    new_blocks = [b for idx, b in enumerate(blocks) if idx not in remove_indices]
+
+    def removed_before(old_idx: int) -> int:
+        return sum(1 for s, e, _, _ in figures if e <= old_idx)
+
+    for start, _end, figure_id, figure_text in figures:
+        insert_idx = None
+        for idx, block in enumerate(new_blocks):
+            if _contains_figure_reference(block, figure_id):
+                insert_idx = idx
+                break
+
+        if insert_idx is not None:
+            new_blocks.insert(insert_idx + 1, figure_text)
+        else:
+            original_pos = start - removed_before(start)
+            original_pos = max(0, min(original_pos, len(new_blocks)))
+            new_blocks.insert(original_pos, figure_text)
+
+    return "\n\n".join(new_blocks)
 
 
 def _format_token_count(text: str) -> str | None:

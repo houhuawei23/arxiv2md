@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-04-14
+
+### Added
+
+- **Figure Reordering**: Images are now moved to immediately after the paragraph where they are first cited, improving readability when figures appear far from their first reference in the source HTML/LaTeX
+  - Works for both HTML and LaTeX parsers via a unified Markdown post-processing step in `format_paper`
+  - Multi-panel figures (e.g. `<div align="center">` with multiple `<img>` tags) move as a single block
+  - Unreferenced figures remain at their original position
+
+### Fixed
+
+- **Table Misplacement**: Tables (`Table N`) are no longer incorrectly treated as figures during reordering
+- **Figure Citation Matching**: Added support for `Figure [N](#figure-N)` style markdown links when locating the first citation
+
+Wrapped up by Kimi (kimi-for-coding via kimi-cli) on 2026-04-14
+
 ## [0.7.0] - 2026-04-14
 
 ### Added
