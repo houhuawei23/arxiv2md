@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.ir.blocks import BlockJson
+from arxiv2md_beta.schemas.structured import BlockJson
 from arxiv2md_beta.schemas.sections import SectionNode
 from arxiv2md_beta.schemas.structured import (
     SCHEMA_VERSION,
@@ -282,7 +282,7 @@ def assign_struct_ids(sections: list[SectionNode], prefix: str = "sec") -> None:
 
 
 def _section_to_tree_json(node: SectionNode) -> SectionTreeNodeJson:
-    from arxiv2md_beta.ir.blocks import hash_html, hash_markdown
+    from arxiv2md_beta.ir._legacy_blocks import hash_html, hash_markdown
     return SectionTreeNodeJson(
         struct_id=node.struct_id or "sec_unknown",
         title=node.title,

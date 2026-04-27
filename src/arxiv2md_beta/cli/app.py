@@ -182,6 +182,11 @@ def convert_cmd(
         "--no-cache",
         help="Disable download caching for TeX source, HTML, and PDF.",
     ),
+    use_ir: bool = typer.Option(
+        False,
+        "--ir",
+        help="Use new IR (Intermediate Representation) pipeline: Builder -> Transforms -> Emitter.",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -210,6 +215,7 @@ def convert_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
+        use_ir=use_ir,
     )
     try:
         run_convert_sync(params)
@@ -330,6 +336,11 @@ def batch_cmd(
         "--no-cache",
         help="Disable download caching for batch conversions.",
     ),
+    use_ir: bool = typer.Option(
+        False,
+        "--ir",
+        help="Use new IR (Intermediate Representation) pipeline: Builder -> Transforms -> Emitter.",
+    ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -358,6 +369,7 @@ def batch_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
+        use_ir=use_ir,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

@@ -19,6 +19,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_archive,
     parse_local_html,
 )
+from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.metrics import async_timed_operation
 
@@ -35,6 +36,8 @@ async def run_convert_flow(params: ConvertParams) -> Path:
             return await _process_local_html(params)
         if is_local_archive_path(input_text):
             return await _process_local_archive(params)
+        if params.use_ir:
+            return await _process_arxiv_paper_ir(params)
         return await _process_arxiv_paper(params)
 
 
@@ -74,6 +77,104 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         emit_graph_csv=params.emit_graph_csv,
         use_cache=not params.no_cache,
     )
+
+    base_id = query.arxiv_id.split("v")[0] if "v" in query.arxiv_id else query.arxiv_id
+    return await finalize_convert_output(
+        result=result,
+        metadata=metadata,
+        params=params,
+        base_output_dir=base_output_dir,
+        result_key=query.arxiv_id,
+        arxiv_id_for_sidecar=str(metadata.get("arxiv_id") or query.arxiv_id),
+        fallback_md_stem=base_id,
+        pdf_fetch=(query.arxiv_id, query.version),
+        log_local_success=False,
+    )
+
+
+async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
+    """Process an arXiv paper using the IR pipeline."""
+    from arxiv2md_beta.ir import (
+        AnchorPass,
+        FigureReorderPass,
+        HTMLBuilder,
+        MarkdownEmitter,
+        NumberingPass,
+        PassPipeline,
+        SectionFilterPass,
+    )
+    from arxiv2md_beta.network.fetch import fetch_arxiv_html
+
+    query = parse_arxiv_input(params.input_text.strip())
+    sections = collect_sections(params.sections, params.section)
+
+    base_output_dir = determine_output_dir(params.output)
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Processing arXiv paper (IR pipeline): {query.arxiv_id}")
+    logger.info(f"Parser mode: {params.parser}")
+
+    # Fetch HTML
+    html = await fetch_arxiv_html(
+        query.html_url,
+        arxiv_id=query.arxiv_id,
+        version=query.version,
+        ar5iv_url=query.ar5iv_url,
+        use_cache=not params.no_cache,
+    )
+
+    # Build IR
+    builder = HTMLBuilder()
+    doc = builder.build(html, arxiv_id=query.arxiv_id)
+
+    # Run transforms
+    pipeline = PassPipeline()
+    pipeline.add(NumberingPass())
+    pipeline.add(FigureReorderPass())
+    if sections:
+        pipeline.add(SectionFilterPass(
+            mode=params.section_filter_mode, selected=sections,
+        ))
+    pipeline.add(AnchorPass())
+    doc = pipeline.run(doc)
+
+    # Emit markdown
+    emitter = MarkdownEmitter()
+    content = emitter.emit(doc)
+
+    # Build summary
+    m = doc.metadata
+    summary_parts = [
+        f"# {m.title or 'Untitled'}",
+        "",
+        f"**Authors:** {', '.join(m.authors) if m.authors else 'Unknown'}",
+    ]
+    if m.submission_date:
+        summary_parts.append(f"**Date:** {m.submission_date}")
+    if m.arxiv_id:
+        summary_parts.append(f"**arXiv ID:** {m.arxiv_id}")
+    if m.abstract_text:
+        summary_parts.append(f"\n## Abstract\n\n{m.abstract_text}")
+
+    # Build sections tree
+    tree_lines = ["Sections:"]
+    for sec in doc.sections:
+        tree_lines.append(f"  - {sec.title}")
+    sections_tree = "\n".join(tree_lines)
+
+    result = IngestionResult(
+        summary="\n".join(summary_parts),
+        sections_tree=sections_tree,
+        content=content,
+    )
+
+    metadata: dict = {
+        "title": m.title,
+        "authors": m.authors,
+        "abstract": m.abstract_text,
+        "paper_output_dir": base_output_dir,
+        "arxiv_id": query.arxiv_id,
+    }
 
     base_id = query.arxiv_id.split("v")[0] if "v" in query.arxiv_id else query.arxiv_id
     return await finalize_convert_output(

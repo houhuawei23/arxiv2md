@@ -4,6 +4,10 @@
 
 ## 功能特性
 
+- **IR 中间表示系统**：三段式编译器架构
+  - **前端 (Builder)**：HTML → `DocumentIR`（保底 RawBlock 保留原始格式）
+  - **中端 (Transform)**：可组合的 Pass 管线（编号、锚点、图片重排、章节过滤...）
+  - **后端 (Emitter)**：`DocumentIR` → Markdown / JSON / 纯文本
 - **多源支持**：
   - arXiv 论文（ID 或 URL）
   - 本地 HTML 文件（Science.org、IEEE、ACM 等保存的论文）
@@ -144,6 +148,8 @@ arxiv2md-beta convert 2501.14622 --structured-output all --emit-graph-csv -o ./o
 
 ### Python API
 
+**旧 API（仍可用，内部未变）：**
+
 ```python
 import asyncio
 from pathlib import Path
@@ -160,12 +166,80 @@ async def main():
         ar5iv_url=query.ar5iv_url,
         parser="html",
         base_output_dir=Path("output"),
-        structured_output="document",  # 或 "none" | "meta" | "full" | "all"
-        emit_graph_csv=False,
+        structured_output="document",
     )
     print(result.content)
 
 asyncio.run(main())
+```
+
+**新 IR API：手工构建、变换、导出**
+
+```python
+from arxiv2md_beta.ir import (
+    # 数据模型
+    DocumentIR, PaperMetadata, SectionIR,
+    ParagraphIR, TextIR, EmphasisIR, LinkIR, CodeIR,
+    # 前端
+    HTMLBuilder,
+    # 中端
+    PassPipeline, NumberingPass, AnchorPass, FigureReorderPass,
+    # 后端
+    MarkdownEmitter,
+)
+
+# 1. HTML → DocumentIR
+with open("paper.html") as f:
+    html = f.read()
+doc = HTMLBuilder().build(html, arxiv_id="2501.12345")
+
+# 2. 变换管线
+doc = (
+    PassPipeline()
+    .add(NumberingPass())         # figure/table/equation 顺序编号
+    .add(FigureReorderPass())     # 图片移到首次引用处
+    .add(AnchorPass())            # 稳定锚点
+    .run(doc)
+)
+
+# 3. DocumentIR → Markdown
+md = MarkdownEmitter().emit(doc)
+```
+
+**遍历/分析 IR 树：**
+
+```python
+from arxiv2md_beta.ir import walk, NodeCounter, IRVisitor
+
+# 内置：统计各类型节点数量
+counter = NodeCounter()
+walk(doc, counter)
+print(counter.counts)  # {"document": 1, "paragraph": 12, "text": 45, ...}
+
+# 自定义 Visitor
+class FigureCollector(IRVisitor):
+    def __init__(self):
+        self.ids = []
+    def visit_figure(self, node):
+        self.ids.append(node.figure_id)
+    def visit_default(self, node):
+        pass
+
+fc = FigureCollector()
+walk(doc, fc)
+print(fc.ids)  # ["figure-1", "figure-2"]
+```
+
+**IR 数据模型（Pydantic v2，discriminated union）：**
+
+```python
+# JSON 往返无损
+json_str = doc.model_dump_json(indent=2)
+doc2 = DocumentIR.model_validate_json(json_str)
+
+# 所有节点类型通过 type: Literal[...] 字段自动分发
+# 9 种 Inline: text, emphasis, link, math, image_ref, superscript, subscript, break, raw_inline
+# 11 种 Block:  paragraph, heading, figure, table, list, code, equation, blockquote, algorithm, rule, raw_block
 ```
 
 ## 项目结构
@@ -176,29 +250,63 @@ arxiv2md-beta/
 │   └── arxiv2md_beta/
 │       ├── __init__.py
 │       ├── __main__.py           # python -m 入口（转调 cli.main）
-│       ├── cli/                  # Typer：app.py、runner/、params.py、convert_cli.py、output_finalize.py、helpers.py
-│       ├── network/              # fetch、http（httpx 连接复用）、arxiv_api、crossref_api
-│       ├── query/                # parser.py：arXiv ID / URL / 本地归档
-│       ├── output/               # layout、formatter、metadata、metadata_tex（TeX 单位合并）
-│       ├── images/               # resolver、extract（仅图片子命令）
-│       ├── html/                 # parser、markdown、sections
-│       ├── latex/                # parser、tex_source、author_affiliations（从 TeX 解析作者单位）
-│       ├── ingestion/            # pipeline、html、latex、local
-│       ├── cache/                # 结果缓存等（与 HTTP 下载缓存目录配合）
-│       ├── citations/            # 参考文献解析与 BibTeX 等
-│       ├── config/               # 默认与环境 YAML
+│       ├── cli/                  # Typer CLI
+│       ├── network/              # fetch、http（httpx）、API
+│       ├── query/                # arXiv ID / URL 解析
+│       ├── output/               # layout、formatter、metadata
+│       ├── images/               # 图片下载与处理
+│       ├── html/                 # HTML 解析（parser、markdown、sections）
+│       ├── latex/                # LaTeX 解析（parser、tex_source）
+│       ├── ingestion/            # 编排层（pipeline、html、latex、local）
+│       ├── cache/                # 下载缓存
+│       ├── citations/            # 参考文献解析与 BibTeX
+│       ├── config/               # 默认配置 YAML
 │       ├── settings/             # Pydantic 配置加载
-│       ├── schemas/              # 数据模型与 JSON Schema（json/*.json）
-│       ├── ir/                   # 块级 IR（从 HTML 片段抽取）
+│       ├── schemas/              # 数据模型与 JSON Schema
+│       ├── ir/                   # ★ IR 中间表示系统
+│       │   ├── __init__.py       #   统一公开 API
+│       │   ├── core.py           #   IRNode / InlineIR / BlockIR / AssetIR 基类
+│       │   ├── inlines.py        #   9 种行内节点 + InlineUnion
+│       │   ├── blocks.py         #   11 种群级节点 + BlockUnion
+│       │   ├── document.py       #   SectionIR / PaperMetadata / DocumentIR
+│       │   ├── assets.py         #   ImageAsset / SvgAsset / OtherAsset
+│       │   ├── visitor.py        #   IRVisitor / IRWalker / walk()
+│       │   ├── builders/         #   前端: HTML → DocumentIR
+│       │   │   ├── base.py       #     IRBuilder 抽象基类
+│       │   │   └── html.py       #     HTMLBuilder
+│       │   ├── transforms/       #   中端: DocumentIR → DocumentIR
+│       │   │   ├── base.py       #     IRPass / PassPipeline
+│       │   │   ├── numbering.py  #     图表/公式编号
+│       │   │   ├── anchor.py     #     锚点生成
+│       │   │   ├── section_filter.py  # 章节过滤
+│       │   │   └── figure_reorder.py  # 图片重排
+│       │   └── emitters/         #   后端: DocumentIR → 目标格式
+│       │       ├── base.py       #     IREmitter 抽象基类
+│       │       └── markdown.py   #     MarkdownEmitter
 │       └── utils/
 │           └── logging_config.py
 ├── tests/
+│   └── ir/                       # IR 系统测试 (118 tests)
 ├── demo/
 ├── pyproject.toml
 └── README.md
 ```
 
 ## 主要模块
+
+### `ir/` — IR 中间表示系统
+
+采用三段式编译器架构，将论文解析为结构化数据，支持变换与多格式导出：
+
+| 层 | 角色 | 核心类 |
+|----|------|--------|
+| Builder (前端) | 原始格式 → `DocumentIR` | `HTMLBuilder` |
+| Transform (中端) | `DocumentIR` → `DocumentIR` | `IRPass`, `PassPipeline` |
+| Emitter (后端) | `DocumentIR` → 目标格式 | `MarkdownEmitter` |
+
+**数据模型**: 9 种 Inline 节点 (Text, Emphasis, Link, Math, ImageRef, Superscript, Subscript, Break, RawInline) + 11 种 Block 节点 (Paragraph, Heading, Figure, Table, List, Code, Equation, BlockQuote, Algorithm, Rule, RawBlock)，全部通过 Pydantic discriminated union 自动分发。
+
+**Visitor**: `walk(doc, visitor)` 深度优先遍历 IR 树，内置 `NodeCounter`、`TextCollector`。
 
 ### `latex/tex_source.py`
 
@@ -237,7 +345,11 @@ LaTeX 到 Markdown 转换：
 运行测试：
 
 ```bash
+# 全部测试
 pytest tests/
+
+# 仅 IR 系统测试 (118 tests)
+pytest tests/ir/
 ```
 
 可选：仅运行性能基准（需安装 `pytest-benchmark`，已包含在 `dev` 额外依赖中）：

@@ -1,154 +1,166 @@
-"""Extract coarse block-level IR from ar5iv HTML fragments."""
+"""Block-level IR node types.
+
+Each block type is a subclass of ``BlockIR`` with a ``type`` literal discriminator
+that identifies the block kind.
+
+Union type
+    ``BlockUnion`` is the discriminated union of all block types:
+
+    .. code-block:: python
+
+        from arxiv2md_beta.ir.blocks import BlockUnion
+
+        class SectionIR(IRNode):
+            blocks: list[BlockUnion] = Field(default_factory=list)
+"""
 
 from __future__ import annotations
 
-import hashlib
-import re
-from typing import Any
+from typing import Annotated, Literal, Union
 
-from arxiv2md_beta.schemas.structured import BlockJson
+from pydantic import Field
 
-try:
-    from bs4 import BeautifulSoup
-    from bs4.element import NavigableString, Tag
-except ImportError as exc:  # pragma: no cover
-    raise RuntimeError("BeautifulSoup4 is required.") from exc
+from arxiv2md_beta.ir.core import BlockIR
+from arxiv2md_beta.ir.inlines import ImageRefIR, InlineUnion
 
-
-def _sha256_text(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+# ═══════════════════════════════════════════════════════════════════════
+# Basic blocks
+# ═══════════════════════════════════════════════════════════════════════
 
 
-def _plain_from_tag(tag: Tag) -> str:
-    return re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+class ParagraphIR(BlockIR):
+    """A paragraph — a sequence of inline elements."""
+
+    type: Literal["paragraph"] = "paragraph"
+    inlines: list[InlineUnion] = Field(default_factory=list)
 
 
-def _make_id(section_id: str, idx: int, suffix: str) -> str:
-    return f"{section_id}:b{idx}:{suffix}"
+class HeadingIR(BlockIR):
+    """A heading inside a section body (not the section title itself)."""
+
+    type: Literal["heading"] = "heading"
+    level: int = Field(ge=1, le=6)
+    inlines: list[InlineUnion] = Field(default_factory=list)
 
 
-def extract_blocks_from_html(html: str | None, section_id: str) -> list[BlockJson]:
-    """Parse a section (or abstract) HTML fragment into ordered blocks."""
-    if not html or not html.strip():
-        return []
+class BlockQuoteIR(BlockIR):
+    """A blockquote containing nested blocks."""
 
-    soup = BeautifulSoup(f"<div class='arxiv2md-root'>{html}</div>", "html.parser")
-    root = soup.find("div", class_="arxiv2md-root")
-    if root is None:
-        return []
-
-    blocks: list[BlockJson] = []
-    counter = 0
-
-    def emit(
-        block_type: str,
-        extra: dict[str, Any],
-        plain: str | None,
-        md_hint: str | None = None,
-    ) -> None:
-        nonlocal counter
-        bid = _make_id(section_id, counter, block_type)
-        blocks.append(
-            BlockJson(
-                id=bid,
-                type=block_type,
-                section_id=section_id,
-                order_index=counter,
-                text_plain=plain[:20000] if plain else None,
-                text_md=md_hint[:20000] if md_hint else None,
-                extra=extra,
-            )
-        )
-        counter += 1
-
-    for child in root.children:
-        if isinstance(child, NavigableString):
-            t = str(child).strip()
-            if t:
-                emit("other", {"raw_text": True}, t)
-            continue
-        if not isinstance(child, Tag):
-            continue
-        _emit_tag_block(child, emit)
-
-    return blocks
+    type: Literal["blockquote"] = "blockquote"
+    blocks: list["BlockUnion"] = Field(default_factory=list)
 
 
-def _emit_tag_block(tag: Tag, emit) -> None:
-    """Classify a top-level tag into a block."""
-    name = tag.name
-    cls = " ".join(tag.get("class", []))
+class ListIR(BlockIR):
+    """Ordered or unordered list.
 
-    if name == "p":
-        emit("paragraph", {"tag": "p"}, _plain_from_tag(tag))
-        return
-    if name == "figure":
-        cap = tag.find("figcaption") or tag.find("span", class_=re.compile(r"ltx_caption"))
-        cap_text = _plain_from_tag(cap) if cap else None
-        img = tag.find("img")
-        src = img.get("src") if img else None
-        emit(
-            "figure",
-            {"tag": "figure", "img_src": src, "caption": cap_text},
-            cap_text or _plain_from_tag(tag),
-        )
-        return
-    if name == "table":
-        emit("table", {"tag": "table"}, _plain_from_tag(tag)[:5000])
-        return
-    if name in {"ul", "ol"}:
-        emit("list", {"tag": name}, _plain_from_tag(tag))
-        return
-    if name == "blockquote":
-        emit("blockquote", {"tag": "blockquote"}, _plain_from_tag(tag))
-        return
-    if name == "pre":
-        emit("code", {"tag": "pre"}, _plain_from_tag(tag))
-        return
-    if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-        emit("heading", {"tag": name}, _plain_from_tag(tag))
-        return
+    Each item is a sequence of blocks (supporting nested paragraphs, sub-lists, code, etc.).
+    """
 
-    if name == "div" and "ltx_listing" in cls and "ltx_listingline" not in cls:
-        emit("code", {"tag": "div", "class": "ltx_listing"}, _plain_from_tag(tag)[:8000])
-        return
-
-    # Equation / equation group
-    if name in {"math"} or (name == "div" and re.search(r"ltx_equation|ltx_eqn", cls)):
-        emit("equation", {"tag": name}, _plain_from_tag(tag)[:8000])
-        return
-
-    if name == "div":
-        inner = tag.find_all(
-            ["p", "figure", "table", "ul", "ol", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"],
-            recursive=False,
-        )
-        if inner:
-            for sub in inner:
-                _emit_tag_block(sub, emit)
-            return
-        for sub in tag.children:
-            if isinstance(sub, Tag):
-                _emit_tag_block(sub, emit)
-        return
-
-    if name == "span":
-        # Inline-only spans at top level: treat as paragraph fragment
-        t = _plain_from_tag(tag)
-        if t:
-            emit("other", {"tag": "span"}, t)
-        return
-
-    emit("other", {"tag": name}, _plain_from_tag(tag))
+    type: Literal["list"] = "list"
+    ordered: bool = False
+    items: list[list["BlockUnion"]] = Field(default_factory=list)
 
 
-def hash_markdown(s: str | None) -> str | None:
-    if not s:
-        return None
-    return _sha256_text(s.strip())
+class CodeIR(BlockIR):
+    """Fenced code block with optional language and caption."""
+
+    type: Literal["code"] = "code"
+    language: str | None = None
+    text: str
+    caption: list[InlineUnion] | None = None
 
 
-def hash_html(s: str | None) -> str | None:
-    if not s:
-        return None
-    return _sha256_text(s.strip())
+class RuleIR(BlockIR):
+    """Horizontal rule (``<hr/>`` or ``\\hrule``)."""
+
+    type: Literal["rule"] = "rule"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Math & display content
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class EquationIR(BlockIR):
+    """Display-math equation (``$$...$$``, ``\\[...\\]``, equation environment)."""
+
+    type: Literal["equation"] = "equation"
+    latex: str
+    equation_number: str | None = None  # e.g. "(1)", "1.2"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Figures, tables & algorithms
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class FigureIR(BlockIR):
+    """A figure with one or more images and a caption.
+
+    ``kind`` distinguishes image figures from table-figures and algorithm-figures
+    (common in HTML-formatted arXiv papers).
+    """
+
+    type: Literal["figure"] = "figure"
+    images: list[ImageRefIR] = Field(default_factory=list)
+    caption: list[InlineUnion] = Field(default_factory=list)
+    figure_id: str | None = None  # e.g. "figure-2"
+    kind: Literal["image", "table", "algorithm"] = "image"
+    width: str | None = None
+
+
+class TableIR(BlockIR):
+    """A structured table with headers, rows, and an optional caption."""
+
+    type: Literal["table"] = "table"
+    headers: list[list[InlineUnion]] = Field(default_factory=list)
+    rows: list[list[list[InlineUnion]]] = Field(default_factory=list)
+    caption: list[InlineUnion] = Field(default_factory=list)
+    table_id: str | None = None  # e.g. "table-1"
+
+
+class AlgorithmIR(BlockIR):
+    """An algorithm or pseudocode block."""
+
+    type: Literal["algorithm"] = "algorithm"
+    steps: list["BlockUnion"] = Field(default_factory=list)
+    caption: list[InlineUnion] = Field(default_factory=list)
+    algorithm_number: str | None = None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Fallback
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class RawBlockIR(BlockIR):
+    """Fallback: raw block whose format we could not classify.
+
+    Preserves the original source content so no information is lost.
+    """
+
+    type: Literal["raw_block"] = "raw_block"
+    format: Literal["html", "latex", "markdown"] = "html"
+    content: str
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Discriminated union
+# ═══════════════════════════════════════════════════════════════════════
+
+BlockUnion = Annotated[
+    Union[
+        ParagraphIR,
+        HeadingIR,
+        FigureIR,
+        TableIR,
+        ListIR,
+        CodeIR,
+        EquationIR,
+        BlockQuoteIR,
+        AlgorithmIR,
+        RuleIR,
+        RawBlockIR,
+    ],
+    Field(discriminator="type"),
+]

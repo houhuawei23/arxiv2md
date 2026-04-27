@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-04-27
+
+### Added
+
+- **IR (Intermediate Representation) System**: Three-tier compiler architecture for paper parsing
+  - **Frontend (Builders)**: `HTMLBuilder` (BeautifulSoup → `DocumentIR`) and `LaTeXBuilder` (Pandoc JSON AST → `DocumentIR`) convert raw sources to structured IR
+  - **Middle-end (Transforms)**: Composable `PassPipeline` with 5 passes — `NumberingPass` (figure/table/equation/algorithms), `AnchorPass` (stable anchors), `SectionFilterPass` (include/exclude), `FigureReorderPass` (move to first citation), and `PassPipeline` for ordering
+  - **Backend (Emitters)**: `MarkdownEmitter` (→ Markdown), `JsonEmitter` (→ structured JSON), `PlainTextEmitter` (→ plain text) serialize `DocumentIR` to target formats
+  - **Data Model**: 9 Inline types + 11 Block types + 3 Asset types via Pydantic v2 discriminated unions (`type: Literal[...]`)
+  - **Visitor Pattern**: `IRVisitor` + `walk()` for depth-first traversal, with built-in `NodeCounter`, `TextCollector`
+  - **RawBlockIR / RawInlineIR**: Fallback nodes preserve original format (HTML/LaTeX) for unrecognized content
+- **`--ir` CLI Flag**: Opt-in IR pipeline via `--ir` on `convert` and `batch` commands
+- **Python API**: Full programmatic access to `HTMLBuilder`, `LaTeXBuilder`, `PassPipeline`, `MarkdownEmitter`, `JsonEmitter`, `PlainTextEmitter`
+- **137 IR Unit Tests**: Comprehensive coverage of builders, emitters, transforms, models, and visitors
+
+### Changed
+
+- **Project Structure**: New `ir/` package with 20+ files organized as `builders/`, `transforms/`, `emitters/`
+- **Version**: 0.7.1 → 0.8.0
+
+Wrapped up by Claude Opus 4.6 (claude-code) on 2026-04-27
+
 ## [0.7.1] - 2026-04-14
 
 ### Added
