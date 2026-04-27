@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-04-27
+
+### Added
+
+- **IR Pipeline Full Feature Parity**: The IR pipeline (`_process_arxiv_paper_ir`) now supports all features of the legacy pipeline, enabling direct equivalent replacement:
+  - **arXiv API metadata**: Fetch and save submission date, author ordering, DOI, categories via Atom XML API
+  - **paper.yml generation**: Complete metadata YAML with authors, affiliations, publication info, identifiers, URLs
+  - **Image processing**: Download TeX source, extract images, resolve local paths in markdown output
+  - **Affiliation enrichment**: Merge TeX-author affiliations into paper metadata when configured
+  - **Reference/Appendix sidecars**: Three-file split (main + References + Appendix) via `_split_ir_sections`
+  - **Summary with token count**: Formatted title/authors/sections/tokens header matching legacy output
+  - **Recursive sections tree**: Indented section hierarchy in markdown output
+  - **Abstract heading normalization**: Strip redundant HTML-generated "Abstract" heading via `_strip_abstract_heading`
+  - **full IR-based structured JSON**: Sections now contain nested blocks with full typed IR structures
+
+- **IR-based Structured JSON (schema v2.0)**: Replaced legacy `write_structured_bundle` with `JsonEmitter.write_bundle()`:
+  - `paper.meta.json` — Metadata with SHA-256 content fingerprint
+  - `paper.document.json` — Section tree with full typed IR blocks (paragraphs with inlines, figures with images/captions, tables with headers/rows, equations, etc.)
+  - `paper.assets.json` — Deduplicated asset list with paths, TeX stems, figure indices
+  - `paper.graph.json` — Heterogeneous graph (paper → section → block, block → next, paper → asset)
+  - CSV exports for graph nodes and edges
+
+- **`--version` CLI Flag**: Check installed version via `arxiv2md-beta --version`
+
+### Changed
+
+- **IR Pipeline is now default**: `arxiv2md-beta convert` uses the IR pipeline by default; use `--legacy` to fall back to the original pipeline
+- **`JsonEmitter`**: Complete rewrite with `write_bundle()`, `build_graph()`, CSV export, and support for all export modes (meta/document/full/all)
+- **`HTMLBuilder`**: Enhanced with `image_map`/`image_stem_map` for local image path resolution and front matter block processing
+- **`convert.py`**: Reorganized with asset population from image maps, API metadata enrichment on `DocumentIR`, and streamlined structured export
+- **Version**: 0.8.0 → 0.9.0
+
+Wrapped up by deepseek-v4-pro (deepseek-v4-flash via claude-code) on 2026-04-27
+
 ## [0.8.0] - 2026-04-27
 
 ### Added

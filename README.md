@@ -108,8 +108,9 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--section` | 可重复的 section 标题 | - |
 | `--include-tree` | 输出 section 树 | False |
 | `--emit-result-json` | 打印一行 `ARXIV2MD_RESULT_JSON=...`（含 `paper_output_dir`） | False |
-| `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` | `none` |
+| `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` (schema v2.0, 全类型 IR 块结构) | `none` |
 | `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
+| `--legacy` | 使用旧版管线代替默认的 IR 管线 | False |
 
 ### 命令行参数（`batch`）
 
@@ -126,15 +127,17 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 
 ### 结构化 JSON（`paper.*.json`）
 
-与 `paper.yml` 并行，可用 `--structured-output` 导出机器可读、带 `schema_version`（当前为 `1.0`）的接口，便于检索、图模型与下游脚本：
+与 `paper.yml` 并行，可用 `--structured-output` 导出机器可读、带 `schema_version`（当前为 `2.0`）的接口，便于检索、图模型与下游脚本：
 
 | 文件 | 说明 |
 |------|------|
 | `paper.meta.json` | arXiv 标识、标题、作者、日期、URL、工具版本、`content_sha256` |
-| `paper.document.json` | 章节树摘要哈希 + 摘要/正文块级 IR（`blocks`） |
+| `paper.document.json` | 章节树 + **全类型 IR 块结构**（paragraph 含 inlines、figure 含 images/caption、table 含 headers/rows 等） |
 | `paper.assets.json` | 图片路径与 TeX stem 映射（`full` / `all`） |
 | `paper.bib.json` | 参考文献占位（当前为空列表，预留 Phase D） |
-| `paper.graph.json` | 异构图节点/边（`all`） |
+| `paper.graph.json` | 异构图节点/边（`all`，节点类型：paper / section / block / asset） |
+
+> **v2.0 改进**：自 v0.9.0 起，`paper.document.json` 中的 sections 直接内嵌其 blocks（含完整类型信息），不再使用分离的 `blocks[]` + `text_plain`/`text_md` 模型。
 
 JSON Schema 随包提供：`arxiv2md_beta/schemas/json/paper.meta.schema.json`、`paper.document.schema.json`。
 

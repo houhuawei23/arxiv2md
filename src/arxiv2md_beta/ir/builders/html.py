@@ -80,6 +80,7 @@ class HTMLBuilder(IRBuilder):
             _extract_authors,
             _extract_abstract,
             _extract_abstract_html,
+            _extract_front_matter_html,
             _extract_sections,
             _extract_submission_date,
             _find_document_root,
@@ -90,10 +91,14 @@ class HTMLBuilder(IRBuilder):
         authors = _extract_authors(soup)
         abstract_text = _extract_abstract(soup)
         abstract_html = _extract_abstract_html(soup)
+        front_matter_html = _extract_front_matter_html(soup, document_root)
         submission_date = _extract_submission_date(soup)
 
         # Convert abstract HTML fragment to IR blocks
         abstract_blocks = self._html_to_blocks(abstract_html, section_id="abstract")
+
+        # Convert front matter HTML fragment to IR blocks
+        front_matter_blocks = self._html_to_blocks(front_matter_html, section_id="front_matter")
 
         # Convert section tree
         section_nodes = _extract_sections(document_root)
@@ -109,6 +114,7 @@ class HTMLBuilder(IRBuilder):
                 parser="html",
             ),
             abstract=abstract_blocks,
+            front_matter=front_matter_blocks,
             sections=sections,
         )
 
@@ -403,11 +409,12 @@ class HTMLBuilder(IRBuilder):
             if inner_table:
                 return self._build_table(inner_table, section_id, base_idx)
 
-        # Image figure (default)
+        # Image figure (default) — resolve local image paths
         imgs = tag.find_all("img")
+        figure_index = self._figure_counter + 1  # 1-based for image_map lookup
         images = [
             ImageRefIR(
-                src=img.get("src", ""),
+                src=self._resolve_image_src(img, figure_index),
                 alt=img.get("alt", ""),
             )
             for img in imgs
@@ -423,6 +430,34 @@ class HTMLBuilder(IRBuilder):
             caption=caption,
             kind="image",
         )
+
+    def _resolve_image_src(self, img_tag: Tag, figure_index: int) -> str:
+        """Resolve an <img> src to a local path when available in image maps.
+
+        Checks ``image_stem_map`` first (by matching filename stems), then
+        falls back to ``image_map`` (by 1-based figure index). If no match is
+        found, returns the original src unchanged.
+        """
+        src = img_tag.get("src", "")
+        if not src:
+            return src
+
+        # Try matching by stem (e.g., "figure1" matches "figures/figure1.png")
+        src_basename = src.rsplit("/", 1)[-1] if "/" in src else src
+        src_stem = src_basename.rsplit(".", 1)[0] if "." in src_basename else src_basename
+        for stem, local_path in self.image_stem_map.items():
+            if stem.lower() == src_stem.lower() or stem.lower() in src.lower():
+                return str(local_path)
+
+        # Try matching by figure index (1-based)
+        if figure_index in self.image_map:
+            return str(self.image_map[figure_index])
+
+        # Try 0-based as fallback
+        if figure_index - 1 in self.image_map:
+            return str(self.image_map[figure_index - 1])
+
+        return src
 
     def _build_table(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
         """Build a TableIR or EquationIR from a <table> tag."""
