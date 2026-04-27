@@ -36,9 +36,9 @@ async def run_convert_flow(params: ConvertParams) -> Path:
             return await _process_local_html(params)
         if is_local_archive_path(input_text):
             return await _process_local_archive(params)
-        if params.use_ir:
-            return await _process_arxiv_paper_ir(params)
-        return await _process_arxiv_paper(params)
+        if params.use_legacy:
+            return await _process_arxiv_paper(params)
+        return await _process_arxiv_paper_ir(params)
 
 
 def run_convert_sync(params: ConvertParams) -> None:
