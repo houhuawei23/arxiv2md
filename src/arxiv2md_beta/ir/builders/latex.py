@@ -21,7 +21,7 @@ from arxiv2md_beta.ir.blocks import (
 )
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.core import SourceLoc
-from arxiv2md_beta.ir.document import DocumentIR, PaperMetadata, SectionIR
+from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
 from arxiv2md_beta.ir.inlines import (
     BreakIR,
     EmphasisIR,
@@ -159,11 +159,12 @@ class LaTeXBuilder(IRBuilder):
         # Build sections from body blocks
         sections = self._build_sections(body_blocks)
 
+        author_irs = [AuthorIR(name=a) for a in authors]
         return DocumentIR(
             metadata=PaperMetadata(
                 arxiv_id=arxiv_id,
                 title=title,
-                authors=authors,
+                authors=author_irs,
                 abstract_text=abstract_text,
                 parser="latex",
             ),

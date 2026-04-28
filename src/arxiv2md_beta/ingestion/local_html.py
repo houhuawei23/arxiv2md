@@ -523,7 +523,7 @@ async def ingest_local_html(
 
     # Use provided metadata or fall back to parsed
     title = parsed.title or query.title or query.html_path.stem
-    authors = parsed.authors if parsed.authors else query.authors
+    authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
     submission_date = query.submission_date
 
     # Create paper-specific output directory

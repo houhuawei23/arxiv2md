@@ -65,7 +65,7 @@ Main content here.
             abstract="Pre Abstract",
         )
         assert doc.metadata.title == "Pre Title"
-        assert doc.metadata.authors == ["Author One"]
+        assert [a.name for a in doc.metadata.authors] == ["Author One"]
         assert doc.metadata.abstract_text == "Pre Abstract"
 
     def test_sections(self):

@@ -274,7 +274,7 @@ class TestDocumentIRRoundtrip:
         assert doc2.schema_version == "2.0"
         assert doc2.metadata.arxiv_id == "2501.12345"
         assert doc2.metadata.title == "A Comprehensive Study of IR Systems"
-        assert doc2.metadata.authors == ["Alice Foo", "Bob Bar"]
+        assert doc2.metadata.author_names == ["Alice Foo", "Bob Bar"]
         assert len(doc2.sections) == 2
         assert doc2.sections[0].struct_id == "sec_0"
         assert doc2.sections[0].children[0].struct_id == "sec_0_0"

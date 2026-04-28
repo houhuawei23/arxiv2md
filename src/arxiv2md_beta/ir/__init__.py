@@ -50,7 +50,7 @@ from arxiv2md_beta.ir.core import (  # noqa: F401
     InlineIR,
     SourceLoc,
 )
-from arxiv2md_beta.ir.document import DocumentIR, PaperMetadata, SectionIR  # noqa: F401
+from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR  # noqa: F401
 from arxiv2md_beta.ir.inlines import (  # noqa: F401
     BreakIR,
     EmphasisIR,
@@ -118,6 +118,7 @@ __all__ = [
     "RawBlockIR",
     "BlockUnion",
     # Document
+    "AuthorIR",
     "SectionIR",
     "PaperMetadata",
     "DocumentIR",

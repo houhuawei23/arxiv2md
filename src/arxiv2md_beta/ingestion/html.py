@@ -83,7 +83,7 @@ async def ingest_paper_html(
     api_metadata = await fetch_arxiv_metadata(arxiv_id)
     # Summary / sidecars: use Atom API author names (order + spelling), not HTML ltx_authors
     # (HTML mixes affiliation lines like "Google Brain" into the author list).
-    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed.authors)
+    display_author_names = author_display_names_from_metadata(api_metadata) or [a.name for a in parsed.authors]
     # Use API date if available, otherwise use parsed date
     submission_date = api_metadata.get("submission_date") or parsed.submission_date
     # Use API title if parsed title is None
@@ -211,7 +211,7 @@ async def ingest_paper_html(
         if not paper_meta.get("summary") and parsed.abstract:
             paper_meta["summary"] = parsed.abstract
         if not paper_meta.get("authors") and parsed.authors:
-            paper_meta["authors"] = [{"name": a} for a in parsed.authors if a]
+            paper_meta["authors"] = [{"name": a.name, "affiliations": a.affiliations} for a in parsed.authors if a.name]
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
         merge_tex_affiliations_if_configured(paper_meta, tex_source_info)
         save_paper_metadata(paper_meta, paper_output_dir)

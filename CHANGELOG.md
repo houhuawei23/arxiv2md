@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-04-28
+
+### Fixed
+
+- **IR Pipeline Equation LaTeX extraction**: Fixed duplicated Unicode math symbols in generated markdown equations.
+  - Root cause: ar5iv HTML renders equations as both Unicode text (in `<span class="ltx_text">`) and LaTeX (in `<math><annotation encoding="application/x-tex">`); `_get_text()` concatenated both.
+  - Fix: Added `_extract_equation_latex()` to prefer `<math>` annotation LaTeX exclusively, falling back to plain text only when no math annotations are present.
+  - Affects: `HTMLBuilder._build_table()` for equation tables (`ltx_equationgroup`, `ltx_eqn_table`, `ltx_eqn_align`).
+
+- **IR Pipeline Table formatting**: Fixed broken markdown table output with excessive blank lines in cells.
+  - Root cause: `_tag_to_inlines()` converted whitespace-only `NavigableString` nodes (newlines/indentation inside `<td>`) into `TextIR("\n")` entries.
+  - Fix: Filter out whitespace-only text nodes in `_tag_to_inlines()` before creating `TextIR`.
+
+- **IR Pipeline Footnote rendering**: Fixed footnote markers and content being merged inline as unreadable text (e.g. `^1^11To illustrate...`).
+  - Fix: `_process_footnote()` extracts only the marker as `SuperscriptIR`, queues content as `BlockQuoteIR`, and flushes after each paragraph block.
+
+- **IR Pipeline Ordered list numbering**: Fixed all ordered list items rendering as `1.` instead of sequential numbers.
+  - Fix: Pass index through `_emit_list_item()` and use `f"{prefix}{index + 1}. "` for ordered markers.
+
+- **IR Pipeline Author affiliations in summary**: Added author affiliations to markdown header summary output.
+
+### Changed
+
+- **Version**: 0.9.0 → 0.9.1
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
 ## [0.9.0] - 2026-04-27
 
 ### Added

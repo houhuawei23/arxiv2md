@@ -341,7 +341,7 @@ class JsonEmitter(IREmitter):
             "arxiv_id": m.arxiv_id,
             "arxiv_version": m.arxiv_version,
             "title": m.title,
-            "authors": m.authors,
+            "authors": [a.model_dump(exclude_none=True) for a in m.authors],
             "submission_date": m.submission_date,
             "abstract_text": m.abstract_text,
             "source_url": m.source_url,

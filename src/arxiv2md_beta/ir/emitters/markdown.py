@@ -266,11 +266,11 @@ class MarkdownEmitter(IREmitter):
 
     def _emit_list(self, lst: ListIR) -> str:
         lines: list[str] = []
-        for item_blocks in lst.items:
-            lines.extend(self._emit_list_item(item_blocks, lst.ordered, 0))
+        for idx, item_blocks in enumerate(lst.items):
+            lines.extend(self._emit_list_item(item_blocks, lst.ordered, 0, idx))
         return "\n".join(lines)
 
-    def _emit_list_item(self, item_blocks: list, ordered: bool, indent: int) -> list[str]:
+    def _emit_list_item(self, item_blocks: list, ordered: bool, indent: int, index: int = 0) -> list[str]:
         prefix = "  " * indent
         lines: list[str] = []
 
@@ -282,17 +282,17 @@ class MarkdownEmitter(IREmitter):
                 text = " ".join(
                     self._emit_block(b) for b in text_blocks
                 ).strip()
-                marker = f"{prefix}- " if not ordered else f"{prefix}1. "
+                marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
                 lines.append(f"{marker}{text}" if text else f"{marker}")
                 text_blocks = []
-                for nested_item in blk.items:
-                    lines.extend(self._emit_list_item(nested_item, blk.ordered, indent + 1))
+                for nested_idx, nested_item in enumerate(blk.items):
+                    lines.extend(self._emit_list_item(nested_item, blk.ordered, indent + 1, nested_idx))
             else:
                 text_blocks.append(blk)
 
         if text_blocks:
             text = " ".join(self._emit_block(b) for b in text_blocks).strip()
-            marker = f"{prefix}- " if not ordered else f"{prefix}1. "
+            marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
             lines.insert(0, f"{marker}{text}" if text else f"{marker}")
 
         return lines

@@ -158,6 +158,116 @@ class TestBlockConversion:
         assert codes[0].language == "python"
 
 
+class TestAuthorAffiliationParsing:
+    """Author and affiliation extraction from arXiv HTML."""
+
+    def test_structured_author_blocks(self, builder):
+        """ltx_creator / ltx_role_author with ltx_personname + affiliation."""
+        html = """
+        <article class="ltx_document">
+        <h1 class="ltx_title_document">Test</h1>
+        <div class="ltx_authors">
+            <span class="ltx_creator ltx_role_author">
+                <span class="ltx_personname">Jamie Simon</span>
+                <span class="ltx_author_notes">
+                    <span class="ltx_text ltx_font_italic">UC Berkeley and Imbue</span>
+                </span>
+            </span>
+            <span class="ltx_creator ltx_role_author">
+                <span class="ltx_personname">Daniel Kunin</span>
+                <span class="ltx_author_notes">
+                    <span class="ltx_text ltx_font_italic">UC Berkeley</span>
+                </span>
+            </span>
+            <span class="ltx_creator ltx_role_author">
+                <span class="ltx_personname">Alexander Atanasov</span>
+                <span class="ltx_author_notes">
+                    <span class="ltx_text ltx_font_italic">Harvard University</span>
+                </span>
+            </span>
+        </div>
+        <section class="ltx_section"><h2>Intro</h2><p>Hello.</p></section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        authors = doc.metadata.authors
+        assert len(authors) == 3
+        assert authors[0].name == "Jamie Simon"
+        assert authors[0].affiliations == ["UC Berkeley and Imbue"]
+        assert authors[1].name == "Daniel Kunin"
+        assert authors[1].affiliations == ["UC Berkeley"]
+        assert authors[2].name == "Alexander Atanasov"
+        assert authors[2].affiliations == ["Harvard University"]
+
+    def test_sequential_bold_author_spans(self, builder):
+        """Flat sequential spans: bold = name, following = affiliation."""
+        html = """
+        <article class="ltx_document">
+        <h1 class="ltx_title_document">Test</h1>
+        <div class="ltx_authors">
+            <span class="ltx_text ltx_font_bold">Jamie Simon</span>
+            <sup>*</sup>
+            <span class="ltx_text">UC Berkeley and Imbue</span>
+            <span class="ltx_text ltx_font_bold">Daniel Kunin</span>
+            <span class="ltx_text">UC Berkeley</span>
+            <span class="ltx_text ltx_font_bold">Alexander Atanasov</span>
+            <span class="ltx_text">Harvard University</span>
+        </div>
+        <section class="ltx_section"><h2>Intro</h2><p>Hello.</p></section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        authors = doc.metadata.authors
+        assert len(authors) == 3
+        assert authors[0].name == "Jamie Simon"
+        assert authors[0].affiliations == ["UC Berkeley and Imbue"]
+        assert authors[1].name == "Daniel Kunin"
+        assert authors[1].affiliations == ["UC Berkeley"]
+        assert authors[2].name == "Alexander Atanasov"
+        assert authors[2].affiliations == ["Harvard University"]
+
+    def test_ltx_author_personname_only(self, builder):
+        """Simple ltx_author / ltx_personname without explicit affiliations."""
+        html = """
+        <article class="ltx_document">
+        <h1 class="ltx_title_document">Test</h1>
+        <div class="ltx_authors">
+            <span class="ltx_author">
+                <span class="ltx_personname">John Doe</span>
+            </span>
+            <span class="ltx_author">
+                <span class="ltx_personname">Jane Smith</span>
+            </span>
+        </div>
+        <section class="ltx_section"><h2>Intro</h2><p>Hello.</p></section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        authors = doc.metadata.authors
+        assert len(authors) == 2
+        assert authors[0].name == "John Doe"
+        assert authors[0].affiliations == []
+        assert authors[1].name == "Jane Smith"
+        assert authors[1].affiliations == []
+
+    def test_author_names_property(self, builder):
+        """PaperMetadata.author_names returns plain name strings."""
+        html = """
+        <article class="ltx_document">
+        <div class="ltx_authors">
+            <span class="ltx_creator ltx_role_author">
+                <span class="ltx_personname">Alice Foo</span>
+                <span class="ltx_author_notes">
+                    <span class="ltx_text">MIT</span>
+                </span>
+            </span>
+            <span class="ltx_creator ltx_role_author">
+                <span class="ltx_personname">Bob Bar</span>
+            </span>
+        </div>
+        <section class="ltx_section"><h2>Intro</h2><p>Hello.</p></section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        assert doc.metadata.author_names == ["Alice Foo", "Bob Bar"]
+
+
 class TestRoundTrip:
     """HTML → DocumentIR → Markdown produces valid output."""
 

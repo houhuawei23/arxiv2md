@@ -11,6 +11,14 @@ from arxiv2md_beta.ir.blocks import BlockUnion
 from arxiv2md_beta.ir.core import IRNode
 
 
+class AuthorIR(IRNode):
+    """Structured author record with name and optional affiliations."""
+
+    type: Literal["author"] = "author"
+    name: str
+    affiliations: list[str] = Field(default_factory=list)
+
+
 class SectionIR(IRNode):
     """A hierarchical section node in the document tree.
 
@@ -34,13 +42,18 @@ class PaperMetadata(IRNode):
     arxiv_id: str
     arxiv_version: str | None = None
     title: str | None = None
-    authors: list[str] = Field(default_factory=list)
+    authors: list[AuthorIR] = Field(default_factory=list)
     submission_date: str | None = None
     abstract_text: str | None = None
     source_url: str | None = None
     parser: Literal["html", "latex", "local"] = "html"
     tool_name: str = "arxiv2md-beta"
     tool_version: str = "0.0.0"
+
+    @property
+    def author_names(self) -> list[str]:
+        """Convenience accessor: ordered author name strings."""
+        return [a.name for a in self.authors]
 
 
 class DocumentIR(IRNode):

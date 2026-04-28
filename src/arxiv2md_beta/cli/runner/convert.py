@@ -19,6 +19,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_archive,
     parse_local_html,
 )
+from arxiv2md_beta.ir.document import AuthorIR
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.metrics import async_timed_operation
@@ -152,7 +153,7 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
 
     # 3. Fetch arXiv API metadata (submission date, author ordering, DOI, etc.)
     api_metadata = await fetch_arxiv_metadata(query.arxiv_id)
-    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed.authors)
+    display_author_names = author_display_names_from_metadata(api_metadata) or [a.name for a in parsed.authors]
     submission_date = api_metadata.get("submission_date") or parsed.submission_date
     if not parsed.title and api_metadata.get("title"):
         parsed.title = api_metadata["title"]
@@ -254,7 +255,17 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
     if submission_date:
         doc.metadata.submission_date = submission_date
     if display_author_names:
-        doc.metadata.authors = list(display_author_names)
+        # Merge API names (better ordering/spelling) with HTML-parsed affiliations
+        html_affil_map: dict[str, list[str]] = {}
+        for a in parsed.authors:
+            html_affil_map[a.name.lower().strip()] = a.affiliations
+        doc.metadata.authors = [
+            AuthorIR(
+                name=n,
+                affiliations=html_affil_map.get(n.lower().strip(), []),
+            )
+            for n in display_author_names
+        ]
     if not doc.metadata.title and parsed.title:
         doc.metadata.title = parsed.title
 
@@ -310,7 +321,15 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
     if query.version:
         summary_lines.append(f"- Version: {query.version}")
     if display_author_names:
-        summary_lines.append(f"- Authors: {', '.join(display_author_names)}")
+        # Show authors with affiliations (multi-line for readability)
+        summary_lines.append("- Authors:")
+        for author in doc.metadata.authors:
+            name = author.name
+            affils = ", ".join(author.affiliations) if author.affiliations else ""
+            if affils:
+                summary_lines.append(f"  - {name} — {affils}")
+            else:
+                summary_lines.append(f"  - {name}")
     summary_lines.append(f"- Sections: {count_sections(filtered_sections)}")
     token_body = "\n".join(
         x for x in (content, content_references, content_appendix or "") if x
@@ -345,8 +364,20 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
             paper_meta["title"] = parsed.title
         if not paper_meta.get("summary") and parsed.abstract:
             paper_meta["summary"] = parsed.abstract
-        if not paper_meta.get("authors") and parsed.authors:
-            paper_meta["authors"] = [{"name": a} for a in parsed.authors if a]
+        if parsed.authors:
+            # Build HTML affiliation map for merging into API authors
+            html_affil_map: dict[str, list[str]] = {}
+            for a in parsed.authors:
+                html_affil_map[a.name.lower().strip()] = a.affiliations
+            if paper_meta.get("authors"):
+                # Enrich existing API authors with HTML affiliations
+                for pa in paper_meta["authors"]:
+                    if isinstance(pa, dict) and "name" in pa and not pa.get("affiliations"):
+                        affs = html_affil_map.get(pa["name"].lower().strip(), [])
+                        if affs:
+                            pa["affiliations"] = affs
+            else:
+                paper_meta["authors"] = [{"name": a.name, "affiliations": a.affiliations} for a in parsed.authors if a.name]
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
         merge_tex_affiliations_if_configured(paper_meta, tex_source_info)
         save_paper_metadata(paper_meta, paper_output_dir)

@@ -127,10 +127,11 @@ def document_to_ingestion_result(
 
     # Build summary
     m = doc.metadata
+    author_names = m.author_names
     summary_parts = [
         f"# {m.title or 'Untitled'}",
         "",
-        f"**Authors:** {', '.join(m.authors) if m.authors else 'Unknown'}",
+        f"**Authors:** {', '.join(author_names) if author_names else 'Unknown'}",
     ]
     if m.submission_date:
         summary_parts.append(f"**Date:** {m.submission_date}")

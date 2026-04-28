@@ -26,7 +26,7 @@ from arxiv2md_beta.ir.blocks import (
     TableIR,
 )
 from arxiv2md_beta.ir.builders.base import IRBuilder
-from arxiv2md_beta.ir.document import DocumentIR, PaperMetadata, SectionIR
+from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
 from arxiv2md_beta.ir.inlines import (
     BreakIR,
     EmphasisIR,
@@ -61,6 +61,7 @@ class HTMLBuilder(IRBuilder):
         self.image_stem_map = image_stem_map or {}
         self._figure_counter = 0
         self._used_image_indices: set[int] = set()
+        self._pending_footnotes: list[BlockUnion] = []
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ class HTMLBuilder(IRBuilder):
         # Reuse existing parser for metadata and section structure
         from arxiv2md_beta.html.parser import (
             _extract_title,
-            _extract_authors,
+            _extract_authors_with_affiliations,
             _extract_abstract,
             _extract_abstract_html,
             _extract_front_matter_html,
@@ -88,7 +89,8 @@ class HTMLBuilder(IRBuilder):
 
         document_root = _find_document_root(soup)
         title = _extract_title(soup)
-        authors = _extract_authors(soup)
+        parsed_authors = _extract_authors_with_affiliations(soup)
+        authors = [AuthorIR(name=a.name, affiliations=a.affiliations) for a in parsed_authors]
         abstract_text = _extract_abstract(soup)
         abstract_html = _extract_abstract_html(soup)
         front_matter_html = _extract_front_matter_html(soup, document_root)
@@ -162,6 +164,20 @@ class HTMLBuilder(IRBuilder):
             elif result is not None:
                 blocks.append(result)
                 idx += 1
+            # Insert any pending footnotes after the current block
+            while self._pending_footnotes:
+                footnote = self._pending_footnotes.pop(0)
+                footnote.section_id = section_id
+                footnote.order_index = idx
+                blocks.append(footnote)
+                idx += 1
+        # Flush remaining footnotes at end of fragment
+        while self._pending_footnotes:
+            footnote = self._pending_footnotes.pop(0)
+            footnote.section_id = section_id
+            footnote.order_index = idx
+            blocks.append(footnote)
+            idx += 1
         return blocks
 
     def _tag_to_blocks(
@@ -266,6 +282,10 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "hr":
             return RuleIR(section_id=section_id, order_index=base_idx)
 
+        # Skip SVG elements (usually decorative/typographic renderings)
+        if tag_name == "svg":
+            return None
+
         # Raw fallback
         return RawBlockIR(
             section_id=section_id,
@@ -282,6 +302,9 @@ class HTMLBuilder(IRBuilder):
         for child in tag.children:
             if isinstance(child, NavigableString):
                 text = str(child)
+                # Skip whitespace-only strings (prevents blank lines in tables/lists)
+                if text and not text.strip():
+                    continue
                 if text:
                     inlines.append(TextIR(text=text))
             elif isinstance(child, Tag):
@@ -365,16 +388,98 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "br":
             return BreakIR()
 
-        # Spans/divs with inline content — recurse
-        if tag_name in ("span", "cite", "label"):
+        # Paragraph inside inline context (e.g. nested inside list items)
+        if tag_name == "p":
             return self._tag_to_inlines(tag)
+
+        # Spans/divs with inline content — recurse, with class-aware styling
+        if tag_name in ("span", "cite", "label"):
+            classes = " ".join(tag.get("class", []))
+
+            # Footnotes — extract marker inline, queue content as block
+            if "ltx_note" in classes and "ltx_role_footnote" in classes:
+                return self._process_footnote(tag)
+
+            inlines = self._tag_to_inlines(tag)
+            if "ltx_font_italic" in classes:
+                return EmphasisIR(style="italic", inlines=inlines)
+            if "ltx_font_bold" in classes:
+                return EmphasisIR(style="bold", inlines=inlines)
+            return inlines
 
         # Fallback: raw text
         return RawInlineIR(format="html", content=str(tag))
 
+    def _process_footnote(self, tag: Tag) -> InlineUnion:
+        """Extract footnote marker and queue content for block-level insertion."""
+        # Extract marker from first <sup class="ltx_note_mark">
+        mark = tag.find("sup", class_="ltx_note_mark")
+        marker_text = self._get_text(mark) if mark else ""
+
+        # Extract content from .ltx_note_content
+        content_tag = tag.find("span", class_="ltx_note_content")
+        if content_tag:
+            # Parse a copy to avoid mutating the original tree
+            content_copy = BeautifulSoup(str(content_tag), "html.parser").find(
+                "span", class_="ltx_note_content"
+            )
+            if content_copy:
+                # Remove inner note marks and tags so only the actual text remains
+                for inner_mark in content_copy.find_all("sup", class_="ltx_note_mark"):
+                    inner_mark.decompose()
+                for inner_tag in content_copy.find_all("span", class_="ltx_tag_note"):
+                    inner_tag.decompose()
+
+                content_inlines = self._tag_to_inlines(content_copy)
+                if content_inlines:
+                    self._pending_footnotes.append(
+                        BlockQuoteIR(
+                            blocks=[
+                                ParagraphIR(
+                                    inlines=[
+                                        TextIR(text=f"Footnote {marker_text}: "),
+                                        *content_inlines,
+                                    ]
+                                )
+                            ]
+                        )
+                    )
+
+        return SuperscriptIR(inlines=[TextIR(text=marker_text)])
+
     def _get_text(self, tag: Tag) -> str:
         """Get normalized text content from a tag."""
         return re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+
+    def _extract_equation_latex(self, tag: Tag) -> str:
+        """Extract LaTeX from an equation table, preferring <math> annotations.
+
+        ar5iv renders equations as HTML text *alongside* <math> tags.
+        Using ``get_text()`` would concatenate both the Unicode rendering and
+        the LaTeX annotation, producing duplicated garbage.  We collect *only*
+        the ``<annotation encoding="application/x-tex">`` nodes inside every
+        <math> child, join them, and fall back to plain text only when no math
+        annotation is present.
+        """
+        math_tags = tag.find_all("math")
+        latex_parts: list[str] = []
+        for math_tag in math_tags:
+            annotation = math_tag.find("annotation", attrs={"encoding": "application/x-tex"})
+            if annotation and annotation.text:
+                latex_parts.append(annotation.text.strip())
+        if latex_parts:
+            latex = " ".join(latex_parts)
+            # Strip outer display-math delimiters if present
+            if latex.startswith("$$") and latex.endswith("$$"):
+                latex = latex[2:-2]
+            elif latex.startswith("$") and latex.endswith("$"):
+                latex = latex[1:-1]
+            return latex
+        # Fallback: plain text without math tags
+        text = self._get_text(tag)
+        if text.startswith("$") and text.endswith("$"):
+            text = text[1:-1]
+        return text
 
     # ── Complex block builders ─────────────────────────────────────────
 
@@ -465,16 +570,14 @@ class HTMLBuilder(IRBuilder):
 
         # Equation tables
         if _EQUATION_TABLE_RE.search(classes):
-            text = self._get_text(tag)
-            if not text:
+            # Prefer LaTeX from <math> annotations; fall back to plain text
+            latex = self._extract_equation_latex(tag)
+            if not latex:
                 return None
-            # Strip outer $ if present
-            if text.startswith("$") and text.endswith("$"):
-                text = text[1:-1]
             return EquationIR(
                 section_id=section_id,
                 order_index=base_idx,
-                latex=text,
+                latex=latex,
             )
 
         # Data tables
@@ -509,6 +612,10 @@ class HTMLBuilder(IRBuilder):
                     if text:
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
+                    # Skip item number tags (e.g. <span class="ltx_tag ltx_tag_item">1.</span>)
+                    child_classes = " ".join(child.get("class", []))
+                    if "ltx_tag" in child_classes:
+                        continue
                     if child.name in ("ul", "ol"):
                         # Nested list
                         nested = self._build_list_items(child)

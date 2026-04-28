@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from arxiv2md_beta.ir import (
+    AuthorIR,
     BlockQuoteIR,
     CodeIR,
     DocumentIR,
@@ -62,7 +63,7 @@ def complex_doc() -> DocumentIR:
             arxiv_id="2501.12345",
             arxiv_version="v2",
             title="A Comprehensive Study of IR Systems",
-            authors=["Alice Foo", "Bob Bar"],
+            authors=[AuthorIR(name="Alice Foo"), AuthorIR(name="Bob Bar")],
             submission_date="20250115",
             parser="html",
         ),

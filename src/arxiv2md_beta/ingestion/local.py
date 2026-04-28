@@ -325,7 +325,7 @@ async def _ingest_html_archive(
 
     # Use provided metadata if parsed is missing
     title = parsed.title or query.title or main_html_file.stem
-    authors = parsed.authors if parsed.authors else query.authors
+    authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
     abstract = parsed.abstract
 
     # Create paper-specific output directory
