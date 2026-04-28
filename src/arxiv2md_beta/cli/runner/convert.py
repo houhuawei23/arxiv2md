@@ -255,14 +255,41 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
     if submission_date:
         doc.metadata.submission_date = submission_date
     if display_author_names:
-        # Merge API names (better ordering/spelling) with HTML-parsed affiliations
+        # Build affiliation maps from both API and HTML-parsed sources
+        # API metadata usually has more complete affiliations; HTML parser
+        # catches edge cases (e.g. ar5iv omitting some fields).
+        import unicodedata
+
+        def _norm(s: str) -> str:
+            """Normalize for loose name matching (strip accents, lowercase)."""
+            return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii").lower().strip()
+
+        # API affiliations (preferred)
+        api_affil_map: dict[str, list[str]] = {}
+        for a in api_metadata.get("authors", []):
+            if isinstance(a, dict) and a.get("name"):
+                affils = a.get("affiliations", [])
+                if not affils and a.get("affiliation"):
+                    affils = [x.strip() for x in a["affiliation"].split(";") if x.strip()]
+                api_affil_map[_norm(a["name"])] = affils
+
+        # HTML-parsed affiliations (fallback)
         html_affil_map: dict[str, list[str]] = {}
         for a in parsed.authors:
-            html_affil_map[a.name.lower().strip()] = a.affiliations
+            html_affil_map[_norm(a.name)] = a.affiliations
+
+        # Merge: API first, HTML as supplement for missing entries
+        merged_affil_map: dict[str, list[str]] = {}
+        for key, affils in api_affil_map.items():
+            merged_affil_map[key] = list(affils)
+        for key, affils in html_affil_map.items():
+            if key not in merged_affil_map:
+                merged_affil_map[key] = affils
+
         doc.metadata.authors = [
             AuthorIR(
                 name=n,
-                affiliations=html_affil_map.get(n.lower().strip(), []),
+                affiliations=merged_affil_map.get(_norm(n), []),
             )
             for n in display_author_names
         ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -22,12 +23,17 @@ def _build_client(timeout_s: float | None = None) -> httpx.AsyncClient:
         max_connections=h.max_connections,
         max_keepalive_connections=h.max_keepalive_connections,
     )
-    return httpx.AsyncClient(
+    kwargs: dict = dict(
         timeout=timeout,
         headers=headers,
         follow_redirects=True,
         limits=limits,
     )
+    # Pick up proxy from environment (HTTP_PROXY / HTTPS_PROXY) or explicit override
+    proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+    if proxy_url:
+        kwargs["proxy"] = proxy_url
+    return httpx.AsyncClient(**kwargs)
 
 
 def get_http_client() -> httpx.AsyncClient:

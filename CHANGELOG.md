@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-04-28
+
+### Fixed
+
+- **Author affiliation extraction for <br>-delimited personname**: Papers like 1706.03762 (Attention Is All You Need) put all authors in a single `ltx_personname` with `<br>` separators. The parser previously returned empty affiliations because the combined text exceeded the 80-char threshold.
+  - Fix: Added `_parse_br_delimited_authors()` in `html/parser.py` to split by `<br>`, detect names vs affiliations, and build proper `ParsedAuthor` records.
+
+- **Author affiliation enrichment from API metadata**: IR pipeline now prefers arXiv API author affiliations over HTML-parsed ones.
+  - API metadata provides complete affiliations (e.g. "Google Brain; Google (United States), Mountain View, United States").
+  - HTML parser catches edge cases when API lacks data.
+  - Unicode name normalization (`NFKD` → ASCII) ensures `Łukasz Kaiser` (HTML) matches `Lukasz Kaiser` (API).
+
+- **HTTP proxy support**: `httpx.AsyncClient` now reads `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
+
+### Changed
+
+- **Version**: 0.9.1 → 0.9.2
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
 ## [0.9.1] - 2026-04-28
 
 ### Fixed

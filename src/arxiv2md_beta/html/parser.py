@@ -197,34 +197,119 @@ def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
         if not personname:
             continue
         name = _clean_single_author_text(personname)
-        if not name:
-            continue
-
-        # Look for affiliation in sibling/following elements within the creator
-        affils: list[str] = []
-        # Direct affiliation containers
-        for aff_class in ("ltx_author_notes", "ltx_role_address", "ltx_address"):
-            aff_node = creator.find(class_=re.compile(aff_class))
-            if aff_node:
-                aff_text = _clean_single_author_text(aff_node)
-                if aff_text and aff_text != name:
-                    affils.append(aff_text)
-
-        # Also check for italic text spans inside the creator (common pattern)
-        if not affils:
-            for span in creator.find_all("span", class_=re.compile(r"ltx_text")):
-                classes = span.get("class", [])
-                if "ltx_font_italic" in classes or "ltx_font_bold" not in classes:
-                    aff_text = _clean_single_author_text(span)
-                    if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
+        if name:
+            # Look for affiliation in sibling/following elements within the creator
+            affils: list[str] = []
+            # Direct affiliation containers
+            for aff_class in ("ltx_author_notes", "ltx_role_address", "ltx_address"):
+                aff_node = creator.find(class_=re.compile(aff_class))
+                if aff_node:
+                    aff_text = _clean_single_author_text(aff_node)
+                    if aff_text and aff_text != name:
                         affils.append(aff_text)
 
-        affils = _dedupe_strings(affils)
-        results.append(ParsedAuthor(name=name, affiliations=affils))
+            # Also check for italic text spans inside the creator (common pattern)
+            if not affils:
+                for span in creator.find_all("span", class_=re.compile(r"ltx_text")):
+                    classes = span.get("class", [])
+                    if "ltx_font_italic" in classes or "ltx_font_bold" not in classes:
+                        aff_text = _clean_single_author_text(span)
+                        if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
+                            affils.append(aff_text)
+
+            affils = _dedupe_strings(affils)
+            results.append(ParsedAuthor(name=name, affiliations=affils))
+            continue
+
+        # --- Strategy C: multi-author <br>-delimited personname ---
+        # Some ar5iv papers put all authors in one personname with <br> separators
+        br_authors = _parse_br_delimited_authors(personname)
+        if br_authors:
+            results.extend(br_authors)
 
     if results:
         return results
     return []
+
+
+def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
+    """Parse authors from a ``ltx_personname`` where
+    - Each author block is separated by ``<br>``
+    - Within each block: name, then affiliation, then email
+    - The next author's name may be prefixed with ``&``
+
+    Example (1706.03762):
+        Ashish Vaswani <br> Google Brain <br> avaswani@google.com <br>
+        &amp;Noam Shazeer <br> Google Brain <br> noam@google.com ...
+    """
+    # Split content by <br> tags
+    parts: list[str] = []
+    for child in personname.children:
+        if isinstance(child, Tag) and child.name == "br":
+            # BR marks a boundary; flush current part
+            continue
+        text = _get_clean_text(child) if isinstance(child, Tag) else str(child).strip()
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            parts.append(text)
+
+    if not parts:
+        return []
+
+    # Group parts into (name, [affiliations]) pairs
+    results: list[ParsedAuthor] = []
+    current_name: str | None = None
+    current_affils: list[str] = []
+
+    for part in parts:
+        # Strip leading & (used to separate authors)
+        part = part.lstrip("&").strip()
+        if not part:
+            continue
+
+        # Skip emails
+        if _EMAIL_RE.match(part):
+            continue
+
+        # Skip footnote markers
+        if _FOOTNOTE_MARKER_RE.match(part):
+            continue
+
+        # Skip footnote keywords
+        if any(marker in part.lower() for marker in _SKIP_KEYWORDS):
+            continue
+
+        # Skip very long text (likely contribution statements)
+        if len(part) > get_settings().parsing.max_author_part_length:
+            continue
+
+        # Determine if this is a name or affiliation
+        if _looks_like_name(part):
+            # Flush previous author if any
+            if current_name:
+                results.append(ParsedAuthor(
+                    name=current_name,
+                    affiliations=_dedupe_strings(current_affils),
+                ))
+            current_name = part
+            current_affils = []
+        elif _looks_like_affiliation(part):
+            if current_name:
+                current_affils.append(part)
+        # If ambiguous and we have a current name, it might be an affiliation
+        elif current_name and not current_affils:
+            # Short text after name could be affiliation
+            if len(part.split()) <= 4:
+                current_affils.append(part)
+
+    # Flush last author
+    if current_name:
+        results.append(ParsedAuthor(
+            name=current_name,
+            affiliations=_dedupe_strings(current_affils),
+        ))
+
+    return results
 
 
 def _parse_tabular_authors_in_creator(creator: Tag) -> list[ParsedAuthor]:
