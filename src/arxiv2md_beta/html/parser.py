@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from arxiv2md_beta.schemas import SectionNode
@@ -20,6 +20,28 @@ _HEADING_RE = re.compile(r"^h[1-6]$")
 _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
 # Keywords that indicate footnotes or contribution statements (case-insensitive check)
 _SKIP_KEYWORDS = {"footnotemark:", "equal contribution", "work performed", "listing order"}
+# Keywords that strongly suggest an affiliation line
+_AFFILIATION_KEYWORDS = {
+    "university", "college", "institute", "institution", "laboratory", "lab",
+    "school", "center", "centre", "department", "faculty", "division",
+    "academy", "consortium", "corporation", "corp", "inc", "ltd", "gmbh",
+    "research", "google", "microsoft", "meta", "amazon", "apple", "deepmind",
+    "openai", "anthropic", "nvidia", "intel", "ibm", "facebook", "twitter",
+    "tesla", "uber", "lyft", "airbnb", "netflix", "stripe", "square",
+    "berkeley", "stanford", "mit", "harvard", "caltech", "cmu", "princeton",
+    "yale", "columbia", "cornell", "oxford", "cambridge", "eth", "epfl",
+    "mpi", "inria", "cern", "nasa", "flatiron", "allen", "astera",
+}
+# Regex for footnote markers like *, **, 1, 12, †, ‡
+_FOOTNOTE_MARKER_RE = re.compile(r"^[\*†‡§¶‖#♯\d]+$")
+
+
+@dataclass
+class ParsedAuthor:
+    """An author record with optional affiliation(s)."""
+
+    name: str
+    affiliations: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -27,7 +49,7 @@ class ParsedArxivHtml:
     """Parsed content extracted from arXiv HTML."""
 
     title: str | None
-    authors: list[str]
+    authors: list[ParsedAuthor]
     abstract: str | None
     abstract_html: str | None  # Inner HTML of abstract div for figure-aware conversion
     front_matter_html: str | None  # HTML between abstract and first section (e.g. title-block figures)
@@ -56,7 +78,7 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
     document_root = _find_document_root(soup)
 
     title = _extract_title(soup)
-    authors = _extract_authors(soup)
+    authors = _extract_authors_with_affiliations(soup)
     abstract = _extract_abstract(soup)
     abstract_html = _extract_abstract_html(soup)
     front_matter_html = _extract_front_matter_html(soup, document_root)
@@ -120,6 +142,22 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
 
 
 def _extract_authors(soup: BeautifulSoup) -> list[str]:
+    """Extract author name strings (backward-compatible wrapper)."""
+    return [a.name for a in _extract_authors_with_affiliations(soup)]
+
+
+def _extract_authors_with_affiliations(soup: BeautifulSoup) -> list[ParsedAuthor]:
+    """Extract structured author records (name + affiliations) from arXiv HTML.
+
+    Handles multiple ar5iv HTML patterns:
+
+    1. Structured ``ltx_creator ltx_role_author`` blocks containing
+       ``ltx_personname`` + ``ltx_author_notes``.
+    2. ``ltx_author`` / ``ltx_personname`` wrappers without explicit
+       affiliation containers.
+    3. Sequential flat spans where bold spans are names and following
+       non-bold spans are affiliations (e.g. arXiv 2604.21691v1).
+    """
     authors_container = soup.find("div", class_="ltx_authors")
     if not authors_container:
         document_root = _find_document_root(soup)
@@ -127,20 +165,462 @@ def _extract_authors(soup: BeautifulSoup) -> list[str]:
     if not authors_container:
         return []
 
-    author_nodes = authors_container.find_all(
-        lambda tag: tag.name == "span"
-        and "ltx_text" in tag.get("class", [])
-        and "ltx_font_bold" in tag.get("class", [])
-    )
-    if not author_nodes:
-        author_nodes = authors_container.find_all(class_=re.compile(r"ltx_author|ltx_personname"))
+    # --- Strategy 1: structured author blocks ---
+    structured = _parse_structured_author_blocks(authors_container)
+    if structured:
+        return structured
 
-    authors: list[str] = []
-    for node in author_nodes:
-        for text in _clean_author_text(node):
-            if text and text not in authors:
-                authors.append(text)
-    return authors
+    # --- Strategy 2: sequential flat spans ---
+    sequential = _parse_sequential_author_spans(authors_container)
+    if sequential:
+        return sequential
+
+    return []
+
+
+def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
+    """Parse ``ltx_creator`` / ``ltx_role_author`` / ``ltx_author`` blocks."""
+    creators = container.find_all(class_=re.compile(r"ltx_creator|ltx_role_author|ltx_author"))
+    if not creators:
+        return []
+
+    results: list[ParsedAuthor] = []
+    for creator in creators:
+        # --- Strategy A: tabular layout with multiple authors per creator ---
+        tabular = _parse_tabular_authors_in_creator(creator)
+        if tabular:
+            results.extend(tabular)
+            continue
+
+        # --- Strategy B: single author per creator (classic pattern) ---
+        personname = creator.find(class_=re.compile(r"ltx_personname"))
+        if not personname:
+            continue
+        name = _clean_single_author_text(personname)
+        if name:
+            # Look for affiliation in sibling/following elements within the creator
+            affils: list[str] = []
+            # Direct affiliation containers
+            for aff_class in ("ltx_author_notes", "ltx_role_address", "ltx_address"):
+                aff_node = creator.find(class_=re.compile(aff_class))
+                if aff_node:
+                    aff_text = _clean_single_author_text(aff_node)
+                    if aff_text and aff_text != name:
+                        affils.append(aff_text)
+
+            # Also check for italic text spans inside the creator (common pattern)
+            if not affils:
+                for span in creator.find_all("span", class_=re.compile(r"ltx_text")):
+                    classes = span.get("class", [])
+                    if "ltx_font_italic" in classes or "ltx_font_bold" not in classes:
+                        aff_text = _clean_single_author_text(span)
+                        if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
+                            affils.append(aff_text)
+
+            affils = _dedupe_strings(affils)
+            results.append(ParsedAuthor(name=name, affiliations=affils))
+            continue
+
+        # --- Strategy C: multi-author <br>-delimited personname ---
+        # Some ar5iv papers put all authors in one personname with <br> separators
+        br_authors = _parse_br_delimited_authors(personname)
+        if br_authors:
+            results.extend(br_authors)
+
+    if results:
+        return results
+    return []
+
+
+def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
+    """Parse authors from a ``ltx_personname`` where
+    - Each author block is separated by ``<br>``
+    - Within each block: name, then affiliation, then email
+    - The next author's name may be prefixed with ``&``
+
+    Example (1706.03762):
+        Ashish Vaswani <br> Google Brain <br> avaswani@google.com <br>
+        &amp;Noam Shazeer <br> Google Brain <br> noam@google.com ...
+    """
+    # Split content by <br> tags
+    parts: list[str] = []
+    for child in personname.children:
+        if isinstance(child, Tag) and child.name == "br":
+            # BR marks a boundary; flush current part
+            continue
+        text = _get_clean_text(child) if isinstance(child, Tag) else str(child).strip()
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            parts.append(text)
+
+    if not parts:
+        return []
+
+    # Group parts into (name, [affiliations]) pairs
+    results: list[ParsedAuthor] = []
+    current_name: str | None = None
+    current_affils: list[str] = []
+
+    for part in parts:
+        # Strip leading & (used to separate authors)
+        part = part.lstrip("&").strip()
+        if not part:
+            continue
+
+        # Skip emails
+        if _EMAIL_RE.match(part):
+            continue
+
+        # Skip footnote markers
+        if _FOOTNOTE_MARKER_RE.match(part):
+            continue
+
+        # Skip footnote keywords
+        if any(marker in part.lower() for marker in _SKIP_KEYWORDS):
+            continue
+
+        # Skip very long text (likely contribution statements)
+        if len(part) > get_settings().parsing.max_author_part_length:
+            continue
+
+        # Determine if this is a name or affiliation
+        if _looks_like_name(part):
+            # Flush previous author if any
+            if current_name:
+                results.append(ParsedAuthor(
+                    name=current_name,
+                    affiliations=_dedupe_strings(current_affils),
+                ))
+            current_name = part
+            current_affils = []
+        elif _looks_like_affiliation(part):
+            if current_name:
+                current_affils.append(part)
+        # If ambiguous and we have a current name, it might be an affiliation
+        elif current_name and not current_affils:
+            # Short text after name could be affiliation
+            if len(part.split()) <= 4:
+                current_affils.append(part)
+
+    # Flush last author
+    if current_name:
+        results.append(ParsedAuthor(
+            name=current_name,
+            affiliations=_dedupe_strings(current_affils),
+        ))
+
+    return results
+
+
+def _parse_tabular_authors_in_creator(creator: Tag) -> list[ParsedAuthor]:
+    """Extract multiple author/affiliation pairs from a tabular creator layout.
+
+    Some ar5iv papers (e.g. 2604.21691v1) render all authors in a single
+    ``ltx_creator`` using a table where each cell contains a bold name span
+    and an italic affiliation span.
+    """
+    # Look for table cells — ar5iv sometimes uses <span class="ltx_td"> rather
+    # than real <td> elements, so we check both.
+    cells: list[Tag] = creator.find_all("span", class_=re.compile(r"ltx_td"))
+    if not cells:
+        cells = creator.find_all("td", class_=re.compile(r"ltx_td"))
+    if cells:
+        return _extract_authors_from_cells(cells)
+
+    # Fallback: bold + italic spans directly inside the personname without cells
+    personname = creator.find(class_=re.compile(r"ltx_personname"))
+    if personname:
+        bolds = personname.find_all("span", class_=re.compile(r"ltx_font_bold"))
+        italics = personname.find_all("span", class_=re.compile(r"ltx_font_italic"))
+        if len(bolds) > 1 and len(italics) >= len(bolds):
+            return _pair_bold_italic_spans(bolds, italics)
+
+    return []
+
+
+def _extract_authors_from_cells(cells: list[Tag]) -> list[ParsedAuthor]:
+    """Extract author + affiliation from table cells."""
+    results: list[ParsedAuthor] = []
+    for cell in cells:
+        bolds = cell.find_all("span", class_=re.compile(r"ltx_font_bold"))
+        if not bolds:
+            continue
+        name = _clean_single_author_text(bolds[0])
+        if not name:
+            continue
+        affils: list[str] = []
+        for italic in cell.find_all("span", class_=re.compile(r"ltx_font_italic")):
+            aff_text = _clean_single_author_text(italic)
+            if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
+                affils.append(aff_text)
+        results.append(ParsedAuthor(name=name, affiliations=_dedupe_strings(affils)))
+    return results
+
+
+def _pair_bold_italic_spans(bolds: list[Tag], italics: list[Tag]) -> list[ParsedAuthor]:
+    """Pair bold spans (names) with the nearest following italic spans (affiliations)."""
+    # Build a position map using the order they appear in the DOM
+    # (BeautifulSoup iterates in document order)
+    all_nodes: list[tuple[Tag, str]] = []
+    for b in bolds:
+        all_nodes.append((b, "bold"))
+    for i in italics:
+        all_nodes.append((i, "italic"))
+    # Sort by sourceline; if equal, use the original list order as tie-breaker
+    all_nodes.sort(key=lambda x: (x[0].sourceline or 0, id(x[0])))
+
+    results: list[ParsedAuthor] = []
+    i = 0
+    while i < len(all_nodes):
+        node, kind = all_nodes[i]
+        if kind == "bold":
+            name = _clean_single_author_text(node)
+            if name:
+                # Collect following italic spans until next bold
+                affils: list[str] = []
+                j = i + 1
+                while j < len(all_nodes) and all_nodes[j][1] == "italic":
+                    aff_text = _clean_single_author_text(all_nodes[j][0])
+                    if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
+                        affils.append(aff_text)
+                    j += 1
+                results.append(ParsedAuthor(name=name, affiliations=_dedupe_strings(affils)))
+        i += 1
+
+    return results
+
+
+def _parse_sequential_author_spans(container: Tag) -> list[ParsedAuthor]:
+    """Parse flat sequential spans: bold = name, following non-bold = affiliation."""
+    # Gather all meaningful text nodes from the container's children
+    candidates: list[tuple[Tag | NavigableString, bool]] = []
+    for child in container.children:
+        if isinstance(child, NavigableString):
+            text = str(child).strip()
+            if text:
+                candidates.append((child, False))
+        elif isinstance(child, Tag):
+            if child.name in ("script", "style"):
+                continue
+            # Skip nested structures that are already handled
+            classes = " ".join(child.get("class", []))
+            if "ltx_creator" in classes or "ltx_role_author" in classes or "ltx_author" in classes:
+                # Let structured parser handle these
+                continue
+            text = _get_clean_text(child)
+            if text:
+                is_bold = "ltx_font_bold" in classes or child.name in ("b", "strong")
+                candidates.append((child, is_bold))
+
+    if not candidates:
+        return []
+
+    # Try to pair names with affiliations
+    results: list[ParsedAuthor] = []
+    i = 0
+    while i < len(candidates):
+        node, is_bold = candidates[i]
+        text = _get_clean_text(node) if isinstance(node, Tag) else str(node).strip()
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Skip empty / invalid
+        if not text or _EMAIL_RE.match(text) or _FOOTNOTE_MARKER_RE.match(text):
+            i += 1
+            continue
+
+        # Skip footnote keywords
+        if any(marker in text.lower() for marker in _SKIP_KEYWORDS):
+            i += 1
+            continue
+
+        # Skip very long text (likely contribution statements)
+        if len(text) > get_settings().parsing.max_author_part_length:
+            i += 1
+            continue
+
+        # Skip sentences
+        if text.count(".") > 1 or (text.endswith(".") and len(text) > 40):
+            i += 1
+            continue
+
+        # Determine if this is a name or affiliation
+        if is_bold or _looks_like_name(text):
+            # It's a name
+            name = text.lstrip("&").strip()
+            if not name:
+                i += 1
+                continue
+
+            # Look ahead for affiliation(s)
+            affils: list[str] = []
+            j = i + 1
+            while j < len(candidates):
+                next_node, next_bold = candidates[j]
+                next_text = (
+                    _get_clean_text(next_node)
+                    if isinstance(next_node, Tag)
+                    else str(next_node).strip()
+                )
+                next_text = re.sub(r"\s+", " ", next_text).strip()
+
+                if not next_text or _EMAIL_RE.match(next_text) or _FOOTNOTE_MARKER_RE.match(next_text):
+                    j += 1
+                    continue
+                if any(marker in next_text.lower() for marker in _SKIP_KEYWORDS):
+                    j += 1
+                    continue
+
+                # If we hit another name, stop
+                if next_bold or _looks_like_name(next_text):
+                    break
+
+                # If it looks like an affiliation, collect it
+                if _looks_like_affiliation(next_text):
+                    affils.append(next_text)
+                    j += 1
+                else:
+                    # Ambiguous: if short, might be part of name; otherwise skip
+                    break
+
+            affils = _dedupe_strings(affils)
+            results.append(ParsedAuthor(name=name, affiliations=affils))
+            i = j
+        else:
+            # Not a name, skip
+            i += 1
+
+    return results
+
+
+def _looks_like_name(text: str) -> bool:
+    """Heuristic: does ``text`` look like a person name (not affiliation)?"""
+    # Strip footnote markers
+    cleaned = re.sub(r"[\*†‡§¶‖#♯\d]+$", "", text).strip()
+    if not cleaned:
+        return False
+
+    words = cleaned.split()
+    # Names are typically 2-5 words
+    if len(words) < 1 or len(words) > 6:
+        return False
+
+    # Affiliation keywords in the text → probably not a name
+    lower = cleaned.lower()
+    for kw in _AFFILIATION_KEYWORDS:
+        if kw in lower:
+            return False
+
+    # Contains comma → likely affiliation or multi-part address
+    if "," in cleaned:
+        return False
+
+    # All caps → likely acronym/institution
+    if cleaned.isupper() and len(cleaned) > 3:
+        return False
+
+    # Looks like an email
+    if "@" in cleaned:
+        return False
+
+    return True
+
+
+def _looks_like_affiliation(text: str) -> bool:
+    """Heuristic: does ``text`` look like an affiliation line?"""
+    cleaned = text.strip()
+    if not cleaned or len(cleaned) < 2:
+        return False
+
+    # Contains affiliation keyword
+    lower = cleaned.lower()
+    for kw in _AFFILIATION_KEYWORDS:
+        if kw in lower:
+            return True
+
+    # Contains address-like elements (city, country)
+    if re.search(r"\b[A-Z][a-z]+,\s*[A-Z][a-zA-Z\s]+\b", cleaned):
+        return True
+
+    # Looks like "Org1 and Org2"
+    if " and " in lower and len(cleaned.split()) <= 6:
+        for part in lower.split(" and "):
+            if any(kw in part for kw in _AFFILIATION_KEYWORDS):
+                return True
+
+    # Short text (1-4 words) that doesn't look like a name → could be affiliation
+    words = cleaned.split()
+    if 1 <= len(words) <= 4:
+        # If it contains digits or special chars, likely not a name
+        if re.search(r"[\d()\[\]]", cleaned):
+            return True
+        # Single-word capitalized text could be an org (e.g. "DeepMind")
+        if len(words) == 1 and cleaned[0].isupper():
+            return True
+
+    return False
+
+
+def _get_clean_text(tag: Tag) -> str:
+    """Get normalized text from a tag, removing footnote markers."""
+    clone = BeautifulSoup(str(tag), "html.parser")
+    for sup in clone.find_all("sup"):
+        sup.decompose()
+    for note in clone.find_all(class_=re.compile(r"ltx_note|ltx_role_footnote")):
+        note.decompose()
+    text = clone.get_text(" ", strip=True)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _clean_single_author_text(node: Tag | NavigableString) -> str:
+    """Extract a single clean text string from a node, filtering out noise."""
+    if isinstance(node, NavigableString):
+        text = str(node).strip()
+    else:
+        text = _get_clean_text(node)
+
+    if not text:
+        return ""
+
+    # Strip leading &
+    text = text.lstrip("&").strip()
+
+    # Skip emails
+    if _EMAIL_RE.match(text):
+        return ""
+
+    # Skip pure numbers
+    if text.isdigit():
+        return ""
+
+    # Skip footnote markers
+    if _FOOTNOTE_MARKER_RE.match(text):
+        return ""
+
+    # Skip footnote keywords
+    if any(marker in text.lower() for marker in _SKIP_KEYWORDS):
+        return ""
+
+    # Skip very long text
+    if len(text) > get_settings().parsing.max_author_part_length:
+        return ""
+
+    # Skip sentences
+    if text.count(".") > 1 or (text.endswith(".") and len(text) > 40):
+        return ""
+
+    return text
+
+
+def _dedupe_strings(parts: list[str]) -> list[str]:
+    """Remove duplicates preserving order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in parts:
+        key = p.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
 
 
 def _clean_author_text(node: Tag) -> list[str]:

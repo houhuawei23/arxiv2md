@@ -84,6 +84,7 @@ def make_convert_params(
     so: str,
     emit_graph_csv: bool,
     no_cache: bool = False,
+    use_legacy: bool = False,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -105,4 +106,5 @@ def make_convert_params(
         structured_output=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
+        use_legacy=use_legacy,
     )

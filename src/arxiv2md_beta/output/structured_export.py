@@ -10,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from arxiv2md_beta.ir.blocks import extract_blocks_from_html, hash_html, hash_markdown
+from arxiv2md_beta.ir._legacy_blocks import extract_blocks_from_html, hash_html, hash_markdown
 from arxiv2md_beta.schemas.sections import SectionNode
 from arxiv2md_beta.schemas.structured import (
     SCHEMA_VERSION,

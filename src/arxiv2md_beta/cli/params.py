@@ -27,6 +27,7 @@ class ConvertParams:
     structured_output: str = "none"
     emit_graph_csv: bool = False
     no_cache: bool = False
+    use_legacy: bool = False
 
 
 @dataclass(frozen=True)

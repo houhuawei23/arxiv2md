@@ -5,6 +5,109 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-04-28
+
+### Fixed
+
+- **Author affiliation extraction for <br>-delimited personname**: Papers like 1706.03762 (Attention Is All You Need) put all authors in a single `ltx_personname` with `<br>` separators. The parser previously returned empty affiliations because the combined text exceeded the 80-char threshold.
+  - Fix: Added `_parse_br_delimited_authors()` in `html/parser.py` to split by `<br>`, detect names vs affiliations, and build proper `ParsedAuthor` records.
+
+- **Author affiliation enrichment from API metadata**: IR pipeline now prefers arXiv API author affiliations over HTML-parsed ones.
+  - API metadata provides complete affiliations (e.g. "Google Brain; Google (United States), Mountain View, United States").
+  - HTML parser catches edge cases when API lacks data.
+  - Unicode name normalization (`NFKD` → ASCII) ensures `Łukasz Kaiser` (HTML) matches `Lukasz Kaiser` (API).
+
+- **HTTP proxy support**: `httpx.AsyncClient` now reads `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
+
+### Changed
+
+- **Version**: 0.9.1 → 0.9.2
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
+## [0.9.1] - 2026-04-28
+
+### Fixed
+
+- **IR Pipeline Equation LaTeX extraction**: Fixed duplicated Unicode math symbols in generated markdown equations.
+  - Root cause: ar5iv HTML renders equations as both Unicode text (in `<span class="ltx_text">`) and LaTeX (in `<math><annotation encoding="application/x-tex">`); `_get_text()` concatenated both.
+  - Fix: Added `_extract_equation_latex()` to prefer `<math>` annotation LaTeX exclusively, falling back to plain text only when no math annotations are present.
+  - Affects: `HTMLBuilder._build_table()` for equation tables (`ltx_equationgroup`, `ltx_eqn_table`, `ltx_eqn_align`).
+
+- **IR Pipeline Table formatting**: Fixed broken markdown table output with excessive blank lines in cells.
+  - Root cause: `_tag_to_inlines()` converted whitespace-only `NavigableString` nodes (newlines/indentation inside `<td>`) into `TextIR("\n")` entries.
+  - Fix: Filter out whitespace-only text nodes in `_tag_to_inlines()` before creating `TextIR`.
+
+- **IR Pipeline Footnote rendering**: Fixed footnote markers and content being merged inline as unreadable text (e.g. `^1^11To illustrate...`).
+  - Fix: `_process_footnote()` extracts only the marker as `SuperscriptIR`, queues content as `BlockQuoteIR`, and flushes after each paragraph block.
+
+- **IR Pipeline Ordered list numbering**: Fixed all ordered list items rendering as `1.` instead of sequential numbers.
+  - Fix: Pass index through `_emit_list_item()` and use `f"{prefix}{index + 1}. "` for ordered markers.
+
+- **IR Pipeline Author affiliations in summary**: Added author affiliations to markdown header summary output.
+
+### Changed
+
+- **Version**: 0.9.0 → 0.9.1
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
+## [0.9.0] - 2026-04-27
+
+### Added
+
+- **IR Pipeline Full Feature Parity**: The IR pipeline (`_process_arxiv_paper_ir`) now supports all features of the legacy pipeline, enabling direct equivalent replacement:
+  - **arXiv API metadata**: Fetch and save submission date, author ordering, DOI, categories via Atom XML API
+  - **paper.yml generation**: Complete metadata YAML with authors, affiliations, publication info, identifiers, URLs
+  - **Image processing**: Download TeX source, extract images, resolve local paths in markdown output
+  - **Affiliation enrichment**: Merge TeX-author affiliations into paper metadata when configured
+  - **Reference/Appendix sidecars**: Three-file split (main + References + Appendix) via `_split_ir_sections`
+  - **Summary with token count**: Formatted title/authors/sections/tokens header matching legacy output
+  - **Recursive sections tree**: Indented section hierarchy in markdown output
+  - **Abstract heading normalization**: Strip redundant HTML-generated "Abstract" heading via `_strip_abstract_heading`
+  - **full IR-based structured JSON**: Sections now contain nested blocks with full typed IR structures
+
+- **IR-based Structured JSON (schema v2.0)**: Replaced legacy `write_structured_bundle` with `JsonEmitter.write_bundle()`:
+  - `paper.meta.json` — Metadata with SHA-256 content fingerprint
+  - `paper.document.json` — Section tree with full typed IR blocks (paragraphs with inlines, figures with images/captions, tables with headers/rows, equations, etc.)
+  - `paper.assets.json` — Deduplicated asset list with paths, TeX stems, figure indices
+  - `paper.graph.json` — Heterogeneous graph (paper → section → block, block → next, paper → asset)
+  - CSV exports for graph nodes and edges
+
+- **`--version` CLI Flag**: Check installed version via `arxiv2md-beta --version`
+
+### Changed
+
+- **IR Pipeline is now default**: `arxiv2md-beta convert` uses the IR pipeline by default; use `--legacy` to fall back to the original pipeline
+- **`JsonEmitter`**: Complete rewrite with `write_bundle()`, `build_graph()`, CSV export, and support for all export modes (meta/document/full/all)
+- **`HTMLBuilder`**: Enhanced with `image_map`/`image_stem_map` for local image path resolution and front matter block processing
+- **`convert.py`**: Reorganized with asset population from image maps, API metadata enrichment on `DocumentIR`, and streamlined structured export
+- **Version**: 0.8.0 → 0.9.0
+
+Wrapped up by deepseek-v4-pro (deepseek-v4-flash via claude-code) on 2026-04-27
+
+## [0.8.0] - 2026-04-27
+
+### Added
+
+- **IR (Intermediate Representation) System**: Three-tier compiler architecture for paper parsing
+  - **Frontend (Builders)**: `HTMLBuilder` (BeautifulSoup → `DocumentIR`) and `LaTeXBuilder` (Pandoc JSON AST → `DocumentIR`) convert raw sources to structured IR
+  - **Middle-end (Transforms)**: Composable `PassPipeline` with 5 passes — `NumberingPass` (figure/table/equation/algorithms), `AnchorPass` (stable anchors), `SectionFilterPass` (include/exclude), `FigureReorderPass` (move to first citation), and `PassPipeline` for ordering
+  - **Backend (Emitters)**: `MarkdownEmitter` (→ Markdown), `JsonEmitter` (→ structured JSON), `PlainTextEmitter` (→ plain text) serialize `DocumentIR` to target formats
+  - **Data Model**: 9 Inline types + 11 Block types + 3 Asset types via Pydantic v2 discriminated unions (`type: Literal[...]`)
+  - **Visitor Pattern**: `IRVisitor` + `walk()` for depth-first traversal, with built-in `NodeCounter`, `TextCollector`
+  - **RawBlockIR / RawInlineIR**: Fallback nodes preserve original format (HTML/LaTeX) for unrecognized content
+- **`--ir` CLI Flag**: Opt-in IR pipeline via `--ir` on `convert` and `batch` commands
+- **Python API**: Full programmatic access to `HTMLBuilder`, `LaTeXBuilder`, `PassPipeline`, `MarkdownEmitter`, `JsonEmitter`, `PlainTextEmitter`
+- **137 IR Unit Tests**: Comprehensive coverage of builders, emitters, transforms, models, and visitors
+
+### Changed
+
+- **Project Structure**: New `ir/` package with 20+ files organized as `builders/`, `transforms/`, `emitters/`
+- **Version**: 0.7.1 → 0.8.0
+
+Wrapped up by Claude Opus 4.6 (claude-code) on 2026-04-27
+
 ## [0.7.1] - 2026-04-14
 
 ### Added

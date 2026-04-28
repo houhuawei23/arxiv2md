@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2md-beta"
-version = "0.7.1"
+version = "0.9.2"
 description = "Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
@@ -54,6 +54,9 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "real_paper: tests that download and parse real arXiv papers (requires network + proxy)",
+]
 
 [tool.ruff]
 target-version = "py310"

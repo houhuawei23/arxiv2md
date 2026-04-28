@@ -34,6 +34,13 @@ app = typer.Typer(
 )
 
 
+def _version_callback(show_version: bool) -> None:
+    if show_version:
+        from arxiv2md_beta import __version__
+        typer.echo(f"arxiv2md-beta {__version__}")
+        raise typer.Exit()
+
+
 def _handle_command_error(logger: object, exc: BaseException) -> None:
     """Map typed errors to exit codes; generic exceptions exit with 1."""
     if isinstance(exc, Arxiv2mdError):
@@ -69,6 +76,13 @@ def global_callback(
         "--verbose",
         "-v",
         help="Print DEBUG-level logs (overrides app.log_level for this run).",
+    ),
+    show_version: bool = typer.Option(
+        False,
+        "--version",
+        is_eager=True,
+        callback=_version_callback,
+        help="Show version and exit.",
     ),
 ) -> None:
     """Global options (applied before ``convert`` / ``images``)."""
@@ -182,6 +196,11 @@ def convert_cmd(
         "--no-cache",
         help="Disable download caching for TeX source, HTML, and PDF.",
     ),
+    use_legacy: bool = typer.Option(
+        False,
+        "--legacy",
+        help="Use legacy pipeline instead of the default IR (Intermediate Representation) pipeline.",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -210,6 +229,7 @@ def convert_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
+        use_legacy=use_legacy,
     )
     try:
         run_convert_sync(params)
@@ -330,6 +350,11 @@ def batch_cmd(
         "--no-cache",
         help="Disable download caching for batch conversions.",
     ),
+    use_legacy: bool = typer.Option(
+        False,
+        "--legacy",
+        help="Use legacy pipeline instead of the default IR (Intermediate Representation) pipeline.",
+    ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -358,6 +383,7 @@ def batch_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
+        use_legacy=use_legacy,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:
