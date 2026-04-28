@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from pathlib import Path
 
 from arxiv2md_beta.cli.helpers import collect_sections
@@ -36,6 +37,12 @@ async def run_convert_flow(params: ConvertParams) -> Path:
         if is_local_archive_path(input_text):
             return await _process_local_archive(params)
         if params.use_legacy:
+            warnings.warn(
+                "The --legacy pipeline is deprecated and will be removed in v1.0.0. "
+                "The IR pipeline is now the default and provides full feature parity.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return await _process_arxiv_paper(params)
         return await _process_arxiv_paper_ir(params)
 

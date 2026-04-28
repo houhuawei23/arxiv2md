@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-04-28
+
+### Fixed
+
+- **BeautifulSoup Duplicate Parsing Elimination**: `HTMLBuilder._tag_to_blocks()` no longer re-serializes container children via `"".join(str(c) for c in tag.children)` and re-parses with `BeautifulSoup(...)`. Instead, the new `_children_to_blocks()` helper traverses children directly, avoiding O(n²) DOM operations.
+  - Affects: `section`, `article`, `div`, `span` containers and `blockquote` blocks.
+
+- **HTMLBuilder Footnote Queue**: `list.pop(0)` replaced with `deque.popleft()`, eliminating O(n²) list shifts when flushing pending footnotes.
+
+- **Exception Specificity**: Replaced 5 instances of bare `except Exception` in core paths with concrete exception tuples.
+  - `ir/emitters/json_emitter.py`: `(ImportError, ModuleNotFoundError)` for `importlib.metadata` fallback.
+  - `images/resolver.py`: `(OSError, ValueError, TypeError, RuntimeError)` for image processing failures.
+  - `network/arxiv_api.py`: `(ValueError)` for `datetime.fromisoformat`, `(AttributeError, ValueError, TypeError, KeyError)` for XML metadata extraction, `(httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError)` for Crossref fetch.
+
+### Changed
+
+- **Legacy Pipeline Deprecation**: `--legacy` flag now emits a `DeprecationWarning` on use. Help text updated to indicate deprecation and planned removal in v1.0.0.
+
+- **Version**: 0.10.0 → 0.10.1
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
 ## [0.10.0] - 2026-04-28
 
 ### Added

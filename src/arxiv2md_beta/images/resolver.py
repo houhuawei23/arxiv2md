@@ -126,7 +126,7 @@ def process_images(
                 stem_to_image_path[relative_path.name] = relative_path
                 if source_image_path.name != relative_path.name:
                     stem_to_image_path[source_image_path.name] = relative_path
-            except Exception as e:
+            except (OSError, ValueError, TypeError, RuntimeError) as e:
                 logger.error(f"Failed to process image {source_image_path}: {e}")
                 # Continue with other images
             advance()
@@ -232,7 +232,7 @@ async def process_images_async(
                     stem_to_image_path[source_path.name] = relative_path
             except ImageProcessingError as e:
                 logger.error(f"Failed to process image {source_path}: {e}")
-            except Exception as e:
+            except (OSError, ValueError, TypeError, RuntimeError) as e:
                 logger.error(f"Failed to process image {source_path}: {e}")
 
     try:

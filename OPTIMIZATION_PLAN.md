@@ -464,12 +464,12 @@ v0.10.0 (已完成)
 ├── [DONE] [P0] Footnote deque 优化
 ├── [DONE] [P1] 统一 ImageResolver
 ├── [DONE] [P1] 提取 IngestionOrchestrator
-├── [DONE] [P2] Transform pipeline 优化（SectionFilterPass 前置）
-├── [DONE] [P3] LaTeXBuilder footnote/citation 支持
-├── [DONE] [P4] 异常体系细化（前半部分）
-└── [DONE] [P4] LaTeX 集成测试
+├── [DONE] [P4] 异常体系细化（核心路径）
+├── [TODO] [P2] Transform pipeline 优化（SectionFilterPass 前置）
+├── [TODO] [P3] LaTeXBuilder footnote/citation 支持
+└── [TODO] [P4] LaTeX 集成测试
 
-v0.11.0 (3-4 周)
+v0.11.0 (进行中)
 ├── [P1] Legacy Pipeline 废弃 (--legacy 重定向)
 ├── [P3] Table colspan/rowspan 支持
 ├── [P4] 类型安全增强（match 表达式）
