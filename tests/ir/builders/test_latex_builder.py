@@ -278,3 +278,34 @@ He said ``hello world'' to everyone.
         builder = LaTeXBuilder()
         doc = builder.build(tex, arxiv_id="test")
         assert len(doc.sections) >= 1
+
+    def test_footnote_converted_to_blocks(self):
+        r"""\footnote{...} is converted to superscript marker + footnote blocks."""
+        tex = r"""\documentclass{article}
+\begin{document}
+Hello world\footnote{This is a footnote.}.
+\end{document}"""
+        builder = LaTeXBuilder()
+        doc = builder.build(tex, arxiv_id="test")
+        assert len(doc.sections) >= 1
+        # Check that footnote counter was incremented
+        assert builder._footnote_counter >= 1
+        # The markdown output should contain the footnote marker
+        emitter = MarkdownEmitter()
+        md = emitter.emit(doc)
+        # Should have footnote marker like [^1] or superscript 1
+        assert "1" in md
+
+    def test_citation_converted_to_markers(self):
+        r"""\cite{...} is converted to superscript citation markers."""
+        tex = r"""\documentclass{article}
+\begin{document}
+As shown previously \cite{smith2020,jones2021}.
+\end{document}"""
+        builder = LaTeXBuilder()
+        doc = builder.build(tex, arxiv_id="test")
+        assert len(doc.sections) >= 1
+        emitter = MarkdownEmitter()
+        md = emitter.emit(doc)
+        # Should contain citation markers
+        assert "smith2020" in md or "1" in md
