@@ -56,7 +56,6 @@
           "title": "Text Md"
         },
         "extra": {
-          "additionalProperties": true,
           "title": "Extra",
           "type": "object"
         }

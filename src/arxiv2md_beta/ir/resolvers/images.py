@@ -11,7 +11,7 @@ from typing import Any
 
 
 class ImageResolver:
-    """Resolve image ``src`` attributes to local processed paths.
+    r"""Resolve image ``src`` attributes to local processed paths.
 
     Parameters
     ----------
@@ -20,7 +20,7 @@ class ImageResolver:
     stem_map :
         HTML builder: mapping from TeX stem to local path.
     path_map :
-        LaTeX builder: mapping from original ``\\includegraphics`` path to
+        LaTeX builder: mapping from original ``\includegraphics`` path to
         local path.
 
     All value types accept :class:`~pathlib.Path` or ``str``.
@@ -78,9 +78,24 @@ class ImageResolver:
             else src_basename
         )
 
-        # HTML stem_map: case-insensitive stem or substring match
-        for stem, local_path in self._stem_map.items():
-            if stem.lower() == src_stem.lower() or stem.lower() in src.lower():
+        # HTML stem_map: case-insensitive exact stem match first
+        for stem_key, local_path in self._stem_map.items():
+            key_stem = (
+                stem_key.rsplit(".", 1)[0]
+                if "." in stem_key
+                else stem_key
+            )
+            if key_stem.lower() == src_stem.lower():
+                return local_path
+
+        # Fallback: substring match in basename only (not full path)
+        for stem_key, local_path in self._stem_map.items():
+            key_stem = (
+                stem_key.rsplit(".", 1)[0]
+                if "." in stem_key
+                else stem_key
+            )
+            if key_stem.lower() in src_basename.lower():
                 return local_path
 
         # LaTeX path_map: stem / name match
@@ -97,12 +112,12 @@ class ImageResolver:
             return None
 
         # 1-based lookup
-        if figure_index in self._index_map:
+        if figure_index in self._index_map and figure_index not in self._used_indices:
             self._used_indices.add(figure_index)
             return self._index_map[figure_index]
 
         # 0-based fallback
-        if figure_index - 1 in self._index_map:
+        if figure_index - 1 in self._index_map and (figure_index - 1) not in self._used_indices:
             self._used_indices.add(figure_index - 1)
             return self._index_map[figure_index - 1]
 

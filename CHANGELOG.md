@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-04-29
+
+### Fixed
+
+- **ImageResolver Stem Matching Too Permissive**: `_try_stem()` previously used `stem.lower() in src.lower()`, which caused false matches when a directory name in the HTML img `src` path happened to contain a valid stem. For example, `/html/.../Modality_Consistency/Modality_Consistency_Challenge.png` was incorrectly resolved to `Modality_Consistency.png` because the directory `Modality_Consistency` matched as a substring.
+  - Fix: Stem matching now restricts substring checks to the **basename only** (`src_basename.lower()`), preventing directory-name collisions. Exact stem matches are still tried first.
+  - `_try_index()` now guards against reusing already-consumed indices, eliminating duplicate image assignments.
+
+- **JSON Schema Drift**: Regenerated `paper.document.schema.json` and `paper.meta.schema.json` to match the current Pydantic 2.9.2 output.
+
+### Changed
+
+- **Version**: 0.10.1 → 0.10.2
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-29
+
 ## [0.10.1] - 2026-04-28
 
 ### Fixed
