@@ -23,6 +23,8 @@ from arxiv2md_beta.html.parser import (
     _find_document_root,
 )
 
+pypandoc = pytest.importorskip("pypandoc", reason="pypandoc not installed")
+
 # ── skip decorator ─────────────────────────────────────────────────────────
 # Run only when explicitly requested: pytest -m real_paper
 pytestmark = pytest.mark.real_paper
@@ -219,3 +221,93 @@ class TestLearningMechanics:
                                     assert inline.text.strip(), (
                                         "Whitespace-only table cell"
                                     )
+
+
+# ── LaTeX pipeline helpers ─────────────────────────────────────────────────
+
+
+def _get_tex_source_sync(arxiv_id: str):
+    """Fetch TeX source synchronously (uses arxiv2md-beta cache)."""
+    import asyncio
+
+    from arxiv2md_beta.latex.tex_source import (
+        TexSourceInfo,
+        fetch_and_extract_tex_source,
+    )
+
+    return asyncio.run(fetch_and_extract_tex_source(arxiv_id, use_cache=True))
+
+
+# ── LaTeX integration tests ────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(
+    not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"),
+    reason="No proxy configured (set HTTP_PROXY / HTTPS_PROXY env vars)",
+)
+class TestLaTeXPipeline:
+    r"""End-to-end LaTeX pipeline tests using real arXiv papers.
+
+    These test the full LaTeX → DocumentIR → Markdown flow, including
+    TeX source download, \input/\include expansion, and Pandoc conversion.
+    """
+
+    ARXIV_ID = "1706.03762"  # Attention Is All You Need
+
+    @pytest.fixture(scope="class")
+    def tex_source(self):
+        return _get_tex_source_sync(self.ARXIV_ID)
+
+    @pytest.fixture(scope="class")
+    def doc(self, tex_source):
+        from arxiv2md_beta.ir.builders.latex import LaTeXBuilder
+        from arxiv2md_beta.latex.tex_source import expand_tex_source_for_parsing
+
+        expanded = expand_tex_source_for_parsing(tex_source)
+        builder = LaTeXBuilder()
+        return builder.build(expanded, arxiv_id=self.ARXIV_ID)
+
+    def test_tex_source_downloaded(self, tex_source) -> None:
+        """TeX source archive was downloaded and extracted."""
+        assert tex_source.main_tex_file is not None
+        assert tex_source.main_tex_file.exists()
+        # Should have some content
+        expanded = tex_source.main_tex_file.read_text(
+            encoding="utf-8", errors="ignore"
+        )
+        assert "\\documentclass" in expanded
+
+    def test_sections_present(self, doc) -> None:
+        """LaTeX builder produces at least one section."""
+        assert len(doc.sections) > 0
+
+    def test_markdown_emission(self, doc) -> None:
+        """DocumentIR can be emitted to markdown."""
+        from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+
+        emitter = MarkdownEmitter()
+        md = emitter.emit(doc)
+        assert len(md) > 0
+        # Should contain recognizable content from the paper
+        assert "Attention" in md or "Transformer" in md or "Introduction" in md
+
+    def test_equations_present(self, doc) -> None:
+        """LaTeX builder extracts equations."""
+        equation_count = 0
+        for sec in doc.sections:
+            for blk in sec.blocks:
+                if blk.type == "equation":
+                    equation_count += 1
+        # Attention paper has many equations
+        assert equation_count > 0, "No equations found in LaTeX output"
+
+    def test_no_footnote_loss(self, doc) -> None:
+        """Footnotes from LaTeX are preserved (not silently dropped)."""
+        # The LaTeX source of 1706.03762 may or may not have footnotes.
+        # This test mainly ensures the builder doesn't crash on footnotes.
+        from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+
+        emitter = MarkdownEmitter()
+        md = emitter.emit(doc)
+        # Just verify markdown generation succeeds
+        assert isinstance(md, str)

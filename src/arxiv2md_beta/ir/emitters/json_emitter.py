@@ -28,7 +28,7 @@ def _package_version() -> str:
         from importlib.metadata import version
 
         return version("arxiv2md-beta")
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return "0.0.0"
 
 

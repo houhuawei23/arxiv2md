@@ -46,3 +46,34 @@ class StorageError(Arxiv2mdError):
     """Local file or cache operation failures."""
 
     pass
+
+
+class ParseError(Arxiv2mdError):
+    """HTML or LaTeX parsing failure."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source_snippet: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.source_snippet = source_snippet
+
+
+class BuilderError(Arxiv2mdError):
+    """IR builder failure (HTMLBuilder or LaTeXBuilder)."""
+
+    pass
+
+
+class TransformError(Arxiv2mdError):
+    """IR transform pass failure."""
+
+    pass
+
+
+class EmitterError(Arxiv2mdError):
+    """Markdown or JSON emitter failure."""
+
+    pass

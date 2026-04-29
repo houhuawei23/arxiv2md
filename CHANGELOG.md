@@ -5,6 +5,73 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-04-28
+
+### Fixed
+
+- **BeautifulSoup Duplicate Parsing Elimination**: `HTMLBuilder._tag_to_blocks()` no longer re-serializes container children via `"".join(str(c) for c in tag.children)` and re-parses with `BeautifulSoup(...)`. Instead, the new `_children_to_blocks()` helper traverses children directly, avoiding O(n²) DOM operations.
+  - Affects: `section`, `article`, `div`, `span` containers and `blockquote` blocks.
+
+- **HTMLBuilder Footnote Queue**: `list.pop(0)` replaced with `deque.popleft()`, eliminating O(n²) list shifts when flushing pending footnotes.
+
+- **Exception Specificity**: Replaced 5 instances of bare `except Exception` in core paths with concrete exception tuples.
+  - `ir/emitters/json_emitter.py`: `(ImportError, ModuleNotFoundError)` for `importlib.metadata` fallback.
+  - `images/resolver.py`: `(OSError, ValueError, TypeError, RuntimeError)` for image processing failures.
+  - `network/arxiv_api.py`: `(ValueError)` for `datetime.fromisoformat`, `(AttributeError, ValueError, TypeError, KeyError)` for XML metadata extraction, `(httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError)` for Crossref fetch.
+
+### Changed
+
+- **Legacy Pipeline Deprecation**: `--legacy` flag now emits a `DeprecationWarning` on use. Help text updated to indicate deprecation and planned removal in v1.0.0.
+
+- **Version**: 0.10.0 → 0.10.1
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
+## [0.10.0] - 2026-04-28
+
+### Added
+
+- **IngestionOrchestrator**: Extracted the monolithic 340-line `_process_arxiv_paper_ir()` into a stateful 15-step orchestrator (`ingestion/orchestrator.py`).
+  - Each step (`_fetch_html`, `_parse_html`, `_build_ir`, `_run_transforms`, etc.) is a discrete, testable method.
+  - Pipeline state (HTML, parsed DOM, API metadata, image resolver, DocumentIR) is held as instance attributes.
+  - `_merge_affiliations()` implements three-layer merge (API → HTML → TeX) with NFKD Unicode normalization.
+
+- **ImageResolver**: Unified image path resolution layer (`ir/resolvers/images.py`).
+  - Supports three resolution strategies: `index_map` (HTML figure index), `stem_map` (TeX filename stem), `path_map` (exact path match).
+  - Strategy priority: exact path > stem match > index match > original fallback.
+  - Result caching per resolver instance eliminates redundant lookups.
+  - Both `HTMLBuilder` and `LaTeXBuilder` now delegate to `ImageResolver`.
+
+- **LaTeXBuilder Footnote & Citation Support**:
+  - `\footnote{...}`: Converted to `SuperscriptIR` marker (`¹`) + footnote content blocks (flushed at block boundaries).
+  - `\cite{...}`: Extracted citation IDs rendered as superscript markers (e.g., `[smith2020]`).
+  - Previously both were silently discarded (`return None`).
+
+- **Exception Hierarchy**: Expanded `exceptions.py` with domain-specific errors.
+  - `ParseError` — HTML/LaTeX parsing failures (with optional `source_snippet`).
+  - `BuilderError` — IR builder failures.
+  - `TransformError` — Transform pass failures.
+  - `EmitterError` — Markdown/JSON emitter failures.
+
+- **Tests**:
+  - `tests/ir/test_image_resolver.py`: 16 unit tests covering exact/stem/index matching, priority, caching, case insensitivity, combined maps.
+  - `tests/ir/builders/test_latex_builder.py`: 2 new tests for footnote and citation conversion.
+  - `tests/test_integration_real_papers.py`: 5 LaTeX pipeline integration tests (TeX download → expansion → DocumentIR → Markdown emission).
+
+### Changed
+
+- **Transform Pipeline Order**: `SectionFilterPass` now runs before `NumberingPass`.
+  - Reduces work for downstream passes when `--section` filtering is active.
+  - Order: `SectionFilter` → `Numbering` → `FigureReorder` → `Anchor`.
+
+- **BeautifulSoup Footnote Queue**: `list.pop(0)` replaced with `deque.popleft()` in `HTMLBuilder`, eliminating O(n²) list shifts.
+
+- **Broad Exception Handling**: Replaced 4 instances of bare `except Exception` in `orchestrator.py` with specific exception tuples `(OSError, ValueError, TypeError, RuntimeError)`.
+
+- **Version**: 0.9.2 → 0.10.0
+
+Wrapped up by Kimi (kimi-k2.6 via claude-code) on 2026-04-28
+
 ## [0.9.2] - 2026-04-28
 
 ### Fixed

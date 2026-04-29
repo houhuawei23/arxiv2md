@@ -174,7 +174,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
                             merged = _merge_metadata(arxiv_metadata, crossref_metadata)
                             filled = fill_arxiv_metadata_defaults(merged, base_id)
                             return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
-                except Exception as e:
+                except (httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError) as e:
                     # Crossref failure should not break the flow
                     logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
 
@@ -353,7 +353,7 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
                 submission_date = dt.strftime("%Y%m%d")
                 date_str = dt.strftime("%Y-%m-%d")
                 year = dt.strftime("%Y")
-            except Exception:
+            except ValueError:
                 pass
 
         # Format updated date
@@ -364,7 +364,7 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
                 dt_updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
                 updated_date = dt_updated.strftime("%Y-%m-%d")
                 updated_year = dt_updated.strftime("%Y")
-            except Exception:
+            except ValueError:
                 pass
 
         # Extract arXiv ID from atom:id (e.g., http://arxiv.org/abs/2301.04104v2)
@@ -481,7 +481,7 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
             "bibtex": bibtex,
             "citation": citation,
         }
-    except Exception:
+    except (AttributeError, ValueError, TypeError, KeyError):
         return {"title": None, "published": None, "submission_date": None}
 
 

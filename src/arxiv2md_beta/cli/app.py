@@ -199,7 +199,8 @@ def convert_cmd(
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
-        help="Use legacy pipeline instead of the default IR (Intermediate Representation) pipeline.",
+        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
+             "Will be removed in v1.0.0.",
     ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
@@ -353,7 +354,8 @@ def batch_cmd(
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
-        help="Use legacy pipeline instead of the default IR (Intermediate Representation) pipeline.",
+        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
+             "Will be removed in v1.0.0.",
     ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""

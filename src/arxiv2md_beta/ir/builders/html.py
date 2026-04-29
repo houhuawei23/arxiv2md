@@ -7,6 +7,7 @@ extraction, and converts HTML elements to IR nodes via BeautifulSoup traversal.
 from __future__ import annotations
 
 import re
+from collections import deque
 from typing import Any
 
 from bs4 import BeautifulSoup, NavigableString, Tag  # type: ignore[import-untyped]
@@ -39,6 +40,7 @@ from arxiv2md_beta.ir.inlines import (
     SuperscriptIR,
     TextIR,
 )
+from arxiv2md_beta.ir.resolvers import ImageResolver
 
 
 class HTMLBuilder(IRBuilder):
@@ -50,18 +52,26 @@ class HTMLBuilder(IRBuilder):
         Map from figure index (0-based) to local image path.
     image_stem_map : dict[str, str] | None
         Map from TeX stem to local image path.
+    image_resolver : ImageResolver | None
+        Unified resolver (preferred).  If provided, *image_map* and
+        *image_stem_map* are ignored.
     """
 
     def __init__(
         self,
         image_map: dict[int, str] | None = None,
         image_stem_map: dict[str, str] | None = None,
+        image_resolver: ImageResolver | None = None,
     ):
         self.image_map = image_map or {}
         self.image_stem_map = image_stem_map or {}
+        self._image_resolver = image_resolver or ImageResolver(
+            index_map=self.image_map,
+            stem_map=self.image_stem_map,
+        )
         self._figure_counter = 0
         self._used_image_indices: set[int] = set()
-        self._pending_footnotes: list[BlockUnion] = []
+        self._pending_footnotes: deque[BlockUnion] = deque()
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -142,9 +152,28 @@ class HTMLBuilder(IRBuilder):
         if not html_fragment:
             return []
         soup = BeautifulSoup(html_fragment, "html.parser")
+        blocks, idx = self._children_to_blocks(soup.children, section_id, 0)
+        # Flush remaining footnotes at end of fragment
+        while self._pending_footnotes:
+            footnote = self._pending_footnotes.popleft()
+            footnote.section_id = section_id
+            footnote.order_index = idx
+            blocks.append(footnote)
+            idx += 1
+        return blocks
+
+    def _children_to_blocks(
+        self, children, section_id: str, start_idx: int
+    ) -> tuple[list[BlockUnion], int]:
+        """Process an iterable of BeautifulSoup nodes into IR blocks.
+
+        Returns the list of blocks and the next available index.  Pending
+        footnotes are inserted after each block that generates them, but
+        remaining footnotes are *not* flushed — the caller must do that.
+        """
         blocks: list[BlockUnion] = []
-        idx = 0
-        for child in soup.children:
+        idx = start_idx
+        for child in children:
             if isinstance(child, NavigableString):
                 text = str(child).strip()
                 if text:
@@ -166,19 +195,12 @@ class HTMLBuilder(IRBuilder):
                 idx += 1
             # Insert any pending footnotes after the current block
             while self._pending_footnotes:
-                footnote = self._pending_footnotes.pop(0)
+                footnote = self._pending_footnotes.popleft()
                 footnote.section_id = section_id
                 footnote.order_index = idx
                 blocks.append(footnote)
                 idx += 1
-        # Flush remaining footnotes at end of fragment
-        while self._pending_footnotes:
-            footnote = self._pending_footnotes.pop(0)
-            footnote.section_id = section_id
-            footnote.order_index = idx
-            blocks.append(footnote)
-            idx += 1
-        return blocks
+        return blocks, idx
 
     def _tag_to_blocks(
         self, tag: Tag, section_id: str, base_idx: int
@@ -186,11 +208,10 @@ class HTMLBuilder(IRBuilder):
         """Convert a BeautifulSoup tag to one or more block IR nodes."""
         tag_name = tag.name
 
-        # Container elements — recurse
+        # Container elements — recurse directly without re-parsing
         if tag_name in ("section", "article", "div", "span"):
-            return self._html_to_blocks(
-                "".join(str(c) for c in tag.children), section_id
-            )
+            blocks, _ = self._children_to_blocks(tag.children, section_id, base_idx)
+            return blocks
 
         # Headings
         if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -240,9 +261,7 @@ class HTMLBuilder(IRBuilder):
 
         # Blockquote
         if tag_name == "blockquote":
-            inner_blocks = self._html_to_blocks(
-                "".join(str(c) for c in tag.children), section_id
-            )
+            inner_blocks, _ = self._children_to_blocks(tag.children, section_id, base_idx)
             if not inner_blocks:
                 return None
             return BlockQuoteIR(
@@ -537,32 +556,11 @@ class HTMLBuilder(IRBuilder):
         )
 
     def _resolve_image_src(self, img_tag: Tag, figure_index: int) -> str:
-        """Resolve an <img> src to a local path when available in image maps.
-
-        Checks ``image_stem_map`` first (by matching filename stems), then
-        falls back to ``image_map`` (by 1-based figure index). If no match is
-        found, returns the original src unchanged.
-        """
+        """Resolve an <img> src to a local path via :class:`ImageResolver`."""
         src = img_tag.get("src", "")
         if not src:
             return src
-
-        # Try matching by stem (e.g., "figure1" matches "figures/figure1.png")
-        src_basename = src.rsplit("/", 1)[-1] if "/" in src else src
-        src_stem = src_basename.rsplit(".", 1)[0] if "." in src_basename else src_basename
-        for stem, local_path in self.image_stem_map.items():
-            if stem.lower() == src_stem.lower() or stem.lower() in src.lower():
-                return str(local_path)
-
-        # Try matching by figure index (1-based)
-        if figure_index in self.image_map:
-            return str(self.image_map[figure_index])
-
-        # Try 0-based as fallback
-        if figure_index - 1 in self.image_map:
-            return str(self.image_map[figure_index - 1])
-
-        return src
+        return self._image_resolver.resolve(src, figure_index=figure_index)
 
     def _build_table(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
         """Build a TableIR or EquationIR from a <table> tag."""
