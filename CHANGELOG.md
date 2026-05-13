@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-05-13
+
+### Fixed
+
+- **LaTeX Parser Ignored by IR Pipeline**: The default IR pipeline (`IngestionOrchestrator`) only supports HTML content parsing and silently ignored the `--parser latex` flag, producing empty "Untitled Document" output with 0 sections.
+  - Fix: `run_convert_flow()` in `cli/runner/convert.py` now routes `--parser latex` requests to the legacy LaTeX pipeline, which correctly resolves TeX includes, extracts titles/sections, and emits full Markdown.
+  - Affected: arXiv papers with multi-file TeX sources (e.g., `\input{sec/...}`) where HTML parsing yields no meaningful content.
+
+### Changed
+
+- **Version**: 0.10.2 → 0.10.3
+
+Wrapped up by Kimi (kimi-k2.6 via kimi-cli) on 2026-05-13
+
 ## [0.10.2] - 2026-04-29
 
 ### Fixed

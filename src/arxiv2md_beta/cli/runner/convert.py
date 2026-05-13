@@ -44,6 +44,10 @@ async def run_convert_flow(params: ConvertParams) -> Path:
                 stacklevel=2,
             )
             return await _process_arxiv_paper(params)
+        # IR pipeline currently only supports HTML parsing for content;
+        # route LaTeX parser requests to the legacy pipeline.
+        if params.parser == "latex":
+            return await _process_arxiv_paper(params)
         return await _process_arxiv_paper_ir(params)
 
 
