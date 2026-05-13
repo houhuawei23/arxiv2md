@@ -600,20 +600,31 @@ def _parse_images_from_tex(
     includegraphics_pattern = re.compile(
         r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}"
     )
+    # overpic environment: \begin{overpic}[options]{path}
+    overpic_pattern = re.compile(
+        r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}"
+    )
     image_map: dict[str, Path] = {}
     seen_paths: set[Path] = set()
     counter = 0
 
-    for match in includegraphics_pattern.finditer(expanded):
+    def _process_match(match: re.Match[str]) -> None:
+        nonlocal counter
         line_start = expanded.rfind("\n", 0, match.start()) + 1
         if expanded[line_start:match.start()].strip().startswith("%"):
-            continue
+            return
         image_path_str = match.group(1).strip()
         image_path = _resolve_image_path(image_path_str, base_dir, all_images)
         if image_path and image_path not in seen_paths:
             seen_paths.add(image_path)
             image_map[f"fig_{counter}"] = image_path
             counter += 1
+
+    for match in includegraphics_pattern.finditer(expanded):
+        _process_match(match)
+
+    for match in overpic_pattern.finditer(expanded):
+        _process_match(match)
 
     return image_map
 

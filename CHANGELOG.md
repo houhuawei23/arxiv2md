@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-05-13
+
+### Fixed
+
+- **LaTeX figure numbering and positioning bugs**:
+  - `_remove_pandoc_divs` no longer strips blank lines inside `::: wrapfigure` divs, preventing anchor/image/caption blocks from collapsing into a single block.
+  - `_renumber_figures_by_position` now renumbers all `> Figure N:` captions sequentially by document order, eliminating duplicate numbers caused by wrapfigure/figure/markdown-image handlers running in type-order rather than document-order.
+  - `reorder_figures_to_first_reference` in `output/formatter.py` now detects merged figure blocks and skips caption blocks when searching for figure references, preventing figures from being relocated to the wrong section.
+
+- **LaTeX reference "公式" false positive**: `_fix_references` only prepends the "公式" prefix when the label actually starts with `eq:`, so `\autoref{fig:xxx}` is rendered as `[fig:xxx](#fig:xxx)` instead of `[公式 fig:xxx](#fig:xxx)`.
+
+### Added
+
+- **Test coverage**: New `tests/test_latex_parser.py` with 7 tests for `_beautify_math_display` covering inline display-math blockification, trailing text, multiple blocks, boundary conditions, and internal newline collapsing.
+
+### Changed
+
+- **Version**: 0.10.3 → 0.10.4
+
+Wrapped up by Kimi (kimi-k2.6 via kimi-cli) on 2026-05-13
+
 ## [0.10.3] - 2026-05-13
 
 ### Fixed

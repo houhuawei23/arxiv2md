@@ -47,7 +47,7 @@ _TITLE_PATTERN = re.compile(r"\\title\s*\{")
 _AUTHOR_PATTERN = re.compile(r"\\author\s*\{")
 _ABSTRACT_PATTERN = re.compile(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", re.DOTALL)
 _AND_SPLIT_RE = re.compile(r"\\and|\\AND")
-_COMMENT_CLEAN_RE = re.compile(r'^\s*%\s*')
+_COMMENT_CLEAN_RE = re.compile(r"^\s*%\s*")
 _LATEX_CMD_RE = re.compile(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?")
 _BRACES_RE = re.compile(r"\{|\}")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -58,7 +58,9 @@ _SUBSECTION_PATTERN = re.compile(r"\\subsection\s*\*?\s*\{")
 _SUBSUBSECTION_PATTERN = re.compile(r"\\subsubsection\s*\*?\s*\{")
 _CHAPTER_PATTERN = re.compile(r"\\chapter\s*\*?\s*\{")
 _LABEL_PATTERN = re.compile(r"\\label\{([^}]+)\}")
-_CITE_PATTERN = re.compile(r"\\(?:cite|citep|citet|citealp|citeauthor|citeyear|parencite)\{([^}]+)\}")
+_CITE_PATTERN = re.compile(
+    r"\\(?:cite|citep|citet|citealp|citeauthor|citeyear|parencite)\{([^}]+)\}"
+)
 _BIBITEM_PATTERN = re.compile(r"\\bibitem\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _BEGIN_BIBLIOGRAPHY = re.compile(r"\\begin\{thebibliography\}")
 _END_BIBLIOGRAPHY = re.compile(r"\\end\{thebibliography\}")
@@ -96,8 +98,7 @@ def parse_latex_to_markdown(
         import pypandoc
     except ImportError:
         raise ParserNotAvailableError(
-            "pypandoc is required for LaTeX parsing. "
-            "Install it with: pip install pypandoc"
+            "pypandoc is required for LaTeX parsing. Install it with: pip install pypandoc"
         )
 
     # Resolve all includes/inputs recursively
@@ -122,9 +123,13 @@ def parse_latex_to_markdown(
         raise RuntimeError(f"Failed to convert LaTeX to Markdown (pandoc not found?): {e}") from e
 
     # Post-process markdown: fix equations, tables, figures, references, remove divs
-    markdown = _postprocess_markdown(markdown, image_map)
+    # Use enhanced version that also converts citations and refs to links
+    markdown = _postprocess_markdown_enhanced(markdown, image_map, full_tex_content)
 
-    # 新增：提取章节结构
+    # Apply beautification: clean artifacts, align tables, format math, etc.
+    markdown = beautify_markdown(markdown)
+
+    # Extract section structure
     sections = _extract_sections_from_latex(full_tex_content, markdown)
 
     return ParsedLatex(
@@ -176,7 +181,7 @@ def _resolve_includes_recursive(
     def replace_include(match: re.Match[str]) -> str:
         # Skip commented-out includes (line starts with %)
         start = content.rfind("\n", 0, match.start()) + 1
-        line_start = content[start:match.start()]
+        line_start = content[start : match.start()]
         if line_start.strip().startswith("%"):
             return match.group(0)
         included_file_str = match.group(1).strip()
@@ -219,7 +224,7 @@ def _resolve_includes_recursive(
         """Replace \\lstinputlisting{file} with file content as a code block."""
         # Skip commented-out lstinputlisting
         start = content.rfind("\n", 0, match.start()) + 1
-        line_start = content[start:match.start()]
+        line_start = content[start : match.start()]
         if line_start.strip().startswith("%"):
             return match.group(0)
         path_str = match.group(1).strip()
@@ -269,7 +274,7 @@ def _fix_orphan_ends(tex_content: str) -> str:
 
 def _extract_title(tex_content: str) -> str | None:
     """Extract title from LaTeX content.
-    
+
     Uses TexSoup if available for proper nested brace handling,
     otherwise falls back to regex with balanced brace matching.
     """
@@ -279,7 +284,7 @@ def _extract_title(tex_content: str) -> str | None:
 
         soup = TexSoup(tex_content)
         # Use attribute access instead of find() to avoid regex escape issues
-        title_cmd = getattr(soup, 'title', None)
+        title_cmd = getattr(soup, "title", None)
         if title_cmd:
             # Extract text from title command, handling nested braces
             title_text = _texsoup_extract_text(title_cmd)
@@ -307,14 +312,14 @@ def _extract_title_regex(tex_content: str) -> str | None:
     i = start_pos
 
     while i < len(tex_content) and brace_count > 0:
-        if tex_content[i] == '{':
+        if tex_content[i] == "{":
             brace_count += 1
-        elif tex_content[i] == '}':
+        elif tex_content[i] == "}":
             brace_count -= 1
         i += 1
 
     if brace_count == 0:
-        title_content = tex_content[start_pos:i-1]
+        title_content = tex_content[start_pos : i - 1]
         return _clean_latex_text(title_content)
 
     return None
@@ -322,7 +327,7 @@ def _extract_title_regex(tex_content: str) -> str | None:
 
 def _extract_authors(tex_content: str) -> list[str]:
     """Extract authors from LaTeX content.
-    
+
     Uses TexSoup if available for proper nested brace handling,
     otherwise falls back to regex with balanced brace matching.
     """
@@ -334,7 +339,7 @@ def _extract_authors(tex_content: str) -> list[str]:
 
         soup = TexSoup(tex_content)
         # Use attribute access instead of find() to avoid regex escape issues
-        author_cmd = getattr(soup, 'author', None)
+        author_cmd = getattr(soup, "author", None)
         if author_cmd:
             # Extract text from author command
             author_text = _texsoup_extract_text(author_cmd)
@@ -344,7 +349,7 @@ def _extract_authors(tex_content: str) -> list[str]:
                 for part in author_parts:
                     cleaned = part.strip()
                     # Remove comment markers and clean
-                    cleaned = _COMMENT_CLEAN_RE.sub('', cleaned)  # Remove leading % and whitespace
+                    cleaned = _COMMENT_CLEAN_RE.sub("", cleaned)  # Remove leading % and whitespace
                     cleaned = _clean_latex_text(cleaned)
                     if cleaned:
                         authors.append(cleaned)
@@ -372,20 +377,20 @@ def _extract_authors_regex(tex_content: str) -> list[str]:
     i = start_pos
 
     while i < len(tex_content) and brace_count > 0:
-        if tex_content[i] == '{':
+        if tex_content[i] == "{":
             brace_count += 1
-        elif tex_content[i] == '}':
+        elif tex_content[i] == "}":
             brace_count -= 1
         i += 1
 
     if brace_count == 0:
-        author_text = tex_content[start_pos:i-1]
+        author_text = tex_content[start_pos : i - 1]
         # Split by \and or \AND
         author_parts = re.split(r"\\and|\\AND", author_text)
         for part in author_parts:
             cleaned = part.strip()
             # Remove comment markers
-            cleaned = re.sub(r'^\s*%\s*', '', cleaned)
+            cleaned = re.sub(r"^\s*%\s*", "", cleaned)
             cleaned = _clean_latex_text(cleaned)
             if cleaned:
                 authors.append(cleaned)
@@ -404,21 +409,28 @@ def _extract_abstract(tex_content: str) -> str | None:
 
 def _texsoup_extract_text(node) -> str:
     """Extract plain text from a TexSoup node, removing LaTeX commands.
-    
+
     Recursively processes the node tree to extract text content while
     removing formatting commands like \vspace, \textbf, etc.
     """
     # Handle TexSoup command nodes - extract from args
-    if hasattr(node, 'args') and node.args:
+    if hasattr(node, "args") and node.args:
         parts = []
         for arg in node.args:
-            if hasattr(arg, 'contents'):
+            if hasattr(arg, "contents"):
                 # Process contents recursively
                 for item in arg.contents:
-                    if hasattr(item, 'name'):
+                    if hasattr(item, "name"):
                         # Skip certain commands like \vspace, \hspace, etc.
                         cmd_name = item.name
-                        if cmd_name in ('vspace', 'hspace', 'hfill', 'vfill', 'newline', 'linebreak'):
+                        if cmd_name in (
+                            "vspace",
+                            "hspace",
+                            "hfill",
+                            "vfill",
+                            "newline",
+                            "linebreak",
+                        ):
                             continue
                         # Recursively extract from nested content
                         parts.append(_texsoup_extract_text(item))
@@ -431,17 +443,17 @@ def _texsoup_extract_text(node) -> str:
             else:
                 parts.append(_texsoup_extract_text(arg))
         content = "".join(parts)
-    elif hasattr(node, 'string'):
+    elif hasattr(node, "string"):
         # For commands with string content
         content = str(node.string) if node.string else ""
-    elif hasattr(node, 'contents'):
+    elif hasattr(node, "contents"):
         # For environments or nodes with contents
         parts = []
         for item in node.contents:
-            if hasattr(item, 'name'):
+            if hasattr(item, "name"):
                 # Skip certain commands like \vspace, \hspace, etc.
                 cmd_name = item.name
-                if cmd_name in ('vspace', 'hspace', 'hfill', 'vfill', 'newline', 'linebreak'):
+                if cmd_name in ("vspace", "hspace", "hfill", "vfill", "newline", "linebreak"):
                     continue
                 # Recursively extract from nested content
                 parts.append(_texsoup_extract_text(item))
@@ -461,26 +473,43 @@ def _texsoup_extract_text(node) -> str:
 
 
 def _clean_latex_text(text: str) -> str:
-    """Clean LaTeX text by removing commands and formatting."""
+    """Clean LaTeX text by removing commands but preserving math and command arguments."""
     # Remove comment markers first
-    text = _COMMENT_CLEAN_RE.sub('', text)
-    # Remove common LaTeX commands
+    text = _COMMENT_CLEAN_RE.sub("", text)
+    # Preserve content inside common text-wrapping commands
+    text = re.sub(
+        r"\\(textbf|emph|textit|textsc|textsf|texttt|underline)\{([^}]*)\}",
+        r"\2",
+        text,
+    )
+    # Protect inline math blocks so commands like \phi, \ast are not stripped
+    math_blocks: list[str] = []
+
+    def protect_math(match: re.Match[str]) -> str:
+        math_blocks.append(match.group(0))
+        return f"__MATH_{len(math_blocks) - 1}__"
+
+    text = re.sub(r"\$[^$]+\$", protect_math, text)
+    # Remove remaining LaTeX commands
     text = _LATEX_CMD_RE.sub("", text)
     text = _BRACES_RE.sub("", text)
+    # Restore math blocks
+    for i, math in enumerate(math_blocks):
+        text = text.replace(f"__MATH_{i}__", math)
     text = _WHITESPACE_RE.sub(" ", text)
     return text.strip()
 
 
 def _postprocess_markdown(markdown: str, image_map: dict[str, Path]) -> str:
     """Post-process Pandoc output to fix equations, tables, figures, references, and remove divs.
-    
+
     Parameters
     ----------
     markdown : str
         Raw markdown from Pandoc
     image_map : dict[str, Path]
         Mapping from LaTeX image labels/paths to local image paths
-        
+
     Returns:
     -------
     str
@@ -493,7 +522,9 @@ def _postprocess_markdown(markdown: str, image_map: dict[str, Path]) -> str:
     markdown = _fix_equation_labels(markdown)
     markdown = _fix_tables(markdown)
     markdown = _fix_figures(markdown, image_map, figure_counter)
-    markdown = _fix_markdown_images_with_attributes(markdown, figure_counter)  # Handle ![...](path){#fig:xxx}
+    markdown = _fix_markdown_images_with_attributes(
+        markdown, figure_counter
+    )  # Handle ![...](path){#fig:xxx}
     markdown = _fix_references(markdown)
     markdown = _remove_pandoc_divs(markdown)
     markdown = _replace_image_references(markdown, image_map)
@@ -503,39 +534,39 @@ def _postprocess_markdown(markdown: str, image_map: dict[str, Path]) -> str:
 
 def _fix_equation_labels(markdown: str) -> str:
     """Fix equation labels: extract \\label{eq:xxx} and convert to <a id="eq:xxx"></a>.
-    
+
     Also removes \begin{gathered} and \\end{gathered}, keeping only \begin{aligned}...\\end{aligned}.
     """
     # Pattern to match $$...\begin{gathered}...\begin{aligned}...\label{eq:xxx}...\end{aligned}...\end{gathered}...$$
     # We need to handle nested structures
     # FIX: Use \\end instead of \end to avoid escape sequence error (\e is invalid)
-    pattern = r'\$\$\s*\\begin\{gathered\}(.*?)\\end\{gathered\}\s*\$\$'
+    pattern = r"\$\$\s*\\begin\{gathered\}(.*?)\\end\{gathered\}\s*\$\$"
 
     def replace_equation(match: re.Match[str]) -> str:
         content = match.group(1)
 
         # Extract label if present
-        label_match = re.search(r'\\label\{([^}]+)\}', content)
+        label_match = re.search(r"\\label\{([^}]+)\}", content)
         label_id = None
         if label_match:
             label_id = label_match.group(1)
             # Remove the \label command
-            content = re.sub(r'\\label\{[^}]+\}', '', content)
+            content = re.sub(r"\\label\{[^}]+\}", "", content)
 
         # Remove \begin{gathered} and \end{gathered} if they exist
         # FIX: Use \\end instead of \end to avoid escape sequence error (\e is invalid)
-        content = re.sub(r'\\begin\{gathered\}|\\end\{gathered\}', '', content)
+        content = re.sub(r"\\begin\{gathered\}|\\end\{gathered\}", "", content)
         content = content.strip()
 
         # Build result
         result_parts = []
         if label_id:
             result_parts.append(f'<a id="eq:{label_id}"></a>')
-        result_parts.append('$$')
+        result_parts.append("$$")
         result_parts.append(content)
-        result_parts.append('$$')
+        result_parts.append("$$")
 
-        return '\n'.join(result_parts)
+        return "\n".join(result_parts)
 
     markdown = re.sub(pattern, replace_equation, markdown, flags=re.DOTALL)
 
@@ -545,11 +576,11 @@ def _fix_equation_labels(markdown: str) -> str:
 def _fix_tables(markdown: str) -> str:
     """Convert Pandoc mytabular blocks to standard markdown pipe tables."""
     # Pattern to match ::: mytabular blocks
-    pattern = r'::: mytabular\s*\n(.*?)\n:::'
+    pattern = r"::: mytabular\s*\n(.*?)\n:::"
 
     def convert_table(match: re.Match[str]) -> str:
         table_content = match.group(1)
-        lines = table_content.strip().split('\n')
+        lines = table_content.strip().split("\n")
 
         # Parse rows - rows are separated by \ at the end of line
         rows = []
@@ -558,34 +589,39 @@ def _fix_tables(markdown: str) -> str:
         for line in lines:
             line = line.strip()
             # Skip metadata lines
-            if not line or line.startswith('colspec') or line.startswith('row1') or line.startswith('stretch'):
+            if (
+                not line
+                or line.startswith("colspec")
+                or line.startswith("row1")
+                or line.startswith("stretch")
+            ):
                 continue
 
             # Check if line ends with \ (row separator)
-            if line.endswith('\\'):
+            if line.endswith("\\"):
                 # This is a complete row
                 row_line = line[:-1].strip()  # Remove trailing \
-                if '&' in row_line:
-                    cells = [cell.strip() for cell in row_line.split('&')]
+                if "&" in row_line:
+                    cells = [cell.strip() for cell in row_line.split("&")]
                     rows.append(cells)
                 current_row_parts = []
-            elif '&' in line:
+            elif "&" in line:
                 # Row continues (multi-line row)
                 current_row_parts.append(line)
             else:
                 # End of multi-line row
                 if current_row_parts:
-                    combined = ' '.join(current_row_parts)
-                    if '&' in combined:
-                        cells = [cell.strip() for cell in combined.split('&')]
+                    combined = " ".join(current_row_parts)
+                    if "&" in combined:
+                        cells = [cell.strip() for cell in combined.split("&")]
                         rows.append(cells)
                     current_row_parts = []
 
         # Handle any remaining row parts
         if current_row_parts:
-            combined = ' '.join(current_row_parts)
-            if '&' in combined:
-                cells = [cell.strip() for cell in combined.split('&')]
+            combined = " ".join(current_row_parts)
+            if "&" in combined:
+                cells = [cell.strip() for cell in combined.split("&")]
                 rows.append(cells)
 
         if not rows:
@@ -598,38 +634,40 @@ def _fix_tables(markdown: str) -> str:
             cleaned_row = []
             for cell in row:
                 # Remove HTML comments like `<!-- -->`{=html}
-                cell = re.sub(r'`<!-- -->`\{=html\}', '', cell)
+                cell = re.sub(r"`<!-- -->`\{=html\}", "", cell)
                 # Remove backticks around math if present
-                cell = re.sub(r'`(\$[^$]+\$)`', r'\1', cell)
+                cell = re.sub(r"`(\$[^$]+\$)`", r"\1", cell)
                 # Clean up extra whitespace
-                cell = re.sub(r'\s+', ' ', cell)
+                cell = re.sub(r"\s+", " ", cell)
                 cleaned_row.append(cell.strip())
 
             # Build markdown row
-            row_str = '| ' + ' | '.join(cleaned_row) + ' |'
+            row_str = "| " + " | ".join(cleaned_row) + " |"
             result_lines.append(row_str)
 
             # Add separator after header
             if i == 0:
-                separator = '| ' + ' | '.join(['---'] * len(cleaned_row)) + ' |'
+                separator = "| " + " | ".join(["---"] * len(cleaned_row)) + " |"
                 result_lines.append(separator)
 
-        return '\n'.join(result_lines)
+        return "\n".join(result_lines)
 
     markdown = re.sub(pattern, convert_table, markdown, flags=re.DOTALL)
 
     return markdown
 
 
-def _fix_figures(markdown: str, image_map: dict[str, Path], figure_counter: list[int] | None = None) -> str:
+def _fix_figures(
+    markdown: str, image_map: dict[str, Path], figure_counter: list[int] | None = None
+) -> str:
     """Convert <figure> blocks to standard markdown image format.
-    
+
     Converts:
     <figure id="fig:xxx">
     <p><img src="path" alt="..." /></p>
     <figcaption>caption</figcaption>
     </figure>
-    
+
     To:
     <a id="fig:xxx"></a>
     ![](./images/xxx.png)
@@ -645,12 +683,23 @@ def _fix_figures(markdown: str, image_map: dict[str, Path], figure_counter: list
         fig_id = match.group(1)
         fig_content = match.group(2)
 
-        # Extract images
+        # Extract standard <img> tags
         img_pattern = r'<img\s+src="([^"]+)"[^>]*>'
         images = re.findall(img_pattern, fig_content)
 
+        # Handle overpic environments: pandoc emits <div class="overpic">
+        # with the image path in the first <span>text</span>
+        if not images:
+            overpic_match = re.search(
+                r'<div class="overpic">\s*<p><span>([^<]+)</span>',
+                fig_content,
+            )
+            if overpic_match:
+                overpic_path = overpic_match.group(1).strip()
+                images = [overpic_path]
+
         # Extract caption
-        caption_match = re.search(r'<figcaption>(.*?)</figcaption>', fig_content, re.DOTALL)
+        caption_match = re.search(r"<figcaption>(.*?)</figcaption>", fig_content, re.DOTALL)
         caption = caption_match.group(1).strip() if caption_match else ""
 
         # Build result
@@ -662,26 +711,143 @@ def _fix_figures(markdown: str, image_map: dict[str, Path], figure_counter: list
             # Find corresponding image in image_map
             img_path = _find_image_path(img_src, image_map)
             if img_path:
-                result_parts.append(f'![](./images/{img_path.name})')
+                result_parts.append(f"![](./images/{img_path.name})")
             else:
                 # Fallback: try to construct path
-                result_parts.append(f'![]({img_src})')
+                result_parts.append(f"![]({img_src})")
             result_parts.append("")  # Newline after image
         # Add caption
         if caption:
             figure_counter[0] += 1
-            result_parts.append(f'> Figure {figure_counter[0]}: {caption}')
+            result_parts.append(f"> Figure {figure_counter[0]}: {caption}")
 
-        return '\n'.join(result_parts)
+        return "\n".join(result_parts)
 
     markdown = re.sub(pattern, convert_figure, markdown, flags=re.DOTALL)
 
     return markdown
 
 
+def _extract_wrapfigure_captions(tex_content: str) -> dict[str, str]:
+    """Extract captions from wrapfigure environments in LaTeX.
+
+    Uses balanced brace matching so nested commands like \textbf{...} inside
+    the caption are handled correctly.
+
+    Parameters
+    ----------
+    tex_content : str
+        Full LaTeX content
+
+    Returns:
+    -------
+    dict[str, str]
+        Mapping from figure label (e.g. 'fig:teaser') to cleaned caption text
+    """
+    captions: dict[str, str] = {}
+    wrapfig_pattern = re.compile(
+        r"\\begin\{wrapfigure\}.*?\\end\{wrapfigure\}",
+        re.DOTALL,
+    )
+
+    for wrapfig_match in wrapfig_pattern.finditer(tex_content):
+        wrapfig = wrapfig_match.group(0)
+
+        # Extract label
+        label_match = re.search(r"\\label\{([^}]+)\}", wrapfig)
+        if not label_match:
+            continue
+        label = label_match.group(1).strip()
+
+        # Extract caption with balanced brace matching
+        caption_start_match = re.search(r"\\caption(?:of\{figure\})?\{", wrapfig)
+        if not caption_start_match:
+            continue
+
+        start = caption_start_match.end()
+        brace_count = 1
+        i = start
+        while i < len(wrapfig) and brace_count > 0:
+            if wrapfig[i] == "{":
+                brace_count += 1
+            elif wrapfig[i] == "}":
+                brace_count -= 1
+            i += 1
+
+        if brace_count == 0:
+            caption = wrapfig[start : i - 1]
+            caption = _clean_latex_text(caption)
+            if caption:
+                captions[label] = caption
+
+    return captions
+
+
+def _fix_wrapfigure_images(
+    markdown: str,
+    tex_content: str,
+    image_map: dict[str, Path],
+    figure_counter: list[int] | None = None,
+) -> str:
+    """Convert pandoc wrapfigure output to standard markdown figure format.
+
+    Pandoc outputs wrapfigure environments as a bare image followed by an empty
+    link with the label, e.g.:
+
+        r0.5 ![image](figures/teaser.pdf){width="\\linewidth"} []{#fig:teaser label="fig:teaser"}
+
+    This function restores the proper figure format by looking up the original
+    caption from the LaTeX source and converting to:
+
+        <a id="fig:teaser"></a>
+        ![](./images/teaser.png)
+        > Figure N: Manifold Projection. ...
+    """
+    if figure_counter is None:
+        figure_counter = [0]
+
+    captions = _extract_wrapfigure_captions(tex_content)
+
+    # Match pandoc wrapfigure output:
+    # - optional r0.xx resizebox prefix
+    # - ![image](path){optional attrs}
+    # - []{#label label="label"}
+    pattern = re.compile(
+        r"(?m)^(?:r0\.\d+\s+)?"
+        r"!\[image\]\(([^)]+)\)"
+        r"(?:\{[^}]*\})?"
+        r"\s*"
+        r"\[\]\s*\{(#[^}\s]+)[^}]*\}"
+        r"\s*$"
+    )
+
+    def replace_wrapfig(match: re.Match[str]) -> str:
+        img_path = match.group(1).strip()
+        label = match.group(2).strip().lstrip("#")
+
+        # Find local image path
+        local_path = _find_image_path(img_path, image_map)
+        if local_path:
+            img_str = f"![](./images/{local_path.name})"
+        else:
+            img_str = f"![]({img_path})"
+
+        result_parts: list[str] = [f'<a id="{label}"></a>', "", img_str]
+
+        # Add caption if available from LaTeX source
+        if label in captions:
+            figure_counter[0] += 1
+            result_parts.append("")
+            result_parts.append(f"> Figure {figure_counter[0]}: {captions[label]}")
+
+        return "\n".join(result_parts)
+
+    return pattern.sub(replace_wrapfig, markdown)
+
+
 def _find_image_path(img_src: str, image_map: dict[str, Path]) -> Path | None:
     """Find the corresponding image path from image_map.
-    
+
     Tries multiple matching strategies:
     - Exact match
     - Filename match (stem or full name)
@@ -711,100 +877,140 @@ def _find_image_path(img_src: str, image_map: dict[str, Path]) -> Path | None:
     return None
 
 
-def _fix_markdown_images_with_attributes(markdown: str, figure_counter: list[int] | None = None) -> str:
+def _fix_markdown_images_with_attributes(
+    markdown: str, figure_counter: list[int] | None = None
+) -> str:
     """Convert markdown images with Pandoc attributes to standard format.
-    
+
     Converts:
     ![caption text](./images/imag.png){#fig:imag width="\\linewidth"}
-    
+
     To:
     <a id="fig:imag"></a>
     ![](./images/imag.png)
     > Figure N: caption text
     """
-    # Pattern to match markdown images with Pandoc attributes: ![...](path){#fig:xxx ...}
-    # The attributes can contain various things like width, height, etc.
-    pattern = r'!\[([^\]]*)\]\(([^)]+)\)\{#([^}\s]+)[^}]*\}'
-
     if figure_counter is None:
         figure_counter = [0]  # Use list to allow modification in nested function
 
+    # Greedy pattern that works even when caption contains nested brackets.
+    # We match a full line: optional prefix, ![...](...){#id attrs...}
+    line_pattern = re.compile(
+        r"^(\s*)!\[(.*)\]\(([^)]+)\)\s*\{(#[^}\s]+)[^}]*\}\s*$",
+        re.MULTILINE,
+    )
+
     def convert_image(match: re.Match[str]) -> str:
-        caption = match.group(1).strip()
-        img_path = match.group(2).strip()
-        fig_id = match.group(3).strip()
+        prefix = match.group(1)
+        caption = match.group(2).strip()
+        img_path = match.group(3).strip()
+        fig_id = match.group(4).strip().lstrip("#")
 
-        # Build result
-        result_parts = []
+        result_parts: list[str] = []
+        if prefix.strip():
+            # e.g. "r0.5 " prefix – drop it (resizebox artifact)
+            pass
 
-        # Add anchor
         result_parts.append(f'<a id="{fig_id}"></a>')
-        result_parts.append("")  # Newline after tag to separate from content
-        # Add image (without caption in alt text)
-        result_parts.append(f'![]({img_path})')
-        result_parts.append("")  # Newline after image before caption
-        # Add caption as blockquote if present
+        result_parts.append("")
+        result_parts.append(f"![]({img_path})")
+        result_parts.append("")
         if caption:
             figure_counter[0] += 1
-            result_parts.append(f'> Figure {figure_counter[0]}: {caption}')
+            result_parts.append(f"> Figure {figure_counter[0]}: {caption}")
 
-        return '\n'.join(result_parts)
+        return "\n".join(result_parts)
 
-    markdown = re.sub(pattern, convert_image, markdown)
+    markdown = line_pattern.sub(convert_image, markdown)
+
+    # Fallback: also try a simpler inline pattern for cases where the greedy
+    # line match fails (e.g. text after the attribute block on the same line).
+    fallback_pattern = re.compile(r"!\[([^\]]{0,200})\]\(([^)]+)\)\s*\{(#[^}\s]+)[^}]*\}")
+
+    def convert_fallback(match: re.Match[str]) -> str:
+        caption = match.group(1).strip()
+        img_path = match.group(2).strip()
+        fig_id = match.group(3).strip().lstrip("#")
+        result_parts: list[str] = []
+        result_parts.append(f'<a id="{fig_id}"></a>')
+        result_parts.append("")
+        result_parts.append(f"![]({img_path})")
+        result_parts.append("")
+        if caption:
+            figure_counter[0] += 1
+            result_parts.append(f"> Figure {figure_counter[0]}: {caption}")
+        return "\n".join(result_parts)
+
+    markdown = fallback_pattern.sub(convert_fallback, markdown)
 
     return markdown
 
 
 def _fix_references(markdown: str) -> str:
     r"""Simplify reference format from Pandoc output.
-    
+
     Converts:
     [\[eq:tok\]](#eq:tok){reference-type="ref+label" reference="eq:tok"}
-    
+    [text](#anchor){reference-type="ref" reference="..."}
+
     To:
-    [公式 eq:tok](#eq:tok) or [eq:tok](#eq:tok)
+    [公式 eq:tok](#eq:tok) or [text](#anchor)
     """
-    # Pattern for equation references
-    eq_pattern = r'\[\\\[([^\]]+)\\\]\]\(#([^)]+)\)\{reference-type="ref\+label"\s+reference="[^"]+"\}'
+    # Pattern for equation references with ref+label
+    eq_pattern = (
+        r'\[\\\[([^\]]+)\\\]\]\(#([^)]+)\)\{reference-type="ref\+label"\s+reference="[^"]+"\}'
+    )
 
     def replace_eq_ref(match: re.Match[str]) -> str:
         label = match.group(1)
         anchor = match.group(2)
-        return f'[公式 {label}](#{anchor})'
+        # Only add "公式" prefix for actual equation labels
+        if label.startswith("eq:"):
+            return f"[公式 {label}](#{anchor})"
+        return f"[{label}](#{anchor})"
 
     markdown = re.sub(eq_pattern, replace_eq_ref, markdown)
 
-    # Pattern for other references (figures, tables, etc.)
-    ref_pattern = r'\[([^\]]+)\]\(#([^)]+)\)\{reference-type="ref\+label"\s+reference="[^"]+"\}'
+    # Pattern for references with ref+label (figures, tables, sections, etc.)
+    ref_plus_label_pattern = (
+        r'\[([^\]]+)\]\(#([^)]+)\)\{reference-type="ref\+label"\s+reference="[^"]+"\}'
+    )
 
-    def replace_ref(match: re.Match[str]) -> str:
+    def replace_ref_plus_label(match: re.Match[str]) -> str:
         text = match.group(1)
         anchor = match.group(2)
-        # If text is just a number or simple label, use it as-is
-        if re.match(r'^\d+$', text.strip()):
-            return f'[{text}](#{anchor})'
-        return f'[{text}](#{anchor})'
+        return f"[{text}](#{anchor})"
 
-    markdown = re.sub(ref_pattern, replace_ref, markdown)
+    markdown = re.sub(ref_plus_label_pattern, replace_ref_plus_label, markdown)
+
+    # Pattern for plain ref references (e.g. {reference-type="ref" reference="syn"})
+    ref_plain_pattern = r'\[([^\]]+)\]\(#([^)]+)\)\{reference-type="ref"\s+reference="[^"]+"\}'
+
+    def replace_ref_plain(match: re.Match[str]) -> str:
+        text = match.group(1)
+        anchor = match.group(2)
+        return f"[{text}](#{anchor})"
+
+    markdown = re.sub(ref_plain_pattern, replace_ref_plain, markdown)
 
     return markdown
 
 
 def _remove_pandoc_divs(markdown: str) -> str:
     """Remove Pandoc div blocks (::: ... :::).
-    
+
     Removes blocks like:
     ::: center
     :::
     ::::
     :::::
     etc.
-    
+
     And keeps only the content inside.
     """
     # Pattern to match ::: blocks with optional content
     # Handle nested ::: blocks
-    lines = markdown.split('\n')
+    lines = markdown.split("\n")
     result_lines = []
     div_depth = 0
 
@@ -814,8 +1020,8 @@ def _remove_pandoc_divs(markdown: str) -> str:
         stripped = line.strip()
 
         # Count consecutive colons at start
-        if stripped.startswith(':::'):
-            colon_count = len(stripped) - len(stripped.lstrip(':'))
+        if stripped.startswith(":::"):
+            colon_count = len(stripped) - len(stripped.lstrip(":"))
             if colon_count >= 3:
                 # This is a div marker
                 if div_depth == 0:
@@ -827,8 +1033,8 @@ def _remove_pandoc_divs(markdown: str) -> str:
                 i += 1
                 continue
 
-        # If we're inside a div block and it's empty or just whitespace, skip
-        if div_depth > 0 and (not stripped or stripped.startswith(':::')):
+        # If we're inside a div block and it's another div marker, skip
+        if div_depth > 0 and stripped.startswith(":::"):
             i += 1
             continue
 
@@ -837,7 +1043,7 @@ def _remove_pandoc_divs(markdown: str) -> str:
         i += 1
 
     # Also remove standalone ::: lines
-    result_lines = [line for line in result_lines if not line.strip().startswith(':::')]
+    result_lines = [line for line in result_lines if not line.strip().startswith(":::")]
 
     # Remove consecutive empty lines (more than 2)
     final_lines = []
@@ -849,7 +1055,7 @@ def _remove_pandoc_divs(markdown: str) -> str:
         final_lines.append(line)
         prev_empty = is_empty
 
-    return '\n'.join(final_lines)
+    return "\n".join(final_lines)
 
 
 def _replace_image_references(markdown: str, image_map: dict[str, Path]) -> str:
@@ -876,11 +1082,15 @@ def _replace_image_references(markdown: str, image_map: dict[str, Path]) -> str:
         if isinstance(local_path, Path):
             # If path is absolute or doesn't start with images/, make it relative
             local_path_str = str(local_path)
-            if not local_path_str.startswith('images/') and not local_path_str.startswith('./images/'):
+            if not local_path_str.startswith("images/") and not local_path_str.startswith(
+                "./images/"
+            ):
                 # Extract just the filename
-                local_path_str = f'./images/{local_path.name}'
+                local_path_str = f"./images/{local_path.name}"
             else:
-                local_path_str = f'./{local_path_str}' if not local_path_str.startswith('./') else local_path_str
+                local_path_str = (
+                    f"./{local_path_str}" if not local_path_str.startswith("./") else local_path_str
+                )
         else:
             local_path_str = str(local_path)
 
@@ -922,7 +1132,7 @@ def _replace_image_references(markdown: str, image_map: dict[str, Path]) -> str:
     markdown = re.sub(img_pattern, replace_img_src, markdown)
 
     # Pattern for markdown images: ![...](path)
-    md_img_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
+    md_img_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
 
     def replace_md_img(match: re.Match[str]) -> str:
         alt = match.group(1)
@@ -941,7 +1151,7 @@ def _replace_image_references(markdown: str, image_map: dict[str, Path]) -> str:
             replacement = replacement_map[path_obj.stem]
 
         if replacement:
-            return f'![{alt}]({replacement})'
+            return f"![{alt}]({replacement})"
         return match.group(0)
 
     markdown = re.sub(md_img_pattern, replace_md_img, markdown)
@@ -953,16 +1163,20 @@ def _replace_image_references(markdown: str, image_map: dict[str, Path]) -> str:
 # Section extraction and structured parsing (新增)
 # =============================================================================
 
+
 def _extract_sections_from_latex(tex_content: str, markdown: str) -> list[SectionNode]:
     """Extract section structure from LaTeX and match with Markdown content.
-    
+
+    Matches LaTeX sections with Pandoc-generated markdown sections by title
+    content to avoid misalignment when Pandoc produces extra headings.
+
     Parameters
     ----------
     tex_content : str
         Full LaTeX content
     markdown : str
         Converted Markdown content from pandoc
-        
+
     Returns:
     -------
     list[SectionNode]
@@ -984,16 +1198,50 @@ def _extract_sections_from_latex(tex_content: str, markdown: str) -> list[Sectio
             )
         ]
 
-    # Split markdown by section headers to match content
+    # Split markdown by section headers (title line is stripped from content)
     md_sections = _split_markdown_by_headers(markdown)
 
     # Build section tree
     sections: list[SectionNode] = []
     stack: list[SectionNode] = []
+    md_idx = 0
+
+    # Skip preamble (content before the first heading) if present
+    if md_sections and not md_sections[0][1]:
+        md_idx = 1
 
     for i, (level, title, label) in enumerate(section_info):
-        # Find matching markdown content
-        md_content = md_sections[i] if i < len(md_sections) else ""
+        md_content = ""
+        skipped_parts: list[str] = []
+
+        # Try to find matching markdown section by title
+        match_j = None
+        for j in range(md_idx, len(md_sections)):
+            md_level, md_title, md_content_raw = md_sections[j]
+            # Strip Pandoc label suffix like {#sec:intro}
+            md_title_clean = re.sub(r"\s*\{#[^}]+\}\s*$", "", md_title).strip()
+            # Strip markdown bold/italic markers
+            md_title_clean = re.sub(r"^(\*+|_+)\s*|\s*(\*+|_+)$", "", md_title_clean).strip()
+
+            if md_title_clean.lower() == title.lower():
+                match_j = j
+                md_content = md_content_raw
+                break
+            else:
+                # Collect skipped parts (e.g. \paragraph headings not in LaTeX sections)
+                # Include the heading line so context is preserved
+                skipped_parts.append(f"{md_level} {md_title}\n\n{md_content_raw}")
+
+        if match_j is not None:
+            md_idx = match_j + 1
+            # Prepend skipped content to the matched section
+            if skipped_parts:
+                md_content = "\n\n".join(skipped_parts + [md_content])
+        else:
+            # No exact match found - fall back to sequential assignment
+            if md_idx < len(md_sections):
+                _, _, md_content = md_sections[md_idx]
+                md_idx += 1
 
         # Generate anchor from label or title
         anchor = _generate_section_anchor(label, title, i, level)
@@ -1023,7 +1271,7 @@ def _extract_sections_from_latex(tex_content: str, markdown: str) -> list[Sectio
 
 def _parse_section_headers(tex_content: str) -> list[tuple[int, str, str | None]]:
     """Parse LaTeX section headers.
-    
+
     Returns:
     -------
     list[tuple[int, str, str | None]]
@@ -1032,14 +1280,14 @@ def _parse_section_headers(tex_content: str) -> list[tuple[int, str, str | None]
     sections: list[tuple[int, str, str | None]] = []
 
     # Find all section commands with their positions
-    pattern = r'\\(chapter|section|subsection|subsubsection)\s*\*?\s*\{([^}]+)\}'
-    label_pattern = r'\\label\{([^}]+)\}'
+    pattern = r"\\(chapter|section|subsection|subsubsection)\s*\*?\s*\{([^}]+)\}"
+    label_pattern = r"\\label\{([^}]+)\}"
 
     level_map = {
-        'chapter': 1,
-        'section': 1,
-        'subsection': 2,
-        'subsubsection': 3,
+        "chapter": 1,
+        "section": 1,
+        "subsection": 2,
+        "subsubsection": 3,
     }
 
     for match in re.finditer(pattern, tex_content, re.MULTILINE):
@@ -1050,7 +1298,7 @@ def _parse_section_headers(tex_content: str) -> list[tuple[int, str, str | None]
         # Look for a label after this section (within reasonable distance)
         start_pos = match.end()
         label = None
-        label_match = re.search(label_pattern, tex_content[start_pos:start_pos + 500])
+        label_match = re.search(label_pattern, tex_content[start_pos : start_pos + 500])
         if label_match:
             label = label_match.group(1)
 
@@ -1059,38 +1307,46 @@ def _parse_section_headers(tex_content: str) -> list[tuple[int, str, str | None]
     return sections
 
 
-def _split_markdown_by_headers(markdown: str) -> list[str]:
+def _split_markdown_by_headers(markdown: str) -> list[tuple[str, str, str]]:
     """Split markdown content by section headers.
-    
+
     Returns:
     -------
-    list[str]
-        Content for each section (excluding the header itself)
+    list[tuple[str, str, str]]
+        List of (level, title, content) for each section. The header line
+        itself is stripped from content. The first element may be a preamble
+        (empty level/title) if there is content before the first heading.
     """
-    # Pattern to match markdown headers
-    header_pattern = r'^(#{1,6})\s+(.+)$'
+    header_pattern = re.compile(r"^(#{1,6})\s+(.+)$")
+    sections: list[tuple[str, str, str]] = []
+    current_level = ""
+    current_title = ""
+    current_lines: list[str] = []
 
-    parts: list[str] = []
-    current_part: list[str] = []
+    for line in markdown.split("\n"):
+        m = header_pattern.match(line)
+        if m:
+            # Save previous section
+            if current_title or current_lines:
+                content = "\n".join(current_lines).strip()
+                sections.append((current_level, current_title, content))
+            current_level = m.group(1)
+            current_title = m.group(2).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
 
-    for line in markdown.split('\n'):
-        if re.match(header_pattern, line):
-            # Save current part
-            if current_part:
-                parts.append('\n'.join(current_part).strip())
-                current_part = []
-        current_part.append(line)
+    # Save last section
+    if current_title or current_lines:
+        content = "\n".join(current_lines).strip()
+        sections.append((current_level, current_title, content))
 
-    # Don't forget the last part
-    if current_part:
-        parts.append('\n'.join(current_part).strip())
-
-    return parts
+    return sections
 
 
 def _generate_section_anchor(label: str | None, title: str, index: int, level: int) -> str | None:
     """Generate anchor ID for a section.
-    
+
     Parameters
     ----------
     label : str | None
@@ -1101,7 +1357,7 @@ def _generate_section_anchor(label: str | None, title: str, index: int, level: i
         Section index (0-based)
     level : int
         Section level (1-3)
-        
+
     Returns:
     -------
     str | None
@@ -1110,21 +1366,21 @@ def _generate_section_anchor(label: str | None, title: str, index: int, level: i
     # If there's a LaTeX label, use it
     if label:
         # Map common label prefixes to anchor types
-        if label.startswith('sec:'):
+        if label.startswith("sec:"):
             return label[4:]  # Remove 'sec:' prefix
-        if label.startswith('ch:'):
+        if label.startswith("ch:"):
             return f"chapter-{label[3:]}"
         return label
 
     # Generate from title
     # Extract numeric prefix if present
-    m = re.match(r'^(\d+(?:\.\d+)*)\s+', title)
+    m = re.match(r"^(\d+(?:\.\d+)*)\s+", title)
     if m:
-        numbers = m.group(1).replace('.', '-')
+        numbers = m.group(1).replace(".", "-")
         return f"section-{numbers}"
 
     # Check for appendix pattern
-    if re.match(r'^[A-Z]\b', title, re.IGNORECASE):
+    if re.match(r"^[A-Z]\b", title, re.IGNORECASE):
         letter = title[0].upper()
         return f"appendix-{letter.lower()}"
 
@@ -1134,7 +1390,7 @@ def _generate_section_anchor(label: str | None, title: str, index: int, level: i
 
 def _extract_bibliography_info(tex_content: str) -> tuple[int | None, int | None]:
     """Extract bibliography and appendix positions.
-    
+
     Returns:
     -------
     tuple[int | None, int | None]
@@ -1148,36 +1404,40 @@ def _extract_bibliography_info(tex_content: str) -> tuple[int | None, int | None
     if appendix_match:
         # Find which section comes after \appendix
         # This is approximate - we count sections before the command
-        pre_content = tex_content[:appendix_match.start()]
-        app_idx = len(re.findall(r'\\(?:chapter|section)\s*\*?\s*\{', pre_content))
+        pre_content = tex_content[: appendix_match.start()]
+        app_idx = len(re.findall(r"\\(?:chapter|section)\s*\*?\s*\{", pre_content))
 
     # Check for bibliography environment
     bib_match = _BEGIN_BIBLIOGRAPHY.search(tex_content)
     if bib_match:
-        pre_content = tex_content[:bib_match.start()]
-        bib_idx = len(re.findall(r'\\(?:chapter|section)\s*\*?\s*\{', pre_content))
+        pre_content = tex_content[: bib_match.start()]
+        bib_idx = len(re.findall(r"\\(?:chapter|section)\s*\*?\s*\{", pre_content))
 
     return bib_idx, app_idx
 
 
 def _convert_citations_to_links(markdown: str, bib_keys: dict[str, int]) -> str:
     """Convert LaTeX citation commands to Markdown links.
-    
+
+    Handles both raw \cite{...} (when pandoc does not process them) and
+    pandoc's [@key] citation syntax.
+
     Parameters
     ----------
     markdown : str
         Markdown content
     bib_keys : dict[str, int]
         Mapping from citation key to reference number
-        
+
     Returns:
     -------
     str
         Markdown with citations converted to links
     """
+
     def replace_cite(match: re.Match[str]) -> str:
         keys_str = match.group(1)
-        keys = [k.strip() for k in keys_str.split(',')]
+        keys = [k.strip() for k in keys_str.split(",")]
 
         numbers: list[str] = []
         for key in keys:
@@ -1187,19 +1447,26 @@ def _convert_citations_to_links(markdown: str, bib_keys: dict[str, int]) -> str:
             else:
                 numbers.append(f"[{key}]")
 
-        return ', '.join(numbers)
+        return ", ".join(numbers)
 
-    return _CITE_PATTERN.sub(replace_cite, markdown)
+    # 1. Raw \cite{...} commands (fallback when pandoc is not used)
+    markdown = _CITE_PATTERN.sub(replace_cite, markdown)
+
+    # 2. Pandoc citation syntax: [@key1;@key2] or [@key1,key2]
+    pandoc_cite_pattern = re.compile(r"\[@([^\]]+)\]")
+    markdown = pandoc_cite_pattern.sub(replace_cite, markdown)
+
+    return markdown
 
 
 def _extract_bibliography_keys(tex_content: str) -> dict[str, int]:
     """Extract bibliography keys and assign numbers.
-    
+
     Parameters
     ----------
     tex_content : str
         Full LaTeX content
-        
+
     Returns:
     -------
     dict[str, int]
@@ -1218,26 +1485,26 @@ def _extract_bibliography_keys(tex_content: str) -> dict[str, int]:
 
 def _add_bibliography_anchors(markdown: str, bib_keys: dict[str, int]) -> str:
     """Add anchors to bibliography entries in markdown.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content (References section)
     bib_keys : dict[str, int]
         Mapping from citation key to reference number
-        
+
     Returns:
     -------
     str
         Markdown with anchors added
     """
-    lines = markdown.split('\n')
+    lines = markdown.split("\n")
     result: list[str] = []
 
     for line in lines:
         # Look for bibliography entry patterns
         # Pandoc typically converts \bibitem to lines starting with [number] or just the entry
-        match = re.match(r'^(\s*\[?(\d+)\]?\s+)', line)
+        match = re.match(r"^(\s*\[?(\d+)\]?\s+)", line)
         if match:
             num = int(match.group(2))
             anchor = f'<a id="ref-{num}"></a>'
@@ -1245,17 +1512,17 @@ def _add_bibliography_anchors(markdown: str, bib_keys: dict[str, int]) -> str:
         else:
             result.append(line)
 
-    return '\n'.join(result)
+    return "\n".join(result)
 
 
 def _extract_labels(tex_content: str) -> dict[str, tuple[str, int]]:
     """Extract all LaTeX labels with their context.
-    
+
     Parameters
     ----------
     tex_content : str
         Full LaTeX content
-        
+
     Returns:
     -------
     dict[str, tuple[str, int]]
@@ -1272,22 +1539,22 @@ def _extract_labels(tex_content: str) -> dict[str, tuple[str, int]]:
         label = match.group(1)
 
         # Determine type from label prefix or context
-        label_type = 'unknown'
-        if ':' in label:
-            label_type = label.split(':')[0]
+        label_type = "unknown"
+        if ":" in label:
+            label_type = label.split(":")[0]
         else:
             # Look at surrounding context (previous 200 chars)
             start = max(0, match.start() - 200)
-            context = tex_content[start:match.start()]
+            context = tex_content[start : match.start()]
 
-            if re.search(r'\\begin\{(figure|figure\*|wrapfigure)', context):
-                label_type = 'fig'
-            elif re.search(r'\\begin\{(table|table\*|tabular)', context):
-                label_type = 'tab'
-            elif re.search(r'\\begin\{(equation|align|gather|eqnarray)', context):
-                label_type = 'eq'
-            elif re.search(r'\\(chapter|section|subsection)', context):
-                label_type = 'sec'
+            if re.search(r"\\begin\{(figure|figure\*|wrapfigure)", context):
+                label_type = "fig"
+            elif re.search(r"\\begin\{(table|table\*|tabular)", context):
+                label_type = "tab"
+            elif re.search(r"\\begin\{(equation|align|gather|eqnarray)", context):
+                label_type = "eq"
+            elif re.search(r"\\(chapter|section|subsection)", context):
+                label_type = "sec"
 
         # Increment counter for this type
         counters[label_type] = counters.get(label_type, 0) + 1
@@ -1298,37 +1565,38 @@ def _extract_labels(tex_content: str) -> dict[str, tuple[str, int]]:
 
 def _convert_refs_to_links(markdown: str, labels: dict[str, tuple[str, int]]) -> str:
     """Convert LaTeX \ref commands to Markdown links.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     labels : dict[str, tuple[str, int]]
         Mapping from label to (type, number)
-        
+
     Returns:
     -------
     str
         Markdown with refs converted to links
     """
-    ref_pattern = re.compile(r'~(\\ref\{([^}]+)\})')
+    # Pattern to match \ref{...} with optional leading ~ or whitespace
+    ref_pattern = re.compile(r"(?:~?\s*)?\\ref\{([^}]+)\}")
 
     def replace_ref(match: re.Match[str]) -> str:
-        label = match.group(2)
+        label = match.group(1)
         if label in labels:
             label_type, number = labels[label]
             anchor_map = {
-                'fig': 'fig',
-                'tab': 'table',
-                'eq': 'eq',
-                'sec': 'section',
+                "fig": "fig",
+                "tab": "table",
+                "eq": "eq",
+                "sec": "section",
             }
             anchor_prefix = anchor_map.get(label_type, label_type)
-            return f"[{number}](#{anchor_prefix}-{label if ':' not in label else label.split(':', 1)[1]})"
+            anchor = label if ":" not in label else label.split(":", 1)[1]
+            return f"[{number}](#{anchor_prefix}-{anchor})"
         return match.group(0)
 
     return ref_pattern.sub(replace_ref, markdown)
-
 
 
 def _postprocess_markdown_enhanced(
@@ -1337,7 +1605,7 @@ def _postprocess_markdown_enhanced(
     tex_content: str,
 ) -> str:
     """Enhanced post-process with citation links and bibliography anchors.
-    
+
     Parameters
     ----------
     markdown : str
@@ -1346,7 +1614,7 @@ def _postprocess_markdown_enhanced(
         Mapping from LaTeX image labels/paths to local image paths
     tex_content : str
         Original LaTeX content for extracting citation info
-        
+
     Returns:
     -------
     str
@@ -1357,11 +1625,17 @@ def _postprocess_markdown_enhanced(
     labels = _extract_labels(tex_content)
 
     # Apply standard post-processing
+    # Process markdown images BEFORE <figure> blocks so numbering follows
+    # document order (Pandoc tends to put \includegraphics-derived images
+    # earlier in the markdown than overpic-based <figure> blocks).
     figure_counter = [0]
     markdown = _fix_equation_labels(markdown)
     markdown = _fix_tables(markdown)
-    markdown = _fix_figures(markdown, image_map, figure_counter)
+    # Wrapfigures appear earlier in the document than regular figures, so
+    # process them first to maintain correct figure numbering order.
+    markdown = _fix_wrapfigure_images(markdown, tex_content, image_map, figure_counter)
     markdown = _fix_markdown_images_with_attributes(markdown, figure_counter)
+    markdown = _fix_figures(markdown, image_map, figure_counter)
     markdown = _fix_references(markdown)
 
     # Convert citations to links
@@ -1374,19 +1648,43 @@ def _postprocess_markdown_enhanced(
     markdown = _remove_pandoc_divs(markdown)
     markdown = _replace_image_references(markdown, image_map)
 
+    # Renumber figures to match their actual document order
+    markdown = _renumber_figures_by_position(markdown)
+
     return markdown
 
 
-def _identify_special_sections(sections: list[SectionNode], tex_content: str) -> tuple[list[SectionNode], list[SectionNode], list[SectionNode]]:
+def _renumber_figures_by_position(markdown: str) -> str:
+    """Renumber all figure captions to match their actual document order.
+
+    Scans for all figure caption lines and renumbers them sequentially
+    from top to bottom, regardless of the original numbering.
+    """
+    caption_pattern = re.compile(r"(?m)^>\s*Figure\s+(\d+):\s*(.*)$")
+
+    # Replace sequentially by document order
+    caption_idx = [0]
+
+    def replace_caption(match: re.Match[str]) -> str:
+        caption_idx[0] += 1
+        text = match.group(2)
+        return f"> Figure {caption_idx[0]}: {text}"
+
+    return caption_pattern.sub(replace_caption, markdown)
+
+
+def _identify_special_sections(
+    sections: list[SectionNode], tex_content: str
+) -> tuple[list[SectionNode], list[SectionNode], list[SectionNode]]:
     """Split sections into main, references, and appendix.
-    
+
     Parameters
     ----------
     sections : list[SectionNode]
         All sections
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     tuple[list[SectionNode], list[SectionNode], list[SectionNode]]
@@ -1420,7 +1718,7 @@ def _identify_special_sections(sections: list[SectionNode], tex_content: str) ->
 
         # Check if this is the start of appendix
         if not in_appendix:
-            if (app_idx is not None and i >= app_idx) or title_lower.startswith('appendix'):
+            if (app_idx is not None and i >= app_idx) or title_lower.startswith("appendix"):
                 in_refs = False
                 in_appendix = True
 
@@ -1436,38 +1734,31 @@ def _identify_special_sections(sections: list[SectionNode], tex_content: str) ->
 
 
 def _enhance_section_markdown(sections: list[SectionNode]) -> None:
-    """Add anchors and enhance markdown for all sections.
-    
-    This mutates the sections in place.
+    """No-op: anchors are now rendered by the formatter (_render_section).
+
+    Kept for backward compatibility with callers.
     """
-    for sec in sections:
-        if sec.anchor and sec.markdown:
-            # Add anchor at the beginning of the section markdown
-            sec.markdown = f'<a id="{sec.anchor}"></a>\n\n{sec.markdown}'
-
-        # Recursively enhance children
-        if sec.children:
-            _enhance_section_markdown(sec.children)
-
+    pass
 
 
 # =============================================================================
 # Enhanced figure, table, and equation anchors (Phase 3)
 # =============================================================================
 
+
 def _add_figure_anchors(markdown: str, tex_content: str) -> str:
     r"""Add anchors to figures based on LaTeX labels.
-    
+
     Scans the original LaTeX for \label{fig:xxx} and adds corresponding
     anchors to figures in the markdown output.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     str
@@ -1479,16 +1770,15 @@ def _add_figure_anchors(markdown: str, tex_content: str) -> str:
 
     # Pattern to match figure environments with labels
     fig_pattern = re.compile(
-        r'\\begin\{(figure|figure\*|wrapfigure|float)\}[\s\S]*?\\end\{\1\}',
-        re.MULTILINE
+        r"\\begin\{(figure|figure\*|wrapfigure|float)\}[\s\S]*?\\end\{\1\}", re.MULTILINE
     )
 
     for fig_match in fig_pattern.finditer(tex_content):
         fig_env = fig_match.group(0)
-        label_match = re.search(r'\\label\{([^}]+)\}', fig_env)
+        label_match = re.search(r"\\label\{([^}]+)\}", fig_env)
         if label_match:
             label = label_match.group(1)
-            if label.startswith('fig:'):
+            if label.startswith("fig:"):
                 fig_counter += 1
                 fig_labels[label] = fig_counter
 
@@ -1497,7 +1787,7 @@ def _add_figure_anchors(markdown: str, tex_content: str) -> str:
 
     # Add anchors to markdown figures
     # Match markdown image syntax: ![caption](path)
-    md_img_pattern = re.compile(r'(!\[([^\]]*)\]\(([^)]+)\))')
+    md_img_pattern = re.compile(r"(!\[([^\]]*)\]\(([^)]+)\))")
 
     def replace_figure(match: re.Match[str]) -> str:
         full_match = match.group(1)
@@ -1508,7 +1798,7 @@ def _add_figure_anchors(markdown: str, tex_content: str) -> str:
         # We use the figure counter to match
         nonlocal fig_counter
         for label, num in fig_labels.items():
-            label_name = label.split(':', 1)[1] if ':' in label else label
+            label_name = label.split(":", 1)[1] if ":" in label else label
             # Check if alt text or path contains the label reference
             if label_name in alt or label_name in path:
                 return f'<a id="{label}"></a>\n\n{full_match}'
@@ -1520,14 +1810,14 @@ def _add_figure_anchors(markdown: str, tex_content: str) -> str:
 
 def _add_table_anchors(markdown: str, tex_content: str) -> str:
     """Add anchors to tables based on LaTeX labels.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     str
@@ -1539,16 +1829,15 @@ def _add_table_anchors(markdown: str, tex_content: str) -> str:
 
     # Pattern to match table environments with labels
     table_pattern = re.compile(
-        r'\\begin\{(table|table\*|tabular|tabularx)\}[\s\S]*?\\end\{(\1)\}',
-        re.MULTILINE
+        r"\\begin\{(table|table\*|tabular|tabularx)\}[\s\S]*?\\end\{(\1)\}", re.MULTILINE
     )
 
     for table_match in table_pattern.finditer(tex_content):
         table_env = table_match.group(0)
-        label_match = re.search(r'\\label\{([^}]+)\}', table_env)
+        label_match = re.search(r"\\label\{([^}]+)\}", table_env)
         if label_match:
             label = label_match.group(1)
-            if label.startswith('tab:'):
+            if label.startswith("tab:"):
                 table_counter += 1
                 table_labels[label] = table_counter
 
@@ -1557,37 +1846,37 @@ def _add_table_anchors(markdown: str, tex_content: str) -> str:
 
     # Add anchors before markdown tables
     # Find markdown table patterns (lines starting with |)
-    lines = markdown.split('\n')
+    lines = markdown.split("\n")
     result: list[str] = []
     table_idx = 0
 
     for i, line in enumerate(lines):
         # Check if this is the start of a table
-        if line.strip().startswith('|') and '|' in line[1:]:
+        if line.strip().startswith("|") and "|" in line[1:]:
             # Check if previous line is not a table (start of new table)
-            if i == 0 or not lines[i-1].strip().startswith('|'):
+            if i == 0 or not lines[i - 1].strip().startswith("|"):
                 table_idx += 1
                 # Find matching label
                 for label, num in table_labels.items():
                     if num == table_idx:
-                        label_short = label.split(':', 1)[1] if ':' in label else label
+                        label_short = label.split(":", 1)[1] if ":" in label else label
                         result.append(f'<a id="table-{label_short}"></a>')
                         break
         result.append(line)
 
-    return '\n'.join(result)
+    return "\n".join(result)
 
 
 def _enhance_equation_anchors(markdown: str, tex_content: str) -> str:
     """Enhance equation handling with better anchors.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     str
@@ -1599,24 +1888,24 @@ def _enhance_equation_anchors(markdown: str, tex_content: str) -> str:
 
     # Match equation environments
     eq_envs = [
-        r'\\begin\{equation\}',
-        r'\\begin\{equation\*\}',
-        r'\\begin\{align\}',
-        r'\\begin\{align\*\}',
-        r'\\begin\{gather\}',
-        r'\\begin\{gather\*\}',
-        r'\\\[',
+        r"\\begin\{equation\}",
+        r"\\begin\{equation\*\}",
+        r"\\begin\{align\}",
+        r"\\begin\{align\*\}",
+        r"\\begin\{gather\}",
+        r"\\begin\{gather\*\}",
+        r"\\\[",
     ]
 
     for pattern in eq_envs:
         for match in re.finditer(pattern, tex_content):
             start = match.start()
             # Look for label within the next 500 chars
-            snippet = tex_content[start:start + 500]
-            label_match = re.search(r'\\label\{([^}]+)\}', snippet)
+            snippet = tex_content[start : start + 500]
+            label_match = re.search(r"\\label\{([^}]+)\}", snippet)
             if label_match:
                 label = label_match.group(1)
-                if label.startswith('eq:'):
+                if label.startswith("eq:"):
                     eq_counter += 1
                     eq_labels[label] = eq_counter
 
@@ -1624,7 +1913,7 @@ def _enhance_equation_anchors(markdown: str, tex_content: str) -> str:
         return markdown
 
     # Match display math blocks in markdown
-    eq_pattern = re.compile(r'(\$\$[\s\S]*?\$\$)')
+    eq_pattern = re.compile(r"(\$\$[\s\S]*?\$\$)")
     eq_idx = [0]  # Use list for mutable counter in nested function
 
     def replace_equation(match: re.Match[str]) -> str:
@@ -1634,7 +1923,7 @@ def _enhance_equation_anchors(markdown: str, tex_content: str) -> str:
         # Find matching label
         for label, num in eq_labels.items():
             if num == eq_idx[0]:
-                label_short = label.split(':', 1)[1] if ':' in label else label
+                label_short = label.split(":", 1)[1] if ":" in label else label
                 return f'<a id="eq:{label_short}"></a>\n\n{eq_content}'
 
         return eq_content
@@ -1644,14 +1933,14 @@ def _enhance_equation_anchors(markdown: str, tex_content: str) -> str:
 
 def _convert_figure_refs_to_links(markdown: str, tex_content: str) -> str:
     """Convert figure references to markdown links.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     str
@@ -1662,16 +1951,15 @@ def _convert_figure_refs_to_links(markdown: str, tex_content: str) -> str:
     fig_counter = 0
 
     fig_pattern = re.compile(
-        r'\\begin\{(figure|figure\*|wrapfigure)\}[\s\S]*?\\end\{\1\}',
-        re.MULTILINE
+        r"\\begin\{(figure|figure\*|wrapfigure)\}[\s\S]*?\\end\{\1\}", re.MULTILINE
     )
 
     for fig_match in fig_pattern.finditer(tex_content):
         fig_env = fig_match.group(0)
-        label_match = re.search(r'\\label\{([^}]+)\}', fig_env)
+        label_match = re.search(r"\\label\{([^}]+)\}", fig_env)
         if label_match:
             label = label_match.group(1)
-            if label.startswith('fig:'):
+            if label.startswith("fig:"):
                 fig_counter += 1
                 fig_labels[label] = fig_counter
 
@@ -1679,13 +1967,13 @@ def _convert_figure_refs_to_links(markdown: str, tex_content: str) -> str:
         return markdown
 
     # Replace \ref{fig:xxx} with links
-    ref_pattern = re.compile(r'(?:~)?\\ref\{([^}]+)\}')
+    ref_pattern = re.compile(r"(?:~)?\\ref\{([^}]+)\}")
 
     def replace_ref(match: re.Match[str]) -> str:
         label = match.group(1)
         if label in fig_labels:
             num = fig_labels[label]
-            label_short = label.split(':', 1)[1] if ':' in label else label
+            label_short = label.split(":", 1)[1] if ":" in label else label
             return f"[{num}](#fig:{label_short})"
         return match.group(0)
 
@@ -1694,14 +1982,14 @@ def _convert_figure_refs_to_links(markdown: str, tex_content: str) -> str:
 
 def _convert_table_refs_to_links(markdown: str, tex_content: str) -> str:
     """Convert table references to markdown links.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
     tex_content : str
         Original LaTeX content
-        
+
     Returns:
     -------
     str
@@ -1711,17 +1999,14 @@ def _convert_table_refs_to_links(markdown: str, tex_content: str) -> str:
     table_labels: dict[str, int] = {}
     table_counter = 0
 
-    table_pattern = re.compile(
-        r'\\begin\{(table|table\*)\}[\s\S]*?\\end\{\1\}',
-        re.MULTILINE
-    )
+    table_pattern = re.compile(r"\\begin\{(table|table\*)\}[\s\S]*?\\end\{\1\}", re.MULTILINE)
 
     for table_match in table_pattern.finditer(tex_content):
         table_env = table_match.group(0)
-        label_match = re.search(r'\\label\{([^}]+)\}', table_env)
+        label_match = re.search(r"\\label\{([^}]+)\}", table_env)
         if label_match:
             label = label_match.group(1)
-            if label.startswith('tab:'):
+            if label.startswith("tab:"):
                 table_counter += 1
                 table_labels[label] = table_counter
 
@@ -1729,37 +2014,37 @@ def _convert_table_refs_to_links(markdown: str, tex_content: str) -> str:
         return markdown
 
     # Replace \ref{tab:xxx} with links
-    ref_pattern = re.compile(r'(?:~)?\\ref\{([^}]+)\}')
+    ref_pattern = re.compile(r"(?:~)?\\ref\{([^}]+)\}")
 
     def replace_ref(match: re.Match[str]) -> str:
         label = match.group(1)
         if label in table_labels:
             num = table_labels[label]
-            label_short = label.split(':', 1)[1] if ':' in label else label
+            label_short = label.split(":", 1)[1] if ":" in label else label
             return f"[{num}](#table-{label_short})"
         return match.group(0)
 
     return ref_pattern.sub(replace_ref, markdown)
 
 
-
 # =============================================================================
 # Markdown formatting beautification (Phase 5)
 # =============================================================================
 
+
 def _beautify_tables(markdown: str) -> str:
     """Enhance table formatting from LaTeX conversion.
-    
+
     Improvements:
     - Better handling of booktabs (\toprule, \\midrule, \bottomrule)
     - Cleaner column alignment
     - Proper escaping of special characters
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
@@ -1767,10 +2052,10 @@ def _beautify_tables(markdown: str) -> str:
     """
     # Pattern to match markdown tables
     table_pattern = re.compile(
-        r'^(\|[^\n]+\|)\n'  # Header row
-        r'(\|[-:\s|]+\|)\n'  # Separator row
-        r'((?:\|[^\n]+\|\n?)*)',  # Body rows
-        re.MULTILINE
+        r"^(\|[^\n]+\|)\n"  # Header row
+        r"(\|[-:\s|]+\|)\n"  # Separator row
+        r"((?:\|[^\n]+\|\n?)*)",  # Body rows
+        re.MULTILINE,
     )
 
     def beautify_table(match: re.Match[str]) -> str:
@@ -1779,39 +2064,39 @@ def _beautify_tables(markdown: str) -> str:
         body = match.group(3)
 
         # Clean up the header row
-        header_cells = [cell.strip() for cell in header.split('|')[1:-1]]
-        cleaned_header = '| ' + ' | '.join(header_cells) + ' |'
+        header_cells = [cell.strip() for cell in header.split("|")[1:-1]]
+        cleaned_header = "| " + " | ".join(header_cells) + " |"
 
         # Ensure proper separator format
-        sep_cells = separator.split('|')[1:-1]
-        cleaned_sep = '| ' + ' | '.join(['---'] * len(header_cells)) + ' |'
+        sep_cells = separator.split("|")[1:-1]
+        cleaned_sep = "| " + " | ".join(["---"] * len(header_cells)) + " |"
 
         # Clean body rows
         body_lines = []
-        for line in body.strip().split('\n'):
+        for line in body.strip().split("\n"):
             if line.strip():
-                cells = [cell.strip() for cell in line.split('|')[1:-1]]
+                cells = [cell.strip() for cell in line.split("|")[1:-1]]
                 # Pad cells if needed
                 while len(cells) < len(header_cells):
-                    cells.append('')
-                body_lines.append('| ' + ' | '.join(cells[:len(header_cells)]) + ' |')
+                    cells.append("")
+                body_lines.append("| " + " | ".join(cells[: len(header_cells)]) + " |")
 
-        return cleaned_header + '\n' + cleaned_sep + '\n' + '\n'.join(body_lines)
+        return cleaned_header + "\n" + cleaned_sep + "\n" + "\n".join(body_lines)
 
     return table_pattern.sub(beautify_table, markdown)
 
 
 def _beautify_figure_captions(markdown: str) -> str:
     """Enhance figure caption formatting.
-    
+
     Converts plain figure captions to blockquote format for better visual
     separation and consistency.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
@@ -1820,31 +2105,28 @@ def _beautify_figure_captions(markdown: str) -> str:
     # Pattern to match figure captions (various formats)
     # Format 1: > Figure N: caption
     # Format 2: **Figure N:** caption
-    caption_pattern = re.compile(
-        r'^\*\*(Figure\s+\d+[^*]*)\*\*\s*(.+)$',
-        re.MULTILINE
-    )
+    caption_pattern = re.compile(r"^\*\*(Figure\s+\d+[^*]*)\*\*\s*(.+)$", re.MULTILINE)
 
     def enhance_caption(match: re.Match[str]) -> str:
         fig_label = match.group(1).strip()
         caption = match.group(2).strip()
-        return f'> **{fig_label}** {caption}'
+        return f"> **{fig_label}** {caption}"
 
     return caption_pattern.sub(enhance_caption, markdown)
 
 
 def _beautify_code_blocks(markdown: str) -> str:
     """Enhance code block formatting.
-    
+
     - Detects language from context
     - Ensures proper fenced code block format
     - Handles lstlisting environments better
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
@@ -1852,11 +2134,11 @@ def _beautify_code_blocks(markdown: str) -> str:
     """
     # Pattern to match code blocks with language hints in comments
     code_pattern = re.compile(
-        r'```\s*\n'
-        r'(\s*#\s*(?:python|java|c\+\+|cpp|c|javascript|js|typescript|ts|bash|sh|shell|yaml|json|xml|html|css|sql|rust|go)\s*\n)'
-        r'([\s\S]*?)'
-        r'```',
-        re.IGNORECASE
+        r"```\s*\n"
+        r"(\s*#\s*(?:python|java|c\+\+|cpp|c|javascript|js|typescript|ts|bash|sh|shell|yaml|json|xml|html|css|sql|rust|go)\s*\n)"
+        r"([\s\S]*?)"
+        r"```",
+        re.IGNORECASE,
     )
 
     def extract_language(match: re.Match[str]) -> str:
@@ -1864,10 +2146,10 @@ def _beautify_code_blocks(markdown: str) -> str:
         code = match.group(2)
 
         # Extract language from comment
-        lang_match = re.search(r'#\s*(\w+)', lang_comment)
+        lang_match = re.search(r"#\s*(\w+)", lang_comment)
         if lang_match:
             lang = lang_match.group(1).lower()
-            return f'```{lang}\n{code}```'
+            return f"```{lang}\n{code}```"
 
         return match.group(0)
 
@@ -1876,81 +2158,151 @@ def _beautify_code_blocks(markdown: str) -> str:
 
 def _cleanup_latex_artifacts(markdown: str) -> str:
     """Clean up common LaTeX to Markdown conversion artifacts.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
         Cleaned markdown
     """
-    # Remove leftover LaTeX commands that pandoc missed
-    cleanup_patterns = [
-        # Remove \label commands that weren't converted
-        (r'\\label\{[^}]+\}', ''),
-        # Remove \ref commands that weren't converted (keep text)
-        (r'\\(?:ref|cite)\{([^}]+)\}', r'\1'),
-        # Remove \emph and \textbf with content
-        (r'\\emph\{([^}]+)\}', r'*\1*'),
-        (r'\\textbf\{([^}]+)\}', r'**\1**'),
-        # Clean up multiple consecutive empty lines
-        (r'\n{4,}', '\n\n\n'),
-        # Remove trailing whitespace
-        (r'[ \t]+$', '', re.MULTILINE),
-    ]
-
     result = markdown
-    for pattern, replacement in cleanup_patterns:
-        if len(pattern) == 3:
-            # Has flags
-            result = re.sub(pattern[0], replacement, result, flags=pattern[2])
-        else:
-            result = re.sub(pattern, replacement, result)
+
+    # 1. Remove Pandoc span classes: {.smallcaps}, {.emphasis}, etc.
+    result = re.sub(r"\{\.[a-zA-Z]+\}", "", result)
+
+    # 2. Remove Pandoc image attributes: {width="..."}, {height="..."}, {scale="..."}
+    result = re.sub(r'\s*\{(?:width|height|scale)="[^"]*"\}', "", result)
+
+    # 3. Remove empty link artifacts: []{#id label="..."} → convert useful ones to anchors
+    def convert_empty_label_link(match: re.Match[str]) -> str:
+        attrs = match.group(1)
+        label_match = re.search(r'label="([^"]*)"', attrs)
+        if label_match:
+            label = label_match.group(1)
+            return f'<a id="{label}"></a>'
+        id_match = re.search(r"#([^\s}]*)", attrs)
+        if id_match:
+            return f'<a id="{id_match.group(1)}"></a>'
+        return ""
+
+    result = re.sub(r"\[\]\s*\{([^}]+)\}", convert_empty_label_link, result)
+
+    # 4. Remove Pandoc reference-type attributes on links
+    result = re.sub(r'\s*\{reference-type="[^"]*"\s+reference="[^"]*"\}', "", result)
+
+    # 5. Remove resizebox artifacts like "r0.5" at line start before images
+    result = re.sub(r"(?m)^r0\.\d+\s*(?=\n|$)", "", result)
+    result = re.sub(r"(?m)^r0\.\d+\s+(?=![\[])", "", result)
+
+    # 6. Remove leftover \label commands
+    result = re.sub(r"\\label\{[^}]+\}", "", result)
+
+    # 7. Convert unconverted \emph and \textbf
+    result = re.sub(r"\\emph\{([^}]+)\}", r"*\1*", result)
+    result = re.sub(r"\\textbf\{([^}]+)\}", r"**\1**", result)
+
+    # 8. Remove leftover \ref and \cite commands that weren't converted
+    result = re.sub(r"\\(?:ref|cite|citep|citet)\{([^}]+)\}", r"\1", result)
+
+    # 9. Remove stray \smallcaps commands
+    result = re.sub(r"\\smallcaps\{([^}]+)\}", r"\1", result)
+
+    # 10. Clean up Pandoc citations that weren't converted.
+    # Pandoc may produce [key1; @key2] or [@key1; @key2] formats.
+    # We strip the '@' prefix and leave plain bracket text.
+    def clean_pandoc_cite(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        # Remove '@' prefixes from individual keys
+        keys = re.sub(r"(?<=[;\s])@", "", inner)
+        keys = re.sub(r"^@", "", keys)
+        return f"[{keys}]"
+
+    result = re.sub(r"\[([^\]]*(?:@[^\]]+))\]", clean_pandoc_cite, result)
+
+    # 11. Remove HTML span tags left by pandoc (e.g. <span class="smallcaps">text</span>)
+    result = re.sub(r'<span class="smallcaps">([^<]*)</span>', r"\1", result)
+    result = re.sub(r'<span class="citation"[^>]*>[^<]*</span>', "", result)
+    # Generic: remove any remaining HTML span tags, keeping inner text
+    result = re.sub(r"<span[^>]*>([^<]*)</span>", r"\1", result)
+
+    # 11. Clean up multiple consecutive empty lines
+    result = re.sub(r"\n{4,}", "\n\n", result)
+
+    # 12. Remove trailing whitespace
+    result = re.sub(r"[ \t]+$", "", result, flags=re.MULTILINE)
 
     return result.strip()
 
 
 def _beautify_math_display(markdown: str) -> str:
     """Beautify math display blocks.
-    
-    Ensures proper spacing around display math and consistent formatting.
-    
+
+    Ensures display math is on its own lines with proper spacing.
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
         Enhanced markdown with better math formatting
     """
-    # Pattern to match display math blocks
-    math_pattern = re.compile(r'\$\$\s*\n?([\s\S]*?)\n?\s*\$\$')
+    math_pattern = re.compile(r"\$\$[\s\S]*?\$\$")
 
-    def beautify_math(match: re.Match[str]) -> str:
-        math_content = match.group(1).strip()
+    matches = list(math_pattern.finditer(markdown))
+    if not matches:
+        return markdown
 
-        # Clean up the math content
-        math_content = re.sub(r'\n{3,}', '\n\n', math_content)
-        math_content = math_content.strip()
+    parts: list[str] = []
+    last_end = 0
 
-        return f'$$\n{math_content}\n$$'
+    for match in matches:
+        start, end = match.start(), match.end()
 
-    return math_pattern.sub(beautify_math, markdown)
+        # Add text before this match
+        parts.append(markdown[last_end:start])
+
+        # Extract content between $$ and $$
+        raw = match.group(0)
+        inner = raw[2:-2].strip()
+        # Clean up excessive newlines inside
+        inner = re.sub(r"\n{3,}", "\n\n", inner)
+
+        replacement = f"$$\n{inner}\n$$"
+
+        # Ensure newline before if not at start of line
+        if parts and parts[-1] and not parts[-1].endswith("\n"):
+            parts[-1] = parts[-1].rstrip(" ")
+            replacement = "\n\n" + replacement
+
+        # Ensure newline after if not at end of line
+        if end < len(markdown) and markdown[end] != "\n":
+            replacement = replacement + "\n\n"
+            # Skip trailing spaces that were on the same line as closing $$
+            while end < len(markdown) and markdown[end] == " ":
+                end += 1
+
+        parts.append(replacement)
+        last_end = end
+
+    parts.append(markdown[last_end:])
+    return "".join(parts)
 
 
 def _format_algorithm_blocks(markdown: str) -> str:
     """Format algorithm environments nicely.
-    
+
     Parameters
     ----------
     markdown : str
         Markdown content
-        
+
     Returns:
     -------
     str
@@ -1958,29 +2310,28 @@ def _format_algorithm_blocks(markdown: str) -> str:
     """
     # Pattern to match algorithm captions
     alg_pattern = re.compile(
-        r'^(Algorithm\s+\d+[:.]?)\s*\n?(.+?)(?=\n\n|\n```|\Z)',
-        re.MULTILINE | re.DOTALL
+        r"^(Algorithm\s+\d+[:.]?)\s*\n?(.+?)(?=\n\n|\n```|\Z)", re.MULTILINE | re.DOTALL
     )
 
     def format_algorithm(match: re.Match[str]) -> str:
         alg_label = match.group(1).strip()
         alg_content = match.group(2).strip()
 
-        return f'**{alg_label}** {alg_content}'
+        return f"**{alg_label}** {alg_content}"
 
     return alg_pattern.sub(format_algorithm, markdown)
 
 
 def beautify_markdown(markdown: str) -> str:
     """Apply all beautification steps to markdown.
-    
+
     This is the main entry point for Phase 5 beautification.
-    
+
     Parameters
     ----------
     markdown : str
         Raw markdown content
-        
+
     Returns:
     -------
     str
@@ -1995,4 +2346,3 @@ def beautify_markdown(markdown: str) -> str:
     markdown = _cleanup_latex_artifacts(markdown)
 
     return markdown
-

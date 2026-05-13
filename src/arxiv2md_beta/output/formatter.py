@@ -24,10 +24,10 @@ _ANCHOR_APPENDIX_RE = re.compile(r"Appendix\s+([A-Z])\b", re.I)
 _ANCHOR_SUBSECTION_RE = re.compile(r"^(\d+)\.(\d+)\s")
 _ANCHOR_SECTION_RE = re.compile(r"^(\d+)\s")
 _ANCHOR_TAG_NEWLINE_RE = re.compile(r'(<a id="[^"]+"></a>)\n(?!\n)(?!\s*$)')
-_TABLE_CAPTION_RE = re.compile(r'\n\*\*(Table\s+\d+[^*]*)\*\*\s*\n(\|[^\n]*)')
-_FIGURE_CAPTION_BLOCK_RE = re.compile(r'>\s*Figure\s+(\d+)', re.IGNORECASE)
+_TABLE_CAPTION_RE = re.compile(r"\n\*\*(Table\s+\d+[^*]*)\*\*\s*\n(\|[^\n]*)")
+_FIGURE_CAPTION_BLOCK_RE = re.compile(r">\s*Figure\s+(\d+)", re.IGNORECASE)
 _FIGURE_ANCHOR_BLOCK_RE = re.compile(r'<a id="figure-(\d+)"></a>')
-_DISPLAY_MATH_RE = re.compile(r'\$\$\n(.*?)\n\$\$', re.DOTALL)
+_DISPLAY_MATH_RE = re.compile(r"\$\$\n(.*?)\n\$\$", re.DOTALL)
 _DUPLICATE_BULLET_RE = re.compile(r"(?m)^(\s*-\s+)[•·◦]\s+")
 _EXCESS_EMPTY_LINES_RE = re.compile(r"\n{3,}")
 _WHITESPACE_TO_HYPHEN_RE = re.compile(r"\s+")
@@ -192,7 +192,8 @@ def _anchor_for_section_title(title: str) -> str | None:
 def _render_section(section: SectionNode) -> list[str]:
     blocks: list[str] = []
     heading_prefix = "#" * min(section.level, 6)
-    anchor_id = _anchor_for_section_title(section.title)
+    # Prefer the anchor already set by the LaTeX parser; fall back to generated slug
+    anchor_id = section.anchor or _anchor_for_section_title(section.title)
     if anchor_id:
         blocks.append(f'<a id="{anchor_id}"></a>')
     blocks.append(f"{heading_prefix} {section.title}")
@@ -249,10 +250,10 @@ def _format_markdown_output(markdown: str) -> str:
         return markdown
 
     # 1. Ensure newline after anchor tags when followed immediately by non-blank content
-    markdown = _ANCHOR_TAG_NEWLINE_RE.sub(r'\1\n\n', markdown)
+    markdown = _ANCHOR_TAG_NEWLINE_RE.sub(r"\1\n\n", markdown)
 
     # 2. Table captions: **Table N: ...** before | -> > Table N: ... with newline before table
-    markdown = _TABLE_CAPTION_RE.sub(r'\n\n> \1\n\n\2', markdown)
+    markdown = _TABLE_CAPTION_RE.sub(r"\n\n> \1\n\n\2", markdown)
 
     # 3. Simplify display math blocks: remove/sanitize $ inside $$...$$ for markdown compatibility
     from arxiv2md_beta.html.markdown import _simplify_display_math
@@ -286,8 +287,14 @@ def _extract_figure_id_from_blocks(figure_blocks: list[str]) -> str | None:
 
 
 def _contains_figure_reference(text: str, figure_id: str) -> bool:
-    """Check if text contains a reference to the given figure number."""
+    """Check if text contains a reference to the given figure number.
+
+    Excludes figure captions themselves to avoid self-referential matches.
+    """
     if not figure_id or not text:
+        return False
+    # Skip if this text is itself a figure caption block
+    if _FIGURE_CAPTION_BLOCK_RE.match(text.strip()):
         return False
     patterns = [
         rf"Figure\s+{re.escape(figure_id)}[a-z]?\b",
@@ -315,9 +322,18 @@ def reorder_figures_to_first_reference(markdown: str) -> str:
     while i < len(blocks):
         stripped = blocks[i].strip()
         is_anchor = stripped.startswith('<a id="') and stripped.endswith('"></a>')
-        is_image = stripped.startswith('![') and '](' in stripped
+        is_image = stripped.startswith("![") and "](" in stripped
 
-        if is_anchor or is_image:
+        # Also detect merged figure blocks where anchor+image+caption were
+        # collapsed into a single block (e.g. by div processing)
+        is_merged_figure = (
+            stripped.startswith('<a id="')
+            and "![" in stripped
+            and "](" in stripped
+            and "> Figure" in stripped
+        )
+
+        if is_anchor or is_image or is_merged_figure:
             start = i
             j = i
             if is_anchor:
@@ -325,10 +341,7 @@ def reorder_figures_to_first_reference(markdown: str) -> str:
 
             def _is_image_container_block(block: str) -> bool:
                 s = block.strip()
-                return (
-                    (s.startswith('![') and '](' in s)
-                    or (s.startswith('<') and '<img ' in s)
-                )
+                return (s.startswith("![") and "](" in s) or (s.startswith("<") and "<img " in s)
 
             while j < len(blocks) and _is_image_container_block(blocks[j]):
                 j += 1
