@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from arxiv2md_beta.exceptions import Arxiv2mdError, NetworkError
 from arxiv2md_beta.latex.tex_source import TexSourceInfo, TexSourceNotFoundError, fetch_and_extract_tex_source
 from arxiv2md_beta.settings import get_settings
 
@@ -37,7 +38,7 @@ def merge_tex_affiliations_if_configured(
         from arxiv2md_beta.latex.author_affiliations import merge_tex_affiliations_into_metadata
 
         return merge_tex_affiliations_into_metadata(metadata, tex_source_info)
-    except Exception as e:
+    except (RuntimeError, ValueError, OSError) as e:
         logger.warning(f"TeX affiliation merge failed: {e}")
         return 0
 
@@ -74,13 +75,13 @@ async def fetch_and_merge_tex_affiliations_for_metadata(
     except TexSourceNotFoundError:
         logger.debug(f"No TeX source for {arxiv_id}; skipping TeX affiliation merge")
         return 0
-    except Exception as e:
+    except (NetworkError, Arxiv2mdError, OSError) as e:
         logger.warning(f"TeX fetch for affiliations failed: {e}")
         return 0
     try:
         from arxiv2md_beta.latex.author_affiliations import merge_tex_affiliations_into_metadata
 
         return merge_tex_affiliations_into_metadata(metadata, tex)
-    except Exception as e:
+    except (RuntimeError, ValueError, OSError) as e:
         logger.warning(f"TeX affiliation merge failed: {e}")
         return 0

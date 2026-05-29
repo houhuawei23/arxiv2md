@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-05-29
+
+### Fixed
+
+- **Exception specificity across core modules**: Replaced 8 instances of bare `except Exception` with concrete exception tuples, improving error transparency and preventing unintended swallowing of programming errors.
+  - `html/serializers/block.py`: `(UnicodeDecodeError, base64.binascii.Error)` for base64 decoding of `<pre>` code blocks.
+  - `ingestion/local.py`: `(OSError, UnicodeDecodeError)` for LaTeX metadata extraction; `(OSError, ValueError, RuntimeError)` for HTML parsing; `OSError` for image file copy failures.
+  - `ingestion/local_html.py`: `OSError` for HTML file read; `(ValueError, RuntimeError, OSError)` for HTML parse failures.
+  - `ir/builders/latex.py`: Fixed a precedence bug in the section-stack pop condition—`while stack and stack[-1][0] >= current_level if current_level is not None else True` was parsed as `(while stack and stack[-1][0] >= current_level) if current_level is not None else True`, which could skip the pop loop entirely when `current_level` was `None`. Now correctly written as `while stack and (current_level is None or stack[-1][0] >= current_level)`.
+  - `latex/structured.py`: Replaced a local `from importlib.metadata import version` with a top-level `import importlib.metadata` and catches `PackageNotFoundError` specifically.
+  - `output/metadata_tex.py`: `(RuntimeError, ValueError, OSError)` for TeX affiliation merge failures; `(NetworkError, Arxiv2mdError, OSError)` for TeX fetch failures.
+  - `settings/loader.py`: `(yaml.YAMLError, OSError, IOError)` for default config load failures.
+
+### Changed
+
+- **Project hygiene**: Moved `OPTIMIZATION_PLAN.md` to `docs/old_OPTIMIZATION_PLAN.md` and removed stale `.prompts.md` from the repository root.
+- **Version**: 0.10.4 → 0.10.5
+
+Wrapped up by Kimi (kimi-k2.6 via kimi-cli) on 2026-05-29
+
 ## [0.10.4] - 2026-05-13
 
 ### Fixed

@@ -190,7 +190,7 @@ def load_settings(
         merged = _load_yaml_bytes(base_raw)
     except ConfigurationError:
         raise
-    except Exception as e:
+    except (yaml.YAMLError, OSError, IOError) as e:
         raise ConfigurationError(
             f"Failed to load bundled default_config.yml: {e}",
             hint="Ensure arxiv2md_beta is installed with package data (see pyproject.toml).",

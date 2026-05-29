@@ -512,13 +512,13 @@ async def ingest_local_html(
     # Read HTML content
     try:
         html_content = query.html_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
+    except OSError as e:
         raise LocalHtmlIngestionError(f"Failed to read HTML file: {e}") from e
 
     # Parse HTML using local parser
     try:
         parsed = parse_local_html(html_content, query.html_path.parent)
-    except Exception as e:
+    except (ValueError, RuntimeError, OSError) as e:
         raise LocalHtmlIngestionError(f"Failed to parse HTML: {e}") from e
 
     # Use provided metadata or fall back to parsed

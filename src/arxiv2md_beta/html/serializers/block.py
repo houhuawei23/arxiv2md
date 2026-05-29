@@ -406,7 +406,7 @@ class FigureSerializer(BlockSerializer):
                     try:
                         decoded = base64.b64decode(b64).decode('utf-8')
                         return f"```text\n{decoded.rstrip()}\n```"
-                    except Exception:
+                    except (UnicodeDecodeError, base64.binascii.Error):
                         pass
 
         # Fall back to line-by-line

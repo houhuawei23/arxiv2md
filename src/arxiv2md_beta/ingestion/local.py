@@ -151,7 +151,7 @@ async def _ingest_latex_archive(
         title = _extract_title_from_tex(tex_content)
         authors = _extract_authors_from_tex(tex_content)
         abstract = _extract_abstract_from_tex(tex_content)
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         logger.warning(f"Failed to extract metadata from LaTeX: {e}")
         title = query.title
         authors = query.authors
@@ -320,7 +320,7 @@ async def _ingest_html_archive(
     try:
         html_content = main_html_file.read_text(encoding="utf-8", errors="ignore")
         parsed = parse_arxiv_html(html_content)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         raise LocalIngestionError(f"Failed to parse HTML: {e}") from e
 
     # Use provided metadata if parsed is missing
@@ -515,7 +515,7 @@ def _copy_local_images(extracted_dir: Path, images_dir: Path) -> None:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(img_file, dest_path)
                 logger.debug(f"Copied image: {img_file} -> {dest_path}")
-            except Exception as e:
+            except OSError as e:
                 logger.warning(f"Failed to copy image {img_file}: {e}")
 
 

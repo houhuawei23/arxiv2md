@@ -274,7 +274,7 @@ class LaTeXBuilder(IRBuilder):
                 sec = _flush_section()
                 if sec:
                     # Pop stack until we find a parent
-                    while stack and stack[-1][0] >= current_level if current_level is not None else True:
+                    while stack and (current_level is None or stack[-1][0] >= current_level):
                         stack.pop()
                     if stack:
                         stack[-1][1].children.append(sec)

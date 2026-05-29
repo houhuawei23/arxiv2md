@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.metadata
 import json
 import re
 from pathlib import Path
@@ -241,9 +242,8 @@ def extract_abstract_blocks(
 
 def _package_version() -> str:
     try:
-        from importlib.metadata import version
-        return version("arxiv2md-beta")
-    except Exception:
+        return importlib.metadata.version("arxiv2md-beta")
+    except importlib.metadata.PackageNotFoundError:
         return "0.0.0"
 
 
