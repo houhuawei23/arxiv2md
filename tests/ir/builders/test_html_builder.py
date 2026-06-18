@@ -157,6 +157,44 @@ class TestBlockConversion:
         assert codes[0].text == "print(1)"
         assert codes[0].language == "python"
 
+    def test_ltx_listing_base64(self, builder):
+        """ar5iv ``div.ltx_listing`` with embedded data URL becomes a fenced code block."""
+        import base64
+
+        payload = "pip install causal-learn"
+        b64 = base64.b64encode(payload.encode()).decode()
+        html = f"""
+        <div class="ltx_listing ltx_lst_language_Python ltx_lst_numbers_left ltx_lstlisting ltx_listing">
+        <div class="ltx_listing_data"><a href="data:text/plain;base64,{b64}" download="">⬇</a></div>
+        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>pip</span><span> </span><span>install</span><span> </span><span>causal</span><span>-</span><span>learn</span></div>
+        </div>
+        """
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        codes = [b for b in doc.sections[0].blocks if b.type == "code"]
+        assert len(codes) == 1
+        assert codes[0].text == payload
+        assert codes[0].language == "python"
+
+    def test_ltx_listing_lines_fallback(self, builder):
+        """When no data URL is present, listing lines are joined into a code block."""
+        html = """
+        <div class="ltx_listing ltx_lst_language_Python">
+        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>cg</span><span> </span><span>=</span><span> </span><span>pc</span><span>(</span><span>data</span><span>)</span></div>
+        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">2</span><span>cg</span><span>.</span><span>draw</span><span>()</span></div>
+        </div>
+        """
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        codes = [b for b in doc.sections[0].blocks if b.type == "code"]
+        assert len(codes) == 1
+        assert codes[0].text == "cg = pc(data)\ncg.draw()"
+        assert codes[0].language == "text"
+
 
 class TestAuthorAffiliationParsing:
     """Author and affiliation extraction from arXiv HTML."""

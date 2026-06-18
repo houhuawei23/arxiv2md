@@ -6,6 +6,7 @@ extraction, and converts HTML elements to IR nodes via BeautifulSoup traversal.
 
 from __future__ import annotations
 
+import base64
 import re
 from collections import deque
 from typing import Any
@@ -207,6 +208,11 @@ class HTMLBuilder(IRBuilder):
     ) -> list[BlockUnion] | BlockUnion | None:
         """Convert a BeautifulSoup tag to one or more block IR nodes."""
         tag_name = tag.name
+
+        # arXiv / ar5iv code listings (must come before generic div recursion)
+        if tag_name == "div" and _is_ltx_listing_container(tag):
+            code = self._build_listing(tag, section_id, base_idx)
+            return code if code is not None else []
 
         # Container elements — recurse directly without re-parsing
         if tag_name in ("section", "article", "div", "span"):
@@ -598,6 +604,49 @@ class HTMLBuilder(IRBuilder):
             caption=caption,
         )
 
+    def _build_listing(
+        self, tag: Tag, section_id: str, base_idx: int
+    ) -> CodeIR | None:
+        """Build a CodeIR from an arXiv ``div.ltx_listing``.
+
+        Prefer the base64 payload embedded in ``ltx_listing_data``; otherwise
+        reconstruct the listing from ``ltx_listingline`` rows.
+        """
+        cls = " ".join(tag.get("class", []))
+        data = tag.find("div", class_=re.compile(r"ltx_listing_data"))
+        if data:
+            a = data.find("a", href=re.compile(r"^data:text/plain"))
+            if a and a.get("href"):
+                decoded = _decode_data_plain_href(a["href"])
+                if decoded is not None:
+                    lang = "text"
+                    m = re.search(r"ltx_lst_language_(\w+)", cls)
+                    if m:
+                        lang = m.group(1).lower()
+                    return CodeIR(
+                        section_id=section_id,
+                        order_index=base_idx,
+                        language=lang,
+                        text=decoded.rstrip(),
+                    )
+
+        lines_out: list[str] = []
+        for line in tag.find_all("div", class_=re.compile(r"ltx_listingline"), recursive=False):
+            line_num = line.find("span", class_=re.compile(r"ltx_tag_listingline"))
+            if line_num:
+                line_num.decompose()
+            text = line.get_text(separator="").rstrip()
+            lines_out.append(text)
+
+        if lines_out:
+            return CodeIR(
+                section_id=section_id,
+                order_index=base_idx,
+                language="text",
+                text="\n".join(lines_out).rstrip(),
+            )
+        return None
+
     def _build_list_items(self, tag: Tag) -> list[list[BlockUnion]]:
         """Build list items from a <ul> or <ol> tag."""
         items: list[list[BlockUnion]] = []
@@ -745,3 +794,24 @@ def _extract_table_data(
 
     rows = all_data_rows
     return headers, rows
+
+
+def _is_ltx_listing_container(tag: Tag) -> bool:
+    """Outer ``div.ltx_listing`` (not ``ltx_listingline`` rows)."""
+    if tag.name != "div":
+        return False
+    cls = tag.get("class", [])
+    return "ltx_listing" in cls and "ltx_listingline" not in cls
+
+
+def _decode_data_plain_href(href: str | None) -> str | None:
+    """Decode ``data:text/plain;...;base64,...`` used by ar5iv for embedded listings."""
+    if not href or not href.startswith("data:"):
+        return None
+    if ";base64," not in href:
+        return None
+    _, b64 = href.split(";base64,", 1)
+    try:
+        return base64.b64decode(b64).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
