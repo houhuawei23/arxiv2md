@@ -12,6 +12,7 @@ from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.output.layout import build_output_basename
+from arxiv2md_beta.output.markdown_postprocess import apply_markdown_postprocessing
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_compat import async_write_text
@@ -181,6 +182,9 @@ async def finalize_convert_output(
 
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
+
+    result = apply_markdown_postprocessing(result)
+
     output_text = format_output(
         result.summary,
         result.sections_tree,

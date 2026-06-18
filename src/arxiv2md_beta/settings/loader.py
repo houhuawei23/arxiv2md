@@ -260,5 +260,12 @@ def apply_cli_overrides(settings: AppSettings, args: Any) -> AppSettings:
         cli = cli.model_copy(update={"source": args.source})
     if getattr(args, "section_filter_mode", None) is not None:
         cli = cli.model_copy(update={"section_filter_mode": args.section_filter_mode})
-    out = settings.model_copy(update={"cli_defaults": cli})
+
+    output = settings.output.model_copy()
+    if getattr(args, "include_anchors", None) is not None:
+        output = output.model_copy(update={"include_anchors": args.include_anchors})
+
+    out = settings.model_copy(
+        update={"cli_defaults": cli, "output": output}
+    )
     return out

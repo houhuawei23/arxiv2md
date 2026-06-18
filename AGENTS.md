@@ -193,6 +193,7 @@ pytest tests/ --cov=src/arxiv2md_beta --cov-report=html
 | 缓存目录 | `ARXIV2MD_BETA_CACHE__DIR`（默认 `~/.cache/arxiv2md-beta`） |
 | HTTP 超时 | `ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S` |
 | 禁用 tqdm | `ARXIV2MD_BETA_IMAGES__DISABLE_TQDM=true` |
+| 保留锚点 | 默认不保留；`--include-anchors` 或 `ARXIV2MD_BETA_OUTPUT__INCLUDE_ANCHORS=true` |
 
 旧版扁平变量（如 `ARXIV2MD_BETA_CACHE_PATH`）已移除，请改用嵌套键或 YAML。
 
@@ -266,6 +267,9 @@ arxiv2md-beta convert 2501.11120 --remove-refs --remove-toc
 # Section 过滤
 arxiv2md-beta convert 2501.11120 --sections "Abstract,Introduction,Method"
 arxiv2md-beta convert 2501.11120 --section-filter-mode exclude --sections "References,Appendix"
+
+# 保留 <a id="..."></a> 锚点（默认不保留）
+arxiv2md-beta convert 2501.11120 --include-anchors
 
 # 仅提取图片（测试图片管线）
 arxiv2md-beta images 2501.11120 -o ./img_out

@@ -196,6 +196,11 @@ def convert_cmd(
         "--no-cache",
         help="Disable download caching for TeX source, HTML, and PDF.",
     ),
+    include_anchors: bool = typer.Option(
+        False,
+        "--include-anchors",
+        help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
+    ),
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
@@ -211,6 +216,7 @@ def convert_cmd(
         section_filter_mode=section_filter_mode,
         structured_output=structured_output,
         no_progress=no_progress,
+        include_anchors=include_anchors,
     )
     params = make_convert_params(
         input_text.strip(),
@@ -351,6 +357,11 @@ def batch_cmd(
         "--no-cache",
         help="Disable download caching for batch conversions.",
     ),
+    include_anchors: bool = typer.Option(
+        False,
+        "--include-anchors",
+        help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
+    ),
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
@@ -366,6 +377,7 @@ def batch_cmd(
         section_filter_mode=section_filter_mode,
         structured_output=structured_output,
         no_progress=no_progress,
+        include_anchors=include_anchors,
     )
     template = make_convert_params(
         "",

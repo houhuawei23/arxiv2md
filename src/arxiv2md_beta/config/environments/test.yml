@@ -6,3 +6,5 @@ http:
   fetch_max_retries: 1
 cache:
   ttl_seconds: 0
+output:
+  include_anchors: true

@@ -126,6 +126,10 @@ class FeaturesSection(BaseModel):
 
 class OutputSection(BaseModel):
     tiktoken_encoding: str = "o200k_base"
+    include_anchors: bool = Field(
+        default=False,
+        description="If True, keep <a id=\"...\"></a> anchor tags in generated Markdown.",
+    )
 
 
 class AppSettings(BaseModel):

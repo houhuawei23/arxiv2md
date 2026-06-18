@@ -18,6 +18,7 @@ def apply_convert_cli_settings(
     section_filter_mode: Optional[str],
     structured_output: str,
     no_progress: bool,
+    include_anchors: bool = False,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
 
@@ -53,7 +54,12 @@ def apply_convert_cli_settings(
 
     merged = apply_cli_overrides(
         s,
-        SimpleNamespace(parser=parser_mode, source=source_v, section_filter_mode=mode),
+        SimpleNamespace(
+            parser=parser_mode,
+            source=source_v,
+            section_filter_mode=mode,
+            include_anchors=include_anchors,
+        ),
     )
     if no_progress:
         merged = merged.model_copy(

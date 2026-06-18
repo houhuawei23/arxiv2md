@@ -82,3 +82,4 @@ features:
 
 output:
   tiktoken_encoding: o200k_base
+  include_anchors: false

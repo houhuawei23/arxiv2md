@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- New `--include-anchors` flag (and `output.include_anchors` setting) to optionally emit `<a id="..."></a>` anchor tags in generated Markdown. Default is `false`, so anchors are stripped from the final output.
+- Final Markdown post-processing now cleans math formulas by removing trailing LaTeX spacing commands such as `\,`, `\ `, `\;`, etc.
+- Inline math formulas are now padded with spaces around the `$` delimiters when adjacent to words.
+
 ## [0.10.5] - 2026-05-29
 
 ### Fixed
