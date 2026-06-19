@@ -71,6 +71,24 @@ class TestInlineConversion:
         para = doc.sections[0].blocks[0]
         assert para.type == "paragraph"
 
+    def test_italic_tags_become_bold(self, builder):
+        """HTML em/i/ltx_font_italic must be represented as bold, not italic."""
+        html = """
+        <p><em>em text</em> and <i>i text</i> and
+        <span class="ltx_text ltx_font_italic">class text</span>.</p>
+        """
+        doc = builder.build(
+            f"""<article class='ltx_document'>
+            <section class='ltx_section'><h2>T</h2>{html}</section>
+            </article>""",
+            arxiv_id="test",
+        )
+        para = doc.sections[0].blocks[0]
+        emphases = [il for il in para.inlines if il.type == "emphasis"]
+        assert len(emphases) == 3
+        for il in emphases:
+            assert il.style == "bold"
+
     def test_link(self, builder):
         html = """<p>Visit <a href="https://example.com">example</a>.</p>"""
         doc = builder.build(
@@ -306,6 +324,35 @@ class TestAuthorAffiliationParsing:
         assert doc.metadata.author_names == ["Alice Foo", "Bob Bar"]
 
 
+class TestEmptySectionRemoval:
+    """Leaf sections with no blocks should be dropped."""
+
+    def test_blank_titled_sections_are_removed(self, builder):
+        """Headings like Lemma/Proof that carry no content must not appear alone."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section">
+            <h2 class="ltx_title_section">Results</h2>
+            <p>Some introductory text.</p>
+            <div class="ltx_theorem">
+                <h6 class="ltx_title ltx_runin ltx_title_theorem">Lemma 3.1 .</h6>
+            </div>
+            <div class="ltx_proof">
+                <h6 class="ltx_title ltx_runin ltx_title_proof">Proof.</h6>
+            </div>
+            <div class="ltx_theorem">
+                <h6 class="ltx_title ltx_runin ltx_title_theorem">Theorem 3.2 .</h6>
+                <p>Statement of the theorem.</p>
+            </div>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        # Only the parent "Results" section should survive; empty theorem/proof
+        # sections are removed, while a theorem that has content is kept.
+        assert len(doc.sections) == 1
+        assert doc.sections[0].title == "Results"
+
+
 class TestRoundTrip:
     """HTML → DocumentIR → Markdown produces valid output."""
 
@@ -324,6 +371,11 @@ class TestRoundTrip:
         doc = builder.build(html, arxiv_id="test")
         emitter = MarkdownEmitter()
         md = emitter.emit(doc)
+        import re
+
         assert "Abstract" in md
         assert "Section 1" in md
+        assert "**emphasis**" in md
+        # Make sure it is bold, not single-emphasis italic
+        assert re.search(r"(?<!\*)\*emphasis\*(?!\*)", md) is None
         assert "*emphasis*" in md

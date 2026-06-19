@@ -97,10 +97,14 @@ def global_callback(
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
-    configure_logging(
+    log_path = configure_logging(
         settings=get_settings(),
         level="DEBUG" if verbose else None,
     )
+    if log_path:
+        typer.echo(f"Logs: {log_path}")
+    else:
+        typer.echo("File logging disabled; logs are printed to the console.")
 
 
 @app.command("convert")

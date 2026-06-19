@@ -18,8 +18,14 @@ def configure_logging(
     level: str | None = None,
     log_file: Path | None = None,
     enable_file_logging: bool | None = None,
-) -> None:
-    """Configure loguru for the application."""
+) -> Path | None:
+    """Configure loguru for the application.
+
+    Returns
+    -------
+    Path | None
+        Path to the log file if file logging is enabled, otherwise ``None``.
+    """
     s = settings or get_settings()
     log = s.logging
     feats = s.features
@@ -43,16 +49,18 @@ def configure_logging(
     if eff_file:
         if eff_log_path is None:
             eff_log_path = s.resolved_default_log_file()
+        if eff_log_path:
             eff_log_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                eff_log_path,
+                format=log.file_format,
+                level=eff_level,
+                rotation=log.file_rotation,
+                retention=log.file_retention,
+                compression=log.file_compression,
+            )
 
-        logger.add(
-            eff_log_path,
-            format=log.file_format,
-            level=eff_level,
-            rotation=log.file_rotation,
-            retention=log.file_retention,
-            compression=log.file_compression,
-        )
+    return eff_log_path if eff_file else None
 
 
 def get_logger() -> Any:

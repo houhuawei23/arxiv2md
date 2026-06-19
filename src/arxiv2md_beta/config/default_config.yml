@@ -78,7 +78,7 @@ logging:
   default_log_file: "arxiv2md_beta.log"
 
 features:
-  enable_file_logging: false
+  enable_file_logging: true
 
 output:
   tiktoken_encoding: o200k_base

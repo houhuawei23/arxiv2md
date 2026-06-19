@@ -835,7 +835,7 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return "\n"
 
     if node.name in {"em", "i"}:
-        return f"*{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}*"
+        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}**"
 
     if node.name in {"strong", "b"}:
         return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}**"

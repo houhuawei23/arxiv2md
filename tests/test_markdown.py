@@ -293,16 +293,21 @@ def test_convert_nested_lists():
 
 
 def test_convert_emphasis_and_strong():
-    """Test emphasis and strong text conversion."""
+    """Test emphasis and strong text conversion.
+
+    HTML italic is intentionally emitted as Markdown bold.
+    """
     html = """
     <p><em>Italic</em> and <i>Also italic</i></p>
     <p><strong>Bold</strong> and <b>Also bold</b></p>
     """
     md = convert_fragment_to_markdown(html)
-    assert "*Italic*" in md
-    assert "*Also italic*" in md
+    assert "**Italic**" in md
+    assert "**Also italic**" in md
     assert "**Bold**" in md
     assert "**Also bold**" in md
+    assert "*Italic*" not in md.replace("**Italic**", "")
+    assert "*Also italic*" not in md.replace("**Also italic**", "")
 
 
 def test_convert_code_inline():

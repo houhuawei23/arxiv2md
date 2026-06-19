@@ -176,7 +176,10 @@ class TestParagraphSerializer:
         assert result == "Test paragraph."
 
     def test_paragraph_with_formatting(self):
-        """Test paragraph with inline formatting."""
+        """Test paragraph with inline formatting.
+
+        HTML italic is intentionally emitted as Markdown bold.
+        """
         serializer = ParagraphSerializer()
         context = SerializerContext()
 
@@ -184,8 +187,9 @@ class TestParagraphSerializer:
         soup = BeautifulSoup(html, "html.parser")
         result = serializer.serialize(soup.find("p"), context)
 
-        assert "*italic*" in result
+        assert "**italic**" in result
         assert "**bold**" in result
+        assert "*italic*" not in result.replace("**italic**", "")
 
 
 class TestTableSerializer:

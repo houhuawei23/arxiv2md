@@ -25,8 +25,8 @@ class InlineTextSerializer(InlineSerializer):
     TAGS = ['em', 'i', 'strong', 'b', 'code']
 
     _WRAPPERS = {
-        'em': '*',
-        'i': '*',
+        'em': '**',
+        'i': '**',
         'strong': '**',
         'b': '**',
         'code': '`',
