@@ -19,6 +19,7 @@ def apply_convert_cli_settings(
     structured_output: str,
     no_progress: bool,
     include_anchors: bool = False,
+    naming_scheme: Optional[str] = None,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
 
@@ -52,6 +53,13 @@ def apply_convert_cli_settings(
         )
         raise typer.Exit(code=2)
 
+    if naming_scheme is not None and naming_scheme not in ("classic", "paper-pipeline"):
+        typer.echo(
+            f"Invalid --naming-scheme {naming_scheme!r}; expected classic or paper-pipeline.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     merged = apply_cli_overrides(
         s,
         SimpleNamespace(
@@ -59,6 +67,7 @@ def apply_convert_cli_settings(
             source=source_v,
             section_filter_mode=mode,
             include_anchors=include_anchors,
+            naming_scheme=naming_scheme,
         ),
     )
     if no_progress:
@@ -91,6 +100,7 @@ def make_convert_params(
     emit_graph_csv: bool,
     no_cache: bool = False,
     use_legacy: bool = False,
+    naming_scheme: str = "classic",
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -113,4 +123,5 @@ def make_convert_params(
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
         use_legacy=use_legacy,
+        naming_scheme=naming_scheme,
     )

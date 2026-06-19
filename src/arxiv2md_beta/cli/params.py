@@ -28,6 +28,7 @@ class ConvertParams:
     emit_graph_csv: bool = False
     no_cache: bool = False
     use_legacy: bool = False
+    naming_scheme: str = "classic"
 
 
 @dataclass(frozen=True)

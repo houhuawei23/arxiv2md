@@ -205,6 +205,11 @@ def convert_cmd(
         "--include-anchors",
         help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
     ),
+    naming_scheme: Optional[str] = typer.Option(
+        None,
+        "--naming-scheme",
+        help="Output naming scheme: classic (default) or paper-pipeline.",
+    ),
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
@@ -221,6 +226,7 @@ def convert_cmd(
         structured_output=structured_output,
         no_progress=no_progress,
         include_anchors=include_anchors,
+        naming_scheme=naming_scheme,
     )
     params = make_convert_params(
         input_text.strip(),
@@ -241,6 +247,7 @@ def convert_cmd(
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
         use_legacy=use_legacy,
+        naming_scheme=naming_scheme or "classic",
     )
     try:
         run_convert_sync(params)
@@ -366,6 +373,11 @@ def batch_cmd(
         "--include-anchors",
         help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
     ),
+    naming_scheme: Optional[str] = typer.Option(
+        None,
+        "--naming-scheme",
+        help="Output naming scheme: classic (default) or paper-pipeline.",
+    ),
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
@@ -382,6 +394,7 @@ def batch_cmd(
         structured_output=structured_output,
         no_progress=no_progress,
         include_anchors=include_anchors,
+        naming_scheme=naming_scheme,
     )
     template = make_convert_params(
         "",
@@ -402,6 +415,7 @@ def batch_cmd(
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
         use_legacy=use_legacy,
+        naming_scheme=naming_scheme or "classic",
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

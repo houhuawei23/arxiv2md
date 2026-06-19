@@ -30,15 +30,20 @@ async def write_split_markdown_sidecars(
     paper_output_dir: Path,
     output_filename: str,
     result: IngestionResult,
+    naming_scheme: str = "classic",
 ) -> None:
     """Write ``-References.md`` and ``-Appendix.md`` when HTML ingestion produced a split."""
     has_ref = bool(result.content_references and result.content_references.strip())
     has_app = bool(result.content_appendix and result.content_appendix.strip())
     if not has_ref and not has_app:
         return
-    stem = Path(output_filename).stem
-    ref_path = paper_output_dir / f"{stem}-References.md"
-    app_path = paper_output_dir / f"{stem}-Appendix.md"
+    if naming_scheme == "paper-pipeline":
+        ref_path = paper_output_dir / "References.md"
+        app_path = paper_output_dir / "Appendix.md"
+    else:
+        stem = Path(output_filename).stem
+        ref_path = paper_output_dir / f"{stem}-References.md"
+        app_path = paper_output_dir / f"{stem}-Appendix.md"
     if has_ref:
         await async_write_text(ref_path, result.content_references or "", encoding="utf-8")
         logger.info(f"References written to: {ref_path}")
@@ -182,6 +187,7 @@ async def finalize_convert_output(
 
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
+    naming_scheme = s.output_naming.naming_scheme
 
     result = apply_markdown_postprocessing(result)
 
@@ -192,7 +198,9 @@ async def finalize_convert_output(
         include_tree=params.include_tree,
     )
 
-    if submission_date and title:
+    if naming_scheme == "paper-pipeline":
+        output_filename = "paper.md"
+    elif submission_date and title:
         basename = build_output_basename(
             submission_date,
             title,
@@ -212,12 +220,15 @@ async def finalize_convert_output(
 
     await async_write_text(output_path, output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
-    await write_split_markdown_sidecars(paper_output_dir, output_filename, result)
+    await write_split_markdown_sidecars(paper_output_dir, output_filename, result, naming_scheme=naming_scheme)
 
     if pdf_fetch is not None:
         arxiv_id, version = pdf_fetch
         try:
-            pdf_filename = output_filename.replace(".md", ".pdf")
+            if naming_scheme == "paper-pipeline":
+                pdf_filename = f"{paper_output_dir.name}.pdf"
+            else:
+                pdf_filename = output_filename.replace(".md", ".pdf")
             pdf_path = paper_output_dir / pdf_filename
             await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
             logger.info(f"PDF downloaded to: {pdf_path}")

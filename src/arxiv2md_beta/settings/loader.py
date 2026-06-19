@@ -265,7 +265,11 @@ def apply_cli_overrides(settings: AppSettings, args: Any) -> AppSettings:
     if getattr(args, "include_anchors", None) is not None:
         output = output.model_copy(update={"include_anchors": args.include_anchors})
 
+    output_naming = settings.output_naming.model_copy()
+    if getattr(args, "naming_scheme", None) is not None:
+        output_naming = output_naming.model_copy(update={"naming_scheme": args.naming_scheme})
+
     out = settings.model_copy(
-        update={"cli_defaults": cli, "output": output}
+        update={"cli_defaults": cli, "output": output, "output_naming": output_naming}
     )
     return out

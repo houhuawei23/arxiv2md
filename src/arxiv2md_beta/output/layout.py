@@ -49,11 +49,17 @@ def build_output_basename(
     *,
     max_title_length: int | None = None,
     max_basename_length: int | None = None,
+    naming_scheme: str | None = None,
     settings: AppSettings | None = None,
 ) -> str:
-    """Build output basename for directory and files: [Date]-[Source]-[Short]-[Paper Name]."""
+    """Build output basename for directory and files.
+
+    classic: [Date]-[Source]-[Short]-[Paper Name]
+    paper-pipeline: [Source]-[Date]-[Short]-[Paper Name]
+    """
     s = settings or get_settings()
     on = s.output_naming
+    scheme = naming_scheme if naming_scheme is not None else on.naming_scheme
     max_title_length = max_title_length if max_title_length is not None else on.max_title_length
     max_basename_length = max_basename_length if max_basename_length is not None else on.max_basename_length
 
@@ -64,17 +70,29 @@ def build_output_basename(
     safe_short = _sanitize_for_filesystem(short, max_length=short_max) if short else ""
     safe_title = sanitize_title_for_filesystem(title or on.default_unknown_title, max_length=max_title_length, settings=s)
 
-    if safe_short:
-        basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
+    if scheme == "paper-pipeline":
+        if safe_short:
+            basename = f"{safe_source}-{date_str}-{safe_short}-{safe_title}"
+        else:
+            basename = f"{safe_source}-{date_str}-{safe_title}"
     else:
-        basename = f"{date_str}-{safe_source}-{safe_title}"
+        if safe_short:
+            basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
+        else:
+            basename = f"{date_str}-{safe_source}-{safe_title}"
 
     if len(basename) > max_basename_length:
         max_dir_length = max_basename_length
         if safe_short:
-            fixed_part = f"{date_str}-{safe_source}-{safe_short}-"
+            if scheme == "paper-pipeline":
+                fixed_part = f"{safe_source}-{date_str}-{safe_short}-"
+            else:
+                fixed_part = f"{date_str}-{safe_source}-{safe_short}-"
         else:
-            fixed_part = f"{date_str}-{safe_source}-"
+            if scheme == "paper-pipeline":
+                fixed_part = f"{safe_source}-{date_str}-"
+            else:
+                fixed_part = f"{date_str}-{safe_source}-"
         max_title_in_basename = max_dir_length - len(fixed_part)
         if len(safe_title) > max_title_in_basename:
             safe_title = sanitize_title_for_filesystem(
@@ -82,10 +100,16 @@ def build_output_basename(
                 max_length=max_title_in_basename,
                 settings=s,
             )
-        if safe_short:
-            basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
+        if scheme == "paper-pipeline":
+            if safe_short:
+                basename = f"{safe_source}-{date_str}-{safe_short}-{safe_title}"
+            else:
+                basename = f"{safe_source}-{date_str}-{safe_title}"
         else:
-            basename = f"{date_str}-{safe_source}-{safe_title}"
+            if safe_short:
+                basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
+            else:
+                basename = f"{date_str}-{safe_source}-{safe_title}"
 
     return basename
 
