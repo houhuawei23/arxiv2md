@@ -226,8 +226,8 @@ class MarkdownEmitter(IREmitter):
             lines.append("")
 
         # Headers & rows
-        headers = [self._emit_inlines(h) for h in tbl.headers]
-        rows = [[self._emit_inlines(c) for c in row] for row in tbl.rows]
+        headers = [_escape_pipe_cell(self._emit_inlines(h)) for h in tbl.headers]
+        rows = [[_escape_pipe_cell(self._emit_inlines(c)) for c in row] for row in tbl.rows]
 
         all_rows = [headers] + rows if headers else rows
         if not all_rows:
@@ -330,3 +330,10 @@ def _post_process(md: str) -> str:
     md = md.strip()
 
     return md
+
+
+def _escape_pipe_cell(text: str) -> str:
+    """Escape unescaped ``|`` characters inside a pipe-table cell."""
+    import re
+
+    return re.sub(r"(?<!\\)\|", r"\\|", text)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import html as html_module
 import re
@@ -224,6 +225,38 @@ def _serialize_listing_line(line: Tag, *, remove_inline_citations: bool = False)
     return "".join(parts).rstrip()
 
 
+_SHELL_COMMANDS: frozenset[str] = frozenset(
+    {"pip", "conda", "apt", "apt-get", "yum", "brew", "npm", "yarn", "cargo",
+     "curl", "wget", "git", "bash", "sh", "zsh", "make", "cmake", "gcc", "g++"}
+)
+
+
+def _extract_listing_language(cls: str) -> str:
+    """Extract the declared language from a ``div.ltx_listing`` class string."""
+    m = re.search(r"ltx_lst_language_(\w+)", cls)
+    return m.group(1).lower() if m else "text"
+
+
+def _normalize_listing_language(declared: str, text: str) -> str:
+    """Sanitize the declared listing language against the actual content.
+
+    ar5iv sometimes labels shell commands (e.g. ``pip install ...``) as
+    ``ltx_lst_language_Python``.  When the declared language is ``python``
+    but the source is not valid Python syntax, fall back to ``bash`` for
+    obvious shell commands or ``text`` otherwise.
+    """
+    declared = declared.lower().strip() if declared else "text"
+    if declared == "python":
+        try:
+            ast.parse(text)
+        except SyntaxError:
+            first_word = text.lstrip().split(None, 1)[0].lower() if text.strip() else ""
+            if first_word in _SHELL_COMMANDS:
+                return "bash"
+            return "text"
+    return declared
+
+
 def _serialize_ltx_listing_div(tag: Tag, *, remove_inline_citations: bool = False) -> str:
     """``div.ltx_listing``: prefer base64 payload in ``ltx_listing_data``; else join ``ltx_listingline`` rows."""
     cls = " ".join(tag.get("class", []))
@@ -233,10 +266,7 @@ def _serialize_ltx_listing_div(tag: Tag, *, remove_inline_citations: bool = Fals
         if a and a.get("href"):
             decoded = _decode_data_plain_href(a["href"])
             if decoded is not None:
-                lang = "text"
-                m = re.search(r"ltx_lst_language_(\w+)", cls)
-                if m:
-                    lang = m.group(1).lower()
+                lang = _normalize_listing_language(_extract_listing_language(cls), decoded)
                 return f"```{lang}\n{decoded.rstrip()}\n```"
     lines_out: list[str] = []
     for line in tag.find_all("div", class_=re.compile(r"ltx_listingline"), recursive=False):
@@ -244,7 +274,8 @@ def _serialize_ltx_listing_div(tag: Tag, *, remove_inline_citations: bool = Fals
         lines_out.append(raw)
     if lines_out:
         body = "\n".join(lines_out).rstrip()
-        return f"```text\n{body}\n```"
+        lang = _normalize_listing_language(_extract_listing_language(cls), body)
+        return f"```{lang}\n{body}\n```"
     return ""
 
 
@@ -913,7 +944,8 @@ def _is_bibitem(item: Tag) -> tuple[bool, str]:
 
 def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: bool = False) -> list[str]:
     lines: list[str] = []
-    for item in list_tag.find_all("li", recursive=False):
+    ordered = list_tag.name == "ol"
+    for index, item in enumerate(list_tag.find_all("li", recursive=False)):
         # Check if this is a bibliography item
         is_bib, ref_anchor = _is_bibitem(item)
 
@@ -925,7 +957,8 @@ def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: 
             else:
                 item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations))
         item_text = _cleanup_inline_text("".join(item_text_parts))
-        prefix = "  " * indent + "- "
+        marker = f"{index + 1}. " if ordered else "- "
+        prefix = "  " * indent + marker
 
         # For bibliography items, add anchor with id attribute
         if is_bib and ref_anchor:
@@ -1071,7 +1104,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
             for cell in cells:
                 cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations)).replace("\n", "<br>")
                 values.append(cell_text)
-                rows.append(values)
+            rows.append(values)
 
     return _pipe_table_from_rows(rows)
 

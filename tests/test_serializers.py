@@ -137,9 +137,8 @@ class TestListSerializer:
         soup = BeautifulSoup(html, "html.parser")
         result = serializer.serialize(soup.find("ol"), context)
 
-        # Both ol and ul use - in markdown
-        assert "- First" in result
-        assert "- Second" in result
+        assert "1. First" in result
+        assert "2. Second" in result
 
     def test_nested_list(self):
         """Test nested list serialization."""

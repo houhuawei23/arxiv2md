@@ -6,6 +6,7 @@ extraction, and converts HTML elements to IR nodes via BeautifulSoup traversal.
 
 from __future__ import annotations
 
+import ast
 import base64
 import re
 from collections import deque
@@ -330,6 +331,10 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "svg":
             return None
 
+        # Line breaks at block level are layout noise; ignore them.
+        if tag_name == "br":
+            return None
+
         # Raw fallback
         return RawBlockIR(
             section_id=section_id,
@@ -414,7 +419,8 @@ class HTMLBuilder(IRBuilder):
                 latex = annotation.text.strip()
             else:
                 latex = tag.get_text(" ", strip=True)
-            return MathIR(latex=latex, display=False)
+            is_display = tag.get("display") == "block"
+            return MathIR(latex=latex, display=is_display)
 
         # Images
         if tag_name == "img":
@@ -638,10 +644,8 @@ class HTMLBuilder(IRBuilder):
             if a and a.get("href"):
                 decoded = _decode_data_plain_href(a["href"])
                 if decoded is not None:
-                    lang = "text"
-                    m = re.search(r"ltx_lst_language_(\w+)", cls)
-                    if m:
-                        lang = m.group(1).lower()
+                    lang = _extract_listing_language(cls)
+                    lang = _normalize_listing_language(lang, decoded)
                     return CodeIR(
                         section_id=section_id,
                         order_index=base_idx,
@@ -658,11 +662,14 @@ class HTMLBuilder(IRBuilder):
             lines_out.append(text)
 
         if lines_out:
+            body = "\n".join(lines_out).rstrip()
+            lang = _extract_listing_language(cls)
+            lang = _normalize_listing_language(lang, body)
             return CodeIR(
                 section_id=section_id,
                 order_index=base_idx,
-                language="text",
-                text="\n".join(lines_out).rstrip(),
+                language=lang,
+                text=body,
             )
         return None
 
@@ -834,3 +841,35 @@ def _decode_data_plain_href(href: str | None) -> str | None:
         return base64.b64decode(b64).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
+
+
+def _extract_listing_language(cls: str) -> str:
+    """Extract the declared language from a ``div.ltx_listing`` class string."""
+    m = re.search(r"ltx_lst_language_(\w+)", cls)
+    return m.group(1).lower() if m else "text"
+
+
+_SHELL_COMMANDS: frozenset[str] = frozenset(
+    {"pip", "conda", "apt", "apt-get", "yum", "brew", "npm", "yarn", "cargo",
+     "curl", "wget", "git", "bash", "sh", "zsh", "make", "cmake", "gcc", "g++"}
+)
+
+
+def _normalize_listing_language(declared: str, text: str) -> str:
+    """Sanitize the declared listing language against the actual content.
+
+    ar5iv sometimes labels shell commands (e.g. ``pip install ...``) as
+    ``ltx_lst_language_Python``.  When the declared language is ``python``
+    but the source is not valid Python syntax, fall back to ``bash`` for
+    obvious shell commands or ``text`` otherwise.
+    """
+    declared = declared.lower().strip() if declared else "text"
+    if declared == "python":
+        try:
+            ast.parse(text)
+        except SyntaxError:
+            first_word = text.lstrip().split(None, 1)[0].lower() if text.strip() else ""
+            if first_word in _SHELL_COMMANDS:
+                return "bash"
+            return "text"
+    return declared

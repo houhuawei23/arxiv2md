@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from arxiv2md_beta.ir.builders.html import HTMLBuilder
+from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 
 
 @pytest.fixture
@@ -194,7 +195,8 @@ class TestBlockConversion:
         codes = [b for b in doc.sections[0].blocks if b.type == "code"]
         assert len(codes) == 1
         assert codes[0].text == payload
-        assert codes[0].language == "python"
+        # Shell commands mis-labelled as Python are reclassified.
+        assert codes[0].language == "bash"
 
     def test_ltx_listing_lines_fallback(self, builder):
         """When no data URL is present, listing lines are joined into a code block."""
@@ -211,7 +213,8 @@ class TestBlockConversion:
         codes = [b for b in doc.sections[0].blocks if b.type == "code"]
         assert len(codes) == 1
         assert codes[0].text == "cg = pc(data)\ncg.draw()"
-        assert codes[0].language == "text"
+        # Valid Python syntax keeps the declared Python label.
+        assert codes[0].language == "python"
 
 
 class TestAuthorAffiliationParsing:
@@ -379,3 +382,103 @@ class TestRoundTrip:
         # Make sure it is bold, not single-emphasis italic
         assert re.search(r"(?<!\*)\*emphasis\*(?!\*)", md) is None
         assert "*emphasis*" in md
+
+
+class TestBreakHandling:
+    """Line breaks must not leak as raw HTML."""
+
+    def test_block_level_br_is_dropped(self, builder):
+        """A ``<br>`` at block level should be ignored, not emitted as raw HTML."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <p>First.</p>
+        <br class="ltx_break"/>
+        <p>Second.</p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        md = MarkdownEmitter().emit(doc)
+        assert "<br" not in md
+        assert "First." in md
+        assert "Second." in md
+
+    def test_inline_br_becomes_line_break(self, builder):
+        """A ``<br>`` inside a paragraph becomes a newline."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <p>First.<br/>Second.</p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        para = doc.sections[0].blocks[0]
+        assert any(il.type == "break" for il in para.inlines)
+
+
+class TestListingLanguage:
+    """Code listing language should be validated against content."""
+
+    def test_shell_command_not_marked_python(self, builder):
+        """A ``pip install`` listing labelled Python should become bash/text."""
+        import base64
+
+        payload = "pip install causal-learn"
+        b64 = base64.b64encode(payload.encode()).decode()
+        html = f"""
+        <div class="ltx_listing ltx_lst_language_Python">
+        <div class="ltx_listing_data"><a href="data:text/plain;base64,{b64}" download="">⬇</a></div>
+        </div>
+        """
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        code = [b for b in doc.sections[0].blocks if b.type == "code"][0]
+        assert code.language != "python"
+
+    def test_valid_python_keeps_python_label(self, builder):
+        """Valid Python syntax keeps the Python language label."""
+        import base64
+
+        payload = "x = 1\nprint(x)"
+        b64 = base64.b64encode(payload.encode()).decode()
+        html = f"""
+        <div class="ltx_listing ltx_lst_language_Python">
+        <div class="ltx_listing_data"><a href="data:text/plain;base64,{b64}" download="">⬇</a></div>
+        </div>
+        """
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        code = [b for b in doc.sections[0].blocks if b.type == "code"][0]
+        assert code.language == "python"
+
+
+class TestMathDisplay:
+    """Display vs inline math detection."""
+
+    def test_inline_math_is_inline(self, builder):
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <p>Let <math alttext="x" display="inline"><annotation encoding="application/x-tex">x</annotation></math> be.</p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        para = doc.sections[0].blocks[0]
+        math = [il for il in para.inlines if il.type == "math"][0]
+        assert not math.display
+
+    def test_block_math_is_display(self, builder):
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <p><math alttext="E=mc^2" display="block"><annotation encoding="application/x-tex">E=mc^2</annotation></math></p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        para = doc.sections[0].blocks[0]
+        math = [il for il in para.inlines if il.type == "math"][0]
+        assert math.display

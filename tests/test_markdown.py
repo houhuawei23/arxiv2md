@@ -130,6 +130,22 @@ def test_convert_table():
     assert "| 1 | 2 |" in md
 
 
+def test_convert_table_without_tbody():
+    """Tables without thead/tbody must not duplicate cells into every row."""
+    html = """
+    <table>
+        <tr><th>A</th><th>B</th></tr>
+        <tr><td>1</td><td>2</td></tr>
+        <tr><td>3</td><td>4</td></tr>
+    </table>
+    """
+    md = convert_fragment_to_markdown(html)
+    # Before the fix, the fallback path appended cells inside the inner loop,
+    # producing rows like [A], [A,B], [1], [1,2], [3], [3,4].
+    lines = [line.strip() for line in md.splitlines() if line.startswith("|")]
+    assert lines == ["| A | B |", "| --- | --- |", "| 1 | 2 |", "| 3 | 4 |"]
+
+
 def test_ltx_table_figure_uses_span_tabular_not_html_table():
     """ar5iv often emits tabulars as span.ltx_tabular (no <table>); figure must still serialize rows."""
     html = """
@@ -212,9 +228,26 @@ def test_paragraph_ltx_listing_decodes_base64_data_uri():
     </div>
     """
     md = convert_fragment_to_markdown(html)
+    # No language class is declared, so it defaults to a plain text block.
     assert "```text" in md
     assert "def foo():" in md
     assert "return 1" in md
+
+
+def test_ltx_listing_shell_command_not_marked_python():
+    """A shell command labelled Python should be reclassified to bash."""
+    raw = b"pip install causal-learn"
+    b64 = base64.b64encode(raw).decode("ascii")
+    html = f"""
+    <div class="ltx_listing ltx_lst_language_Python">
+    <div class="ltx_listing_data">
+    <a href="data:text/plain;base64,{b64}">data</a>
+    </div>
+    </div>
+    """
+    md = convert_fragment_to_markdown(html)
+    assert "```bash" in md
+    assert "pip install causal-learn" in md
 
 
 def test_local_arxiv_fragment_links_map_to_local_anchors():
@@ -268,8 +301,8 @@ def test_convert_ordered_list():
     </ol>
     """
     md = convert_fragment_to_markdown(html)
-    assert "- First item" in md
-    assert "- Second item" in md
+    assert "1. First item" in md
+    assert "2. Second item" in md
 
 
 def test_convert_nested_lists():

@@ -7,11 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-06-18
+
 ### Added
 
 - New `--include-anchors` flag (and `output.include_anchors` setting) to optionally emit `<a id="..."></a>` anchor tags in generated Markdown. Default is `false`, so anchors are stripped from the final output.
 - Final Markdown post-processing now cleans math formulas by removing trailing LaTeX spacing commands such as `\,`, `\ `, `\;`, etc.
 - Inline math formulas are now padded with spaces around the `$` delimiters when adjacent to words.
+
+### Fixed
+
+- **IR pipeline HTML→Markdown formatting issues**:
+  - `<br class="ltx_break"/>` tags at block level no longer leak as raw HTML; they are now ignored so paragraph/section spacing stays clean.
+  - Code listings mis-labelled as Python (e.g. `pip install causal-learn`) are reclassified to `bash` when the content is an obvious shell command, or `text` when it is not valid Python syntax. Both base64 payload and line-by-line listing paths are covered.
+  - Pipe characters `|` inside Markdown table cells are now escaped as `\|` so they do not corrupt the table layout.
+  - `<math display="block">` elements are now emitted as display math (`$$...$$`) instead of inline math.
+- **Legacy pipeline HTML→Markdown formatting issues**:
+  - Ordered lists (`<ol>`) are now rendered with `1.`, `2.` numbering instead of always using `- ` bullets.
+  - Tables without `<tbody>/<thead>/<tfoot>` no longer duplicate cells into every row due to an incorrectly nested `rows.append(values)`.
+  - Code listings mis-labelled as Python are reclassified to `bash`/`text` using the same content-based heuristic as the IR pipeline.
+- **v2 serializer registry**:
+  - Inline tags (`em`, `i`, `strong`, `b`, `code`, `a`, `sup`, `sub`, `br`, `math`, `cite`, `span`) are now registered to their concrete serializer classes instead of the base `InlineSerializer`, so formatting and links are preserved when the v2 serializers are used.
+
+### Changed
+
+- **Version**: 0.10.5 → 0.10.6
+- Updated `.gitignore` to also ignore the runtime `outputs/` directory.
+
+Wrapped up by Kimi (kimi-k2.7 via kimi-code) on 2026-06-18
 
 ## [0.10.5] - 2026-05-29
 

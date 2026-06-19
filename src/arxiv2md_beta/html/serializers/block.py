@@ -115,14 +115,15 @@ class ListSerializer(BlockSerializer):
 
     def serialize(self, tag: Tag, context: SerializerContext) -> str:
         """Serialize list element."""
+        ordered = tag.name == 'ol'
         items = []
         for i, li in enumerate(tag.find_all('li', recursive=False)):
-            item_text = self._serialize_list_item(li, 0, context)
+            item_text = self._serialize_list_item(li, 0, i, ordered, context)
             if item_text:
                 items.append(item_text)
         return '\n'.join(items) if items else ""
 
-    def _serialize_list_item(self, li: Tag, indent: int, context: SerializerContext) -> str:
+    def _serialize_list_item(self, li: Tag, indent: int, index: int, ordered: bool, context: SerializerContext) -> str:
         """Serialize a list item."""
         # Get item text and nested lists
         text_parts = []
@@ -140,13 +141,15 @@ class ListSerializer(BlockSerializer):
         text = ''.join(text_parts)
         text = re.sub(r'\s+', ' ', text).strip()
 
-        prefix = '  ' * indent + '- '
+        marker = f"{index + 1}. " if ordered else "- "
+        prefix = '  ' * indent + marker
         lines = [prefix + text if text else prefix.rstrip()]
 
         # Add nested list items
         for nested in nested_lists:
-            for nested_li in nested.find_all('li', recursive=False):
-                nested_text = self._serialize_list_item(nested_li, indent + 1, context)
+            nested_ordered = nested.name == 'ol'
+            for nested_i, nested_li in enumerate(nested.find_all('li', recursive=False)):
+                nested_text = self._serialize_list_item(nested_li, indent + 1, nested_i, nested_ordered, context)
                 if nested_text:
                     lines.append(nested_text)
 

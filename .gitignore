@@ -56,6 +56,7 @@ env/
 # Project specific
 .arxiv2md_beta_cache/
 /output/
+/outputs/
 demo_output/
 
 # Environment

@@ -120,6 +120,15 @@ class TestTable:
         result = emitter._emit_block(b)
         assert "| 1 |" in result
 
+    def test_pipe_in_cell_is_escaped(self, emitter):
+        b = TableIR(
+            headers=[[TextIR(text="A | B")]],
+            rows=[[[TextIR(text="1 | 2")]]],
+        )
+        result = emitter._emit_block(b)
+        assert r"| A \| B |" in result
+        assert r"| 1 \| 2 |" in result
+
 
 # ── EquationIR ─────────────────────────────────────────────────────────
 
