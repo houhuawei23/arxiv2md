@@ -43,7 +43,7 @@ output_naming:
   default_unknown_title: Unknown
   sanitize_source_max_length: 80
   sanitize_short_max_length: 80
-  naming_scheme: classic
+  naming_scheme: paper-pipeline
 
 ingestion:
   reference_section_titles:

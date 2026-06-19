@@ -74,9 +74,9 @@ class OutputNamingSection(BaseModel):
     sanitize_source_max_length: int = Field(ge=1)
     sanitize_short_max_length: int = Field(ge=1)
     naming_scheme: Literal["classic", "paper-pipeline"] = Field(
-        default="classic",
-        description="Output naming scheme. classic: {date}-{source}-{title}. "
-        "paper-pipeline: {source}-{date}-{title} with fixed internal filenames (paper.md, Appendix.md, References.md).",
+        default="paper-pipeline",
+        description="Output naming scheme. paper-pipeline: {source}-{date}-{title} with fixed internal filenames (paper.md, Appendix.md, References.md). "
+        "classic: legacy {date}-{source}-{title} naming.",
     )
 
 
