@@ -23,9 +23,12 @@
   - **与 ar5iv 对齐**：HTML 中插图常为 `x1.png`、`x2.png` 等匿名文件名；TeX 侧在统计 `\includegraphics` 时会排除 `\icmltitle{…}` / `\title{…}` 以及 **`\affiliation[…]{…}`** 内的机构 logo（fairmeta 等模板），避免与正文 Figure 序号错位；正文图在可用时按 `<img src>` 与 TeX 输出文件名匹配
 - **性能优化**：
   - HTTP 连接池复用：减少批量处理时的连接建立开销
-  - 图片异步并行处理：PDF 转换使用 `ProcessPoolExecutor`，普通图片使用线程池并发
+  - HTML 与 arXiv API 元数据并行获取，减少网络等待
+  - 图片异步并行处理：IR HTML 路径使用 `ProcessPoolExecutor`，普通图片使用线程池并发
+  - IR builder 直接复用 `ParsedArxivHtml`，避免完整 HTML 被 BeautifulSoup 重复解析
   - 正则表达式预编译：提升 HTML/LaTeX 解析性能
   - 异步文件 I/O：避免文件操作阻塞事件循环
+  - tiktoken encoding 缓存，避免重复加载
   - 关键路径性能监控：内置 `timed_operation` 上下文管理器
 - **专业鲁棒**：
   - 完善的错误处理和异常处理
@@ -111,6 +114,7 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` (schema v2.0, 全类型 IR 块结构) | `none` |
 | `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
 | `--legacy` | 使用旧版管线代替默认的 IR 管线 | False |
+| `--download-pdf` / `--skip-pdf-download` | 是否在输出目录下载 arXiv PDF | True |
 
 ### 命令行参数（`batch`）
 

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-19
+
+### Performance
+
+- **IR HTML pipeline image processing is now asynchronous and parallel**: `process_images_async()` uses a `ProcessPoolExecutor` for PDF→PNG conversion and a thread pool for raster copies, significantly speeding up papers with many figures.
+- **HTML and API metadata are fetched concurrently** in `IngestionOrchestrator.run()`, reducing network wait time.
+- **Shared `httpx.AsyncClient` is reused** across arXiv API, Crossref, and author-enrichment requests to preserve connections and avoid repeated TLS handshakes.
+- **IR builder reuses `ParsedArxivHtml`**: `HTMLBuilder.build()` now accepts a `ParsedArxivHtml` instance, avoiding a second full-HTML BeautifulSoup parse.
+- **tiktoken encoding is cached** in `_format_token_count()`, removing repeated `tiktoken.get_encoding()` calls.
+
+### Added
+
+- New CLI flag `--download-pdf / --skip-pdf-download` to control whether the arXiv PDF is downloaded into the output directory. Default remains `True` for backward compatibility; downstream `paper-pipeline` defaults to skipping it for speed.
+- `ParsedArxivHtml` now carries `document_root` so downstream builders can reuse the already-parsed DOM.
+
+### Changed
+
+- **Version**: 0.10.6 → 0.11.0
+
+Wrapped up by Kimi (kimi-k2.7 via kimi-code) on 2026-06-19
+
 ## [0.10.7] - 2026-06-19
 
 ### Fixed
