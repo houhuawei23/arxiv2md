@@ -6,6 +6,7 @@ class with discrete, testable steps.
 
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from typing import Any
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections, split_sections_at_reference
-from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.ir import (
     AnchorPass,
     FigureReorderPass,
@@ -92,9 +93,10 @@ class IngestionOrchestrator:
 
     async def run(self) -> tuple[IngestionResult, dict[str, Any]]:
         """Execute the full pipeline and return (result, metadata)."""
-        await self._fetch_html()
+        self._parse_query()
+        # HTML 与 API 元数据相互独立，并行获取以减少网络等待
+        await self._fetch_html_and_metadata()
         self._parse_html()
-        await self._fetch_api_metadata()
         self._filter_sections()
         self._setup_output_dir()
         await self._fetch_tex_and_images()
@@ -109,18 +111,21 @@ class IngestionOrchestrator:
         metadata = self._build_metadata(structured_export)
         return result, metadata
 
+    # ── Step 0: Parse query ────────────────────────────────────────────
+
+    def _parse_query(self) -> None:
+        from arxiv2md_beta.query.parser import parse_arxiv_input
+
+        self._query = parse_arxiv_input(self.params.input_text.strip())
+
     # ── Step 1: Fetch HTML ─────────────────────────────────────────────
 
     async def _fetch_html(self) -> None:
-        from arxiv2md_beta.query.parser import parse_arxiv_input
-
-        query = parse_arxiv_input(self.params.input_text.strip())
-        self._query = query  # stored for later steps
         self._html = await fetch_arxiv_html(
-            query.html_url,
-            arxiv_id=query.arxiv_id,
-            version=query.version,
-            ar5iv_url=query.ar5iv_url,
+            self._query.html_url,
+            arxiv_id=self._query.arxiv_id,
+            version=self._query.version,
+            ar5iv_url=self._query.ar5iv_url,
             use_cache=not self.params.no_cache,
         )
 
@@ -133,14 +138,26 @@ class IngestionOrchestrator:
 
     async def _fetch_api_metadata(self) -> None:
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
-        self._display_author_names = (
-            author_display_names_from_metadata(self._api_metadata)
-            or [a.name for a in self._parsed.authors]
+
+    async def _fetch_html_and_metadata(self) -> None:
+        """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。"""
+        html_task = asyncio.create_task(self._fetch_html())
+        metadata_task = asyncio.create_task(self._fetch_api_metadata())
+        await metadata_task
+        await html_task
+        self._parse_html()
+
+        self._display_author_names = author_display_names_from_metadata(
+            self._api_metadata
         )
-        self._submission_date = (
-            self._api_metadata.get("submission_date") or self._parsed.submission_date
-        )
-        if not self._parsed.title and self._api_metadata.get("title"):
+        if not self._display_author_names and self._parsed is not None:
+            self._display_author_names = [a.name for a in self._parsed.authors]
+
+        self._submission_date = self._api_metadata.get("submission_date")
+        if not self._submission_date and self._parsed is not None:
+            self._submission_date = self._parsed.submission_date
+
+        if self._parsed is not None and not self._parsed.title and self._api_metadata.get("title"):
             self._parsed.title = self._api_metadata["title"]
 
     # ── Step 4: Filter sections ────────────────────────────────────────
@@ -203,7 +220,8 @@ class IngestionOrchestrator:
                     version=self._query.version,
                     use_cache=not self.params.no_cache,
                 )
-                processed = process_images(
+                # 使用异步并行图像处理（CPU-bound 任务卸载到进程池）
+                processed = await process_images_async(
                     self._tex_source_info,
                     self._paper_output_dir,
                     self._images_dir_name,
@@ -242,7 +260,8 @@ class IngestionOrchestrator:
 
     def _build_ir(self) -> None:
         builder = HTMLBuilder(image_resolver=self._image_resolver)
-        self._doc = builder.build(self._html, arxiv_id=self._query.arxiv_id)
+        # 直接复用 parse_arxiv_html 的解析结果，避免 builder 再次解析完整 HTML
+        self._doc = builder.build(self._parsed, arxiv_id=self._query.arxiv_id)
         self._populate_assets()
 
     # ── Step 7a: Populate assets ───────────────────────────────────────

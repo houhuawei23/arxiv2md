@@ -222,7 +222,7 @@ async def finalize_convert_output(
     logger.info(f"Output written to: {output_path}")
     await write_split_markdown_sidecars(paper_output_dir, output_filename, result, naming_scheme=naming_scheme)
 
-    if pdf_fetch is not None:
+    if pdf_fetch is not None and params.download_pdf:
         arxiv_id, version = pdf_fetch
         try:
             if naming_scheme == "paper-pipeline":

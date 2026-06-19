@@ -14,6 +14,19 @@ except ImportError:  # pragma: no cover - optional dependency
     tiktoken = None
 
 from arxiv2md_beta.html.sections import split_sections_at_reference
+
+# 缓存 tiktoken encoding 对象，避免每次计数重复加载
+_tiktoken_encoding_cache: dict[str, object] = {}
+
+
+def _get_cached_encoding(encoding_name: str):
+    if encoding_name in _tiktoken_encoding_cache:
+        return _tiktoken_encoding_cache[encoding_name]
+    if tiktoken is None:
+        return None
+    enc = tiktoken.get_encoding(encoding_name)
+    _tiktoken_encoding_cache[encoding_name] = enc
+    return enc
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
 
@@ -394,10 +407,10 @@ def reorder_figures_to_first_reference(markdown: str) -> str:
 
 
 def _format_token_count(text: str) -> str | None:
-    if not tiktoken:
+    encoding = _get_cached_encoding(get_settings().output.tiktoken_encoding)
+    if encoding is None:
         return None
     try:
-        encoding = tiktoken.get_encoding(get_settings().output.tiktoken_encoding)
         total_tokens = len(encoding.encode(text, disallowed_special=()))
     except Exception:
         return None

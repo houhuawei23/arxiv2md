@@ -101,6 +101,7 @@ def make_convert_params(
     no_cache: bool = False,
     use_legacy: bool = False,
     naming_scheme: str = "classic",
+    download_pdf: bool = True,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -124,4 +125,5 @@ def make_convert_params(
         no_cache=no_cache,
         use_legacy=use_legacy,
         naming_scheme=naming_scheme,
+        download_pdf=download_pdf,
     )

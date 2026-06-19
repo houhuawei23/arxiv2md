@@ -216,6 +216,11 @@ def convert_cmd(
         help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
              "Will be removed in v1.0.0.",
     ),
+    download_pdf: bool = typer.Option(
+        True,
+        "--download-pdf/--skip-pdf-download",
+        help="Download the arXiv PDF into the output directory (default: True).",
+    ),
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -248,6 +253,7 @@ def convert_cmd(
         no_cache=no_cache,
         use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
+        download_pdf=download_pdf,
     )
     try:
         run_convert_sync(params)
@@ -384,6 +390,11 @@ def batch_cmd(
         help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
              "Will be removed in v1.0.0.",
     ),
+    download_pdf: bool = typer.Option(
+        True,
+        "--download-pdf/--skip-pdf-download",
+        help="Download the arXiv PDF into the output directory (default: True).",
+    ),
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -416,6 +427,7 @@ def batch_cmd(
         no_cache=no_cache,
         use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
+        download_pdf=download_pdf,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

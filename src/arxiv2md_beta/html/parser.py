@@ -55,6 +55,7 @@ class ParsedArxivHtml:
     front_matter_html: str | None  # HTML between abstract and first section (e.g. title-block figures)
     sections: list[SectionNode]
     submission_date: str | None = None  # Format: YYYYMMDD
+    document_root: Tag | None = None  # Root Tag for downstream IR builder reuse
 
 
 def _extract_front_matter_html(soup: BeautifulSoup, document_root: Tag) -> str | None:
@@ -93,6 +94,7 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
         front_matter_html=front_matter_html,
         sections=sections,
         submission_date=submission_date,
+        document_root=document_root,
     )
 
 

@@ -29,6 +29,7 @@ class ConvertParams:
     no_cache: bool = False
     use_legacy: bool = False
     naming_scheme: str = "classic"
+    download_pdf: bool = True
 
 
 @dataclass(frozen=True)

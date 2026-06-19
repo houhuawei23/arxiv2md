@@ -10,6 +10,7 @@ import httpx
 
 from loguru import logger
 
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 
 
@@ -138,14 +139,13 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
     retry_status = set(h.retry_status_codes)
     api_url = urls.arxiv_api_query_template.format(base_id=base_id)
 
-    timeout = httpx.Timeout(h.fetch_timeout_s)
     headers = {"User-Agent": h.user_agent}
 
     for attempt in range(h.fetch_max_retries + 1):
         response: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-                response = await client.get(api_url)
+            client = get_http_client()
+            response = await client.get(api_url, headers=headers)
 
             # Check if status needs retry (429, 5xx)
             if response.status_code in retry_status:

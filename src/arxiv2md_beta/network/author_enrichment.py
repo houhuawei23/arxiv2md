@@ -10,6 +10,7 @@ from loguru import logger
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
 from arxiv2md_beta.network.openalex_api import arxiv_base_id, fetch_openalex_work_for_arxiv
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 
 
@@ -131,13 +132,12 @@ async def fetch_abs_html(base_id: str) -> str | None:
     s = get_settings()
     h = s.http
     url = f"https://arxiv.org/abs/{base_id}"
-    timeout = httpx.Timeout(h.fetch_timeout_s)
     headers = {"User-Agent": h.user_agent}
     try:
-        async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.text
+        client = get_http_client()
+        r = await client.get(url, headers=headers)
+        r.raise_for_status()
+        return r.text
     except Exception as e:
         logger.debug(f"abs HTML fetch failed for {base_id}: {e}")
         return None

@@ -8,6 +8,7 @@ from datetime import datetime
 
 import httpx
 
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 
 
@@ -67,13 +68,12 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
     retry_status = set(h.retry_status_codes)
     api_url = urls.crossref_works_template.format(doi=doi_clean)
 
-    timeout = httpx.Timeout(h.fetch_timeout_s)
     headers = {"User-Agent": h.user_agent}
 
     for attempt in range(h.fetch_max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-                response = await client.get(api_url)
+            client = get_http_client()
+            response = await client.get(api_url, headers=headers)
 
             if response.status_code == 404:
                 # Not found is expected for some DOIs, return None silently

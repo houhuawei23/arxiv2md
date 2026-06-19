@@ -78,60 +78,57 @@ class HTMLBuilder(IRBuilder):
     # ── Public API ─────────────────────────────────────────────────────
 
     def build(self, source: Any, **kwargs: Any) -> DocumentIR:
-        """Parse HTML *source* (str or bytes) into a :class:`DocumentIR`."""
+        """Parse HTML *source* (str, bytes, or ParsedArxivHtml) into a :class:`DocumentIR`."""
+        arxiv_id = kwargs.get("arxiv_id", "unknown")
+        from arxiv2md_beta.html.parser import ParsedArxivHtml
+
+        if isinstance(source, ParsedArxivHtml):
+            return self._build_from_parsed(source, arxiv_id)
         if isinstance(source, bytes):
             source = source.decode("utf-8", errors="replace")
-        arxiv_id = kwargs.get("arxiv_id", "unknown")
         return self._build_from_html(source, arxiv_id)
 
-    def _build_from_html(self, html: str, arxiv_id: str) -> DocumentIR:
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Reuse existing parser for metadata and section structure
+    def _build_from_parsed(self, parsed: Any, arxiv_id: str) -> DocumentIR:
+        """从已解析的 :class:`ParsedArxivHtml` 构建 IR，避免再次解析完整 HTML。"""
         from arxiv2md_beta.html.parser import (
-            _extract_title,
-            _extract_authors_with_affiliations,
-            _extract_abstract,
-            _extract_abstract_html,
-            _extract_front_matter_html,
+            ParsedArxivHtml,
             _extract_sections,
-            _extract_submission_date,
-            _find_document_root,
         )
 
-        document_root = _find_document_root(soup)
-        title = _extract_title(soup)
-        parsed_authors = _extract_authors_with_affiliations(soup)
-        authors = [AuthorIR(name=a.name, affiliations=a.affiliations) for a in parsed_authors]
-        abstract_text = _extract_abstract(soup)
-        abstract_html = _extract_abstract_html(soup)
-        front_matter_html = _extract_front_matter_html(soup, document_root)
-        submission_date = _extract_submission_date(soup)
+        assert isinstance(parsed, ParsedArxivHtml)
+
+        authors = [AuthorIR(name=a.name, affiliations=a.affiliations) for a in parsed.authors]
 
         # Convert abstract HTML fragment to IR blocks
-        abstract_blocks = self._html_to_blocks(abstract_html, section_id="abstract")
+        abstract_blocks = self._html_to_blocks(parsed.abstract_html, section_id="abstract")
 
         # Convert front matter HTML fragment to IR blocks
-        front_matter_blocks = self._html_to_blocks(front_matter_html, section_id="front_matter")
+        front_matter_blocks = self._html_to_blocks(parsed.front_matter_html, section_id="front_matter")
 
         # Convert section tree and drop leaf sections that have no content
-        section_nodes = _extract_sections(document_root)
+        section_nodes = _extract_sections(parsed.document_root)
         sections = [self._build_section(sn) for sn in section_nodes]
         sections = self._filter_empty_sections(sections)
 
         return DocumentIR(
             metadata=PaperMetadata(
                 arxiv_id=arxiv_id,
-                title=title,
+                title=parsed.title,
                 authors=authors,
-                submission_date=submission_date,
-                abstract_text=abstract_text,
+                submission_date=parsed.submission_date,
+                abstract_text=parsed.abstract,
                 parser="html",
             ),
             abstract=abstract_blocks,
             front_matter=front_matter_blocks,
             sections=sections,
         )
+
+    def _build_from_html(self, html: str, arxiv_id: str) -> DocumentIR:
+        from arxiv2md_beta.html.parser import parse_arxiv_html
+
+        parsed = parse_arxiv_html(html)
+        return self._build_from_parsed(parsed, arxiv_id)
 
     # ── Section building ────────────────────────────────────────────────
 
