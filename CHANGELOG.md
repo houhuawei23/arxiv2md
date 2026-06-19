@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-06-19
+
+### Fixed
+
+- **IR pipeline HTML→Markdown formatting issues**:
+  - Display math inside list items is now rendered with proper `$$` block delimiters and indentation, instead of leaking as raw LaTeX or breaking list structure.
+  - Paragraphs containing display math (e.g. `<span class="ltx_p">` with an inline `<table class="ltx_equation">`) are now split into separate paragraph/equation blocks so display math is emitted as a block-level element.
+  - The Markdown post-processor now preserves indentation on multi-line display math blocks, keeping list-item equations correctly nested.
+  - The `_format_markdown_output` display-math regex now matches indented `$$` fences, preventing it from accidentally consuming equations inside list items.
+  - List item block-level content (equations, figures, code, etc.) is indented at least 4 spaces per nesting level so standard Markdown parsers recognise it as part of the list item.
+
+### Changed
+
+- **Version**: 0.10.6 → 0.10.7
+
+Wrapped up by Kimi (kimi-k2.7 via kimi-code) on 2026-06-19
+
 ## [0.10.6] - 2026-06-18
 
 ### Added

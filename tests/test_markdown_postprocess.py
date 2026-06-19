@@ -59,6 +59,11 @@ class TestCleanMarkdownOutput:
         result = clean_markdown_output(text, include_anchors=False)
         assert "$$\nx\n$$" in result
 
+    def test_preserves_indentation_for_display_math_in_lists(self) -> None:
+        text = "1. item\n\n    $$\n    x\\,\n    $$\n\n2. next"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert "    $$\n    x\n    $$" in result
+
 
 def test_apply_markdown_postprocessing() -> None:
     from arxiv2md_beta.output.markdown_postprocess import apply_markdown_postprocessing

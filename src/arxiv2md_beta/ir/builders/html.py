@@ -234,6 +234,48 @@ class HTMLBuilder(IRBuilder):
             code = self._build_listing(tag, section_id, base_idx)
             return code if code is not None else []
 
+        classes = set(tag.get("class", []))
+
+        # ar5iv paragraph wrappers (span.ltx_p / span.ltx_para) should be treated
+        # as paragraphs so that inline math inside them is not emitted as raw HTML.
+        if tag_name == "p" or (tag_name == "span" and _is_ar5iv_paragraph(classes)):
+            inlines = self._tag_to_inlines(tag)
+            if not inlines:
+                return None
+            # If the paragraph contains display math, lift those equations out as
+            # block-level elements so the Markdown emitter can render them with
+            # proper $$ delimiters instead of inline math breaking list layout.
+            split_blocks = self._split_paragraph_inlines(
+                inlines, section_id=section_id, base_idx=base_idx
+            )
+            if len(split_blocks) == 1:
+                return split_blocks[0]
+            return split_blocks
+
+        # ar5iv lists (span.ltx_enumerate / span.ltx_itemize)
+        if tag_name in ("ul", "ol") or (tag_name == "span" and _is_ar5iv_list(classes)):
+            items = self._build_ar5iv_list_items(tag) if tag_name == "span" else self._build_list_items(tag)
+            if not items:
+                return None
+            return ListIR(
+                section_id=section_id,
+                order_index=base_idx,
+                ordered=(tag_name == "ol" or _is_ar5iv_ordered_list(classes)),
+                items=items,
+            )
+
+        # ar5iv equation tables rendered as <span class="ltx_equation ltx_eqn_table">
+        if tag_name in ("span", "div") and _is_equation_table(tag):
+            latex = self._extract_equation_latex(tag)
+            if not latex:
+                return None
+            return EquationIR(
+                section_id=section_id,
+                order_index=base_idx,
+                latex=latex,
+                equation_number=_extract_equation_number(tag),
+            )
+
         # Container elements — recurse directly without re-parsing
         if tag_name in ("section", "article", "div", "span"):
             blocks, _ = self._children_to_blocks(tag.children, section_id, base_idx)
@@ -252,29 +294,6 @@ class HTMLBuilder(IRBuilder):
                 level=level,
                 anchor=anchor,
                 inlines=[TextIR(text=text)],
-            )
-
-        # Paragraph
-        if tag_name == "p":
-            inlines = self._tag_to_inlines(tag)
-            if not inlines:
-                return None
-            return ParagraphIR(
-                section_id=section_id,
-                order_index=base_idx,
-                inlines=inlines,
-            )
-
-        # Lists
-        if tag_name in ("ul", "ol"):
-            items = self._build_list_items(tag)
-            if not items:
-                return None
-            return ListIR(
-                section_id=section_id,
-                order_index=base_idx,
-                ordered=(tag_name == "ol"),
-                items=items,
             )
 
         # Figures
@@ -335,6 +354,23 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "br":
             return None
 
+        # Standalone math at block level
+        if tag_name == "math":
+            latex = _extract_math_latex(tag)
+            if not latex:
+                return None
+            if tag.get("display") == "block":
+                return EquationIR(
+                    section_id=section_id,
+                    order_index=base_idx,
+                    latex=latex,
+                )
+            return ParagraphIR(
+                section_id=section_id,
+                order_index=base_idx,
+                inlines=[MathIR(latex=latex, display=False)],
+            )
+
         # Raw fallback
         return RawBlockIR(
             section_id=section_id,
@@ -344,6 +380,53 @@ class HTMLBuilder(IRBuilder):
         )
 
     # ── Inline conversion ──────────────────────────────────────────────
+
+    def _split_paragraph_inlines(
+        self,
+        inlines: list[InlineUnion],
+        *,
+        section_id: str,
+        base_idx: int,
+    ) -> list[BlockUnion]:
+        """Split paragraph inlines into paragraph/equation blocks.
+
+        Display math that appears inside a paragraph wrapper is lifted to a
+        block-level :class:`EquationIR` so it is rendered as display math rather
+        than inline ``$$...$$`` embedded in a paragraph line.
+        """
+        blocks: list[BlockUnion] = []
+        current: list[InlineUnion] = []
+
+        def _flush_current() -> None:
+            nonlocal current
+            # Drop runs that only contain whitespace text
+            if any(
+                not (il.type == "text" and not il.text.strip()) for il in current
+            ):
+                blocks.append(
+                    ParagraphIR(
+                        section_id=section_id,
+                        order_index=base_idx + len(blocks),
+                        inlines=list(current),
+                    )
+                )
+            current = []
+
+        for il in inlines:
+            if il.type == "math" and getattr(il, "display", False):
+                _flush_current()
+                blocks.append(
+                    EquationIR(
+                        section_id=section_id,
+                        order_index=base_idx + len(blocks),
+                        latex=il.latex or "",
+                    )
+                )
+            else:
+                current.append(il)
+
+        _flush_current()
+        return blocks
 
     def _tag_to_inlines(self, tag: Tag) -> list[InlineUnion]:
         """Convert a BeautifulSoup tag's children to a list of inline IR nodes."""
@@ -369,10 +452,10 @@ class HTMLBuilder(IRBuilder):
         """Convert a single BeautifulSoup tag to an inline IR node."""
         tag_name = tag.name
 
-        # Text formatting — HTML italic is emitted as Markdown bold
+        # Text formatting
         if tag_name in ("em", "i"):
             return EmphasisIR(
-                style="bold",
+                style="italic",
                 inlines=self._tag_to_inlines(tag),
             )
         if tag_name in ("strong", "b"):
@@ -412,13 +495,17 @@ class HTMLBuilder(IRBuilder):
 
             return LinkIR(kind="external", url=href, inlines=inlines)
 
+        # Inline equation tables (ar5iv sometimes places display math inside
+        # paragraph spans as <table class="ltx_equation">).
+        if tag_name == "table" and _is_equation_table(tag):
+            latex = self._extract_equation_latex(tag)
+            if latex:
+                return MathIR(latex=latex, display=True)
+            return None
+
         # Math
         if tag_name == "math":
-            annotation = tag.find("annotation", attrs={"encoding": "application/x-tex"})
-            if annotation and annotation.text:
-                latex = annotation.text.strip()
-            else:
-                latex = tag.get_text(" ", strip=True)
+            latex = _extract_math_latex(tag)
             is_display = tag.get("display") == "block"
             return MathIR(latex=latex, display=is_display)
 
@@ -452,7 +539,7 @@ class HTMLBuilder(IRBuilder):
 
             inlines = self._tag_to_inlines(tag)
             if "ltx_font_italic" in classes:
-                return EmphasisIR(style="bold", inlines=inlines)
+                return EmphasisIR(style="italic", inlines=inlines)
             if "ltx_font_bold" in classes:
                 return EmphasisIR(style="bold", inlines=inlines)
             return inlines
@@ -510,6 +597,9 @@ class HTMLBuilder(IRBuilder):
         the ``<annotation encoding="application/x-tex">`` nodes inside every
         <math> child, join them, and fall back to plain text only when no math
         annotation is present.
+
+        If the table contains an equation number (e.g. ``<span class="ltx_tag_equation">(14)</span>``)
+        and the LaTeX does not already include a ``\tag{}``, append the number.
         """
         math_tags = tag.find_all("math")
         latex_parts: list[str] = []
@@ -519,17 +609,21 @@ class HTMLBuilder(IRBuilder):
                 latex_parts.append(annotation.text.strip())
         if latex_parts:
             latex = " ".join(latex_parts)
-            # Strip outer display-math delimiters if present
-            if latex.startswith("$$") and latex.endswith("$$"):
-                latex = latex[2:-2]
-            elif latex.startswith("$") and latex.endswith("$"):
-                latex = latex[1:-1]
-            return latex
-        # Fallback: plain text without math tags
-        text = self._get_text(tag)
-        if text.startswith("$") and text.endswith("$"):
-            text = text[1:-1]
-        return text
+        else:
+            # Fallback: plain text without math tags
+            latex = self._get_text(tag)
+        latex = _normalize_math_latex(latex)
+        # Strip outer display-math delimiters if present
+        if latex.startswith("$$") and latex.endswith("$$"):
+            latex = latex[2:-2]
+        elif latex.startswith("$") and latex.endswith("$"):
+            latex = latex[1:-1]
+
+        # Strip any existing \tag{...} from the LaTeX annotation; the
+        # authoritative paper number lives in the HTML table cell and is
+        # extracted separately via _extract_equation_number().
+        latex = re.sub(r"\\tag\{[^}]*\}", "", latex).strip()
+        return latex
 
     # ── Complex block builders ─────────────────────────────────────────
 
@@ -607,6 +701,7 @@ class HTMLBuilder(IRBuilder):
                 section_id=section_id,
                 order_index=base_idx,
                 latex=latex,
+                equation_number=_extract_equation_number(tag),
             )
 
         # Data tables
@@ -686,7 +781,7 @@ class HTMLBuilder(IRBuilder):
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
                     # Skip item number tags (e.g. <span class="ltx_tag ltx_tag_item">1.</span>)
-                    child_classes = " ".join(child.get("class", []))
+                    child_classes = set(child.get("class", []))
                     if "ltx_tag" in child_classes:
                         continue
                     if child.name in ("ul", "ol"):
@@ -694,6 +789,14 @@ class HTMLBuilder(IRBuilder):
                         nested = self._build_list_items(child)
                         if nested:
                             item_blocks.append(ListIR(items=nested))
+                    elif child.name in ("section", "article", "div", "span"):
+                        # Recurse generically so that block-level siblings (e.g.
+                        # nested ar5iv lists inside <div class="ltx_para">) are
+                        # preserved instead of flattened to raw inline HTML.
+                        blocks, _ = self._children_to_blocks(
+                            child.children, "", len(item_blocks)
+                        )
+                        item_blocks.extend(blocks)
                     else:
                         inlines = self._tag_to_inlines(child)
                         if inlines:
@@ -704,15 +807,110 @@ class HTMLBuilder(IRBuilder):
 
         return items
 
+    def _build_ar5iv_list_items(self, tag: Tag) -> list[list[BlockUnion]]:
+        """Build list items from ar5iv ``<span class="ltx_enumerate">`` etc.
+
+        ar5iv renders lists as ``<span class="ltx_enumerate">`` containing
+        ``<span class="ltx_item">`` children.  Each item has a marker tag
+        (``ltx_tag_item``) and one or more paragraph-like content tags.
+        """
+        items: list[list[BlockUnion]] = []
+        for item in tag.find_all("span", class_="ltx_item", recursive=False):
+            item_blocks: list[BlockUnion] = []
+            for child in item.children:
+                if isinstance(child, NavigableString):
+                    text = str(child).strip()
+                    if text:
+                        item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
+                elif isinstance(child, Tag):
+                    child_classes = set(child.get("class", []))
+                    # Skip item markers
+                    if "ltx_tag" in child_classes or "ltx_tag_item" in child_classes:
+                        continue
+                    # Nested ar5iv list
+                    if child.name == "span" and _is_ar5iv_list(child_classes):
+                        nested = self._build_ar5iv_list_items(child)
+                        if nested:
+                            item_blocks.append(
+                                ListIR(
+                                    ordered=_is_ar5iv_ordered_list(child_classes),
+                                    items=nested,
+                                )
+                            )
+                    elif child.name in ("section", "article", "div", "span"):
+                        # Recurse generically but keep inline math intact
+                        blocks, _ = self._children_to_blocks(
+                            child.children, "", len(item_blocks)
+                        )
+                        item_blocks.extend(blocks)
+                    else:
+                        result = self._tag_to_blocks(child, "", len(item_blocks))
+                        if isinstance(result, list):
+                            item_blocks.extend(result)
+                        elif result is not None:
+                            item_blocks.append(result)
+            if item_blocks:
+                items.append(item_blocks)
+        return items
+
 
 # ── Constants ──────────────────────────────────────────────────────────
 
-_EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table")
+_EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table|ltx_equation")
 _BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
 _FIGURE_CAPTION_RE = re.compile(r"Figure\s+(\d+)", re.I)
 _TABLE_CAPTION_RE = re.compile(r"Table\s+(\d+)", re.I)
 _ALGORITHM_CAPTION_RE = re.compile(r"Algorithm\s+(\d+)", re.I)
 _ARXIV_FRAGMENT_RE = re.compile(r"#[A-Za-z]")
+
+
+def _is_ar5iv_paragraph(classes: set[str]) -> bool:
+    """Return True for ar5iv inline paragraph wrappers.
+
+    ``ltx_p`` is the actual paragraph element; ``ltx_para`` is a wrapper
+    that may contain a paragraph plus block-level siblings (e.g. nested
+    lists) and should therefore be treated as a generic container.
+    """
+    return "ltx_p" in classes
+
+
+def _is_ar5iv_list(classes: set[str]) -> bool:
+    """Return True for ar5iv list wrappers."""
+    return "ltx_enumerate" in classes or "ltx_itemize" in classes
+
+
+def _is_ar5iv_ordered_list(classes: set[str]) -> bool:
+    """Return True for ordered ar5iv lists."""
+    return "ltx_enumerate" in classes
+
+
+def _is_equation_table(tag: Tag) -> bool:
+    """Return True if *tag* is an equation table wrapper."""
+    classes = " ".join(tag.get("class", []))
+    return bool(_EQUATION_TABLE_RE.search(classes))
+
+
+def _extract_math_latex(tag: Tag) -> str:
+    """Extract LaTeX from a <math> tag, normalizing whitespace."""
+    annotation = tag.find("annotation", attrs={"encoding": "application/x-tex"})
+    if annotation and annotation.text:
+        latex = annotation.text.strip()
+    else:
+        latex = tag.get_text(" ", strip=True)
+    return _normalize_math_latex(latex)
+
+
+def _normalize_math_latex(latex: str) -> str:
+    """Normalize math LaTeX for Markdown display.
+
+    Literal newlines inside math (common inside ``\\mbox{...}``) break
+    Markdown math rendering; collapse them to spaces and trim surrounding
+    whitespace while preserving ``\\\\`` line-break commands.
+    """
+    # Replace literal newlines/tabs with spaces, then collapse runs of spaces.
+    latex = re.sub(r"[\n\r\t]+", " ", latex)
+    latex = re.sub(r" {2,}", " ", latex)
+    return latex.strip()
 
 
 def _is_citation_link(href: str) -> bool:
@@ -769,6 +967,25 @@ def _extract_table_id(caption: str) -> str | None:
     if m:
         return f"table-{m.group(1)}"
     return None
+
+
+def _extract_equation_number(tag: Tag) -> str | None:
+    """Extract an equation number from an ar5iv equation table wrapper."""
+    eqno_tag = tag.find("span", class_=re.compile(r"ltx_tag_equation"))
+    if eqno_tag:
+        return _get_equation_number_text(eqno_tag)
+    # Older/classic HTML tables place the number in a td with class ltx_eqn_eqno
+    eqno_td = tag.find("td", class_=re.compile(r"ltx_eqn_eqno"))
+    if eqno_td:
+        return _get_equation_number_text(eqno_td)
+    return None
+
+
+def _get_equation_number_text(tag: Tag) -> str | None:
+    """Return stripped equation number text, e.g. ``(14)``."""
+    text = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+    # Remove surrounding brackets if any
+    return text or None
 
 
 def _extract_algorithm_number(caption: str) -> str | None:

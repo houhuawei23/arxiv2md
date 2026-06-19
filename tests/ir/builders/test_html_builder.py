@@ -72,8 +72,8 @@ class TestInlineConversion:
         para = doc.sections[0].blocks[0]
         assert para.type == "paragraph"
 
-    def test_italic_tags_become_bold(self, builder):
-        """HTML em/i/ltx_font_italic must be represented as bold, not italic."""
+    def test_italic_tags_become_italic(self, builder):
+        """HTML em/i/ltx_font_italic must be represented as italic, not bold."""
         html = """
         <p><em>em text</em> and <i>i text</i> and
         <span class="ltx_text ltx_font_italic">class text</span>.</p>
@@ -88,7 +88,7 @@ class TestInlineConversion:
         emphases = [il for il in para.inlines if il.type == "emphasis"]
         assert len(emphases) == 3
         for il in emphases:
-            assert il.style == "bold"
+            assert il.style == "italic"
 
     def test_link(self, builder):
         html = """<p>Visit <a href="https://example.com">example</a>.</p>"""
@@ -378,10 +378,9 @@ class TestRoundTrip:
 
         assert "Abstract" in md
         assert "Section 1" in md
-        assert "**emphasis**" in md
-        # Make sure it is bold, not single-emphasis italic
-        assert re.search(r"(?<!\*)\*emphasis\*(?!\*)", md) is None
         assert "*emphasis*" in md
+        # Make sure it is italic, not bold
+        assert "**emphasis**" not in md
 
 
 class TestBreakHandling:
@@ -479,6 +478,116 @@ class TestMathDisplay:
         </section>
         </article>"""
         doc = builder.build(html, arxiv_id="test")
-        para = doc.sections[0].blocks[0]
-        math = [il for il in para.inlines if il.type == "math"][0]
-        assert math.display
+        blocks = doc.sections[0].blocks
+        assert len(blocks) == 1
+        assert blocks[0].type == "equation"
+        assert blocks[0].latex == "E=mc^2"
+
+
+class TestAr5ivMarkup:
+    """ar5iv-specific HTML structures must not leak as raw HTML."""
+
+    def test_ltx_p_paragraph_with_inline_math(self, builder):
+        """<span class="ltx_p"> containing <math> becomes a single paragraph."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <span class="ltx_p">
+          For each set
+          <math alttext="S\\subseteq\\{1\\ldots,p\\}" display="inline">
+            <annotation encoding="application/x-tex">S\\subseteq\\{1,\\ldots,p\\}</annotation>
+          </math>
+          , test whether
+          <math alttext="H_{0,S}({\\mathcal{E}})" display="inline">
+            <annotation encoding="application/x-tex">H_{0,S}({\\mathcal{E}})</annotation>
+          </math>
+          .
+        </span>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        blocks = doc.sections[0].blocks
+        assert len(blocks) == 1
+        assert blocks[0].type == "paragraph"
+        math = [il for il in blocks[0].inlines if il.type == "math"]
+        assert len(math) == 2
+        assert math[0].latex == "S\\subseteq\\{1,\\ldots,p\\}"
+
+    def test_ltx_enumerate_becomes_ordered_list(self, builder):
+        """<span class="ltx_enumerate"> becomes a Markdown ordered list."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <span class="ltx_enumerate">
+          <span class="ltx_item">
+            <span class="ltx_tag ltx_tag_item">1)</span>
+            <span class="ltx_para">
+              <span class="ltx_p">First item.</span>
+            </span>
+          </span>
+          <span class="ltx_item">
+            <span class="ltx_tag ltx_tag_item">2)</span>
+            <span class="ltx_para">
+              <span class="ltx_p">Second item with <math display="inline">
+                <annotation encoding="application/x-tex">x</annotation>
+              </math>.</span>
+            </span>
+          </span>
+        </span>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        lists = [b for b in doc.sections[0].blocks if b.type == "list"]
+        assert len(lists) == 1
+        lst = lists[0]
+        assert lst.ordered
+        assert len(lst.items) == 2
+
+    def test_inline_equation_table_becomes_math(self, builder):
+        """<table class="ltx_equation"> inside a paragraph becomes math, not raw HTML."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <span class="ltx_p">
+          Some text
+          <table class="ltx_equation ltx_eqn_table" id="E1">
+            <tbody><tr>
+              <td>
+                <math display="block" alttext="E=mc^2">
+                  <annotation encoding="application/x-tex">E=mc^2</annotation>
+                </math>
+              </td>
+            </tr></tbody>
+          </table>
+          more text.
+        </span>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        blocks = doc.sections[0].blocks
+        assert len(blocks) == 3
+        assert blocks[0].type == "paragraph"
+        assert blocks[1].type == "equation"
+        assert blocks[1].latex == "E=mc^2"
+        assert blocks[2].type == "paragraph"
+        assert not any(
+            il.type == "raw_inline" and "<table" in getattr(il, "content", "")
+            for il in blocks[0].inlines
+        )
+
+    def test_math_latex_newlines_are_normalized(self, builder):
+        """Literal newlines inside math LaTeX are collapsed to spaces."""
+        html = """
+        <article class="ltx_document">
+        <section class="ltx_section"><h2>T</h2>
+        <p><math display="block">
+          <annotation encoding="application/x-tex">
+            \\mbox{for all } e \\in E: \\quad X^e \\mbox{ has an arbitrary\n          distribution and } Y^e = \\varepsilon^e
+          </annotation>
+        </math></p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        eq = doc.sections[0].blocks[0]
+        assert eq.type == "equation"
+        assert "\n" not in eq.latex

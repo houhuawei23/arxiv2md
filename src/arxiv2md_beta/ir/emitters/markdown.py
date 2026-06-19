@@ -272,30 +272,56 @@ class MarkdownEmitter(IREmitter):
 
     def _emit_list_item(self, item_blocks: list, ordered: bool, indent: int, index: int = 0) -> list[str]:
         prefix = "  " * indent
+        marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
+        continuation_indent = " " * len(marker)
+        # Block-level content inside a list item must be indented enough for
+        # standard Markdown parsers to recognise it as part of the item. We use
+        # at least 4 spaces per nesting level (or one past the marker width,
+        # whichever is larger) and preserve that indentation through the
+        # downstream display-math formatter.
+        block_indent = " " * max(len(marker) + 1, 4 * (indent + 1))
         lines: list[str] = []
 
-        # Split into block items and nested lists
-        text_blocks = []
+        # Split into block items and nested lists, rendering block-level content
+        # (equations, figures, code, etc.) on their own indented lines rather
+        # than flattening them into the item's first paragraph.
+        text_blocks: list = []
         for blk in item_blocks:
             if hasattr(blk, "type") and blk.type == "list":
-                # Nested list — render after the text
-                text = " ".join(
-                    self._emit_block(b) for b in text_blocks
-                ).strip()
-                marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
-                lines.append(f"{marker}{text}" if text else f"{marker}")
+                self._flush_list_text(text_blocks, marker, continuation_indent, lines)
                 text_blocks = []
                 for nested_idx, nested_item in enumerate(blk.items):
                     lines.extend(self._emit_list_item(nested_item, blk.ordered, indent + 1, nested_idx))
+            elif _is_block_level_in_list(blk):
+                self._flush_list_text(text_blocks, marker, continuation_indent, lines)
+                text_blocks = []
+                rendered = self._emit_block(blk)
+                for block_line in rendered.split("\n"):
+                    if block_line.strip():
+                        lines.append(f"{block_indent}{block_line}")
+                    else:
+                        lines.append("")
             else:
                 text_blocks.append(blk)
 
-        if text_blocks:
-            text = " ".join(self._emit_block(b) for b in text_blocks).strip()
-            marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
-            lines.insert(0, f"{marker}{text}" if text else f"{marker}")
-
+        self._flush_list_text(text_blocks, marker, continuation_indent, lines)
         return lines
+
+    def _flush_list_text(
+        self,
+        text_blocks: list,
+        marker: str,
+        continuation_indent: str,
+        lines: list[str],
+    ) -> None:
+        """Flatten consecutive paragraph-like blocks into one list item line."""
+        if not text_blocks:
+            return
+        text = " ".join(self._emit_block(b) for b in text_blocks).strip()
+        first_line = f"{marker}{text}" if text else marker
+        # Wrap long lines so continuation lines stay aligned with the item text.
+        wrapped = _wrap_line(first_line, continuation_indent)
+        lines.extend(wrapped)
 
     def _emit_algorithm(self, alg: AlgorithmIR) -> str:
         lines: list[str] = []
@@ -311,6 +337,30 @@ class MarkdownEmitter(IREmitter):
             if step_text:
                 lines.append(step_text)
         return "\n".join(lines)
+
+
+def _is_block_level_in_list(block) -> bool:
+    """Return True for blocks that should sit on their own line inside a list item."""
+    t = getattr(block, "type", None)
+    return t in ("equation", "figure", "table", "code", "blockquote", "rule")
+
+
+def _wrap_line(line: str, continuation_indent: str, width: int = 100) -> list[str]:
+    """Wrap a long line, indenting continuation lines to preserve list alignment."""
+    if len(line) <= width:
+        return [line]
+    words = line.split(" ")
+    lines: list[str] = []
+    current = words[0] if words else ""
+    for word in words[1:]:
+        if len(current) + 1 + len(word) <= width:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = f"{continuation_indent}{word}"
+    if current:
+        lines.append(current)
+    return lines
 
 
 # ── Post-processing ────────────────────────────────────────────────────

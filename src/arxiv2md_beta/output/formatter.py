@@ -27,7 +27,10 @@ _ANCHOR_TAG_NEWLINE_RE = re.compile(r'(<a id="[^"]+"></a>)\n(?!\n)(?!\s*$)')
 _TABLE_CAPTION_RE = re.compile(r"\n\*\*(Table\s+\d+[^*]*)\*\*\s*\n(\|[^\n]*)")
 _FIGURE_CAPTION_BLOCK_RE = re.compile(r">\s*Figure\s+(\d+)", re.IGNORECASE)
 _FIGURE_ANCHOR_BLOCK_RE = re.compile(r'<a id="figure-(\d+)"></a>')
-_DISPLAY_MATH_RE = re.compile(r"\$\$\n(.*?)\n\$\$", re.DOTALL)
+_DISPLAY_MATH_RE = re.compile(
+    r"^(\s*\$\$\n)(.*?)(\n\s*\$\$)",
+    re.DOTALL | re.MULTILINE,
+)
 _DUPLICATE_BULLET_RE = re.compile(r"(?m)^(\s*-\s+)[•·◦]\s+")
 _EXCESS_EMPTY_LINES_RE = re.compile(r"\n{3,}")
 _WHITESPACE_TO_HYPHEN_RE = re.compile(r"\s+")
@@ -259,8 +262,8 @@ def _format_markdown_output(markdown: str) -> str:
     from arxiv2md_beta.html.markdown import _simplify_display_math
 
     def _replace_display_math(m: re.Match) -> str:
-        inner = _simplify_display_math(m.group(1))
-        return f"$$\n{inner}\n$$"
+        inner = _simplify_display_math(m.group(2))
+        return f"{m.group(1)}{inner}{m.group(3)}"
 
     markdown = _DISPLAY_MATH_RE.sub(_replace_display_math, markdown)
 

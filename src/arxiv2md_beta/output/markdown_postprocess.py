@@ -14,6 +14,11 @@ _ANCHOR_TAG_RE = re.compile(r'<a id="[^"]*"></a>')
 _TRAILING_MATH_SPACE_RE = re.compile(
     r'\\(?: |\,|\;|\:|\!|quad|qquad|hspace\{[^}]*\})\s*$'
 )
+# Multi-line display math blocks, capturing leading indentation on both fences.
+_DISPLAY_MATH_BLOCK_RE = re.compile(
+    r"^([ \t]*)\$\$\n(.*?)\n\1\$\$",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 def _remove_anchor_tags(text: str) -> str:
@@ -37,7 +42,24 @@ def _clean_math_latex(latex: str) -> str:
 
 
 def _clean_math_and_spacing(text: str) -> str:
-    """Clean math latex and ensure inline math has spaces around ``$`` delimiters."""
+    """Clean math latex and ensure inline math has spaces around ``$`` delimiters.
+
+    Multi-line display math blocks preserve their original indentation so that
+    equations remain valid when nested inside list items.
+    """
+    # Step 1: protect multi-line display math blocks and preserve indentation.
+    protected: list[str] = []
+
+    def _protect_display(m: re.Match) -> str:
+        indent = m.group(1)
+        cleaned = _clean_math_latex(m.group(2))
+        replacement = f"{indent}$$\n{indent}{cleaned}\n{indent}$$"
+        protected.append(replacement)
+        return f"\x00DISPLAY_MATH_{len(protected) - 1}\x00"
+
+    text = _DISPLAY_MATH_BLOCK_RE.sub(_protect_display, text)
+
+    # Step 2: tokenize remaining text for inline math and single-line display math.
     tokens: list[tuple[str, str]] = []
     i = 0
     n = len(text)
@@ -92,7 +114,13 @@ def _clean_math_and_spacing(text: str) -> str:
             s = s + " "
         out_parts.append(s)
 
-    return "".join(out_parts)
+    result = "".join(out_parts)
+
+    # Step 3: restore protected display math blocks.
+    for idx, replacement in enumerate(protected):
+        result = result.replace(f"\x00DISPLAY_MATH_{idx}\x00", replacement)
+
+    return result
 
 
 def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> str:
