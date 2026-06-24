@@ -1,5 +1,9 @@
 **/.*
 
+# Keep GitHub Actions workflows and git hooks under version control
+!/.github/
+!/.githooks/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

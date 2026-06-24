@@ -12,7 +12,7 @@ from arxiv2md_beta.latex.tex_source import TexSourceInfo
 
 
 def test_parse_icml_icmlauthor_icmlaffiliation() -> None:
-    """ICML 2026 style: \\icmlauthor{Name}{keys} and \\icmlaffiliation{key}{Institution}."""
+    r"""ICML 2026 style: \\icmlauthor{Name}{keys} and \\icmlaffiliation{key}{Institution}."""
     tex = r"""
 \begin{document}
 \begin{icmlauthorlist}
@@ -37,7 +37,7 @@ x
 
 
 def test_parse_iclr_preamble_author_superscript_legend() -> None:
-    """ICLR/NeurIPS: \\author in preamble before \\begin{document}, superscript + legend line."""
+    r"""ICLR/NeurIPS: \\author in preamble before \\begin{document}, superscript + legend line."""
     tex = r"""
 \documentclass{article}
 \author{
@@ -62,7 +62,7 @@ x
 
 
 def test_parse_ieee_tran_comma_separated_author_line() -> None:
-    """IEEEtran: multiple authors in one ``\\author{ A, B, C }`` with ``\\thanks`` (no affiliations in TeX)."""
+    r"""IEEEtran: multiple authors in one ``\\author{ A, B, C }`` with ``\\thanks`` (no affiliations in TeX)."""
     tex = r"""
 \documentclass[lettersize,journal]{IEEEtran}
 \begin{document}

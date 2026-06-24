@@ -13,10 +13,11 @@ from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 from loguru import logger
 
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, LocalHtmlQuery, SectionNode
+from arxiv2md_beta.utils.html_attrs import attr_optional, attr_str, classes
 
 
 class LocalHtmlIngestionError(Exception):
@@ -149,7 +150,7 @@ def _remove_unwanted_elements(soup: BeautifulSoup) -> None:
                 if not link:
                     is_toc = False
                     break
-                href = link.get("href", "")
+                href = attr_str(link, "href")
                 # TOC links usually start with #
                 if not (href.startswith("#") or "/doi/" in href):
                     is_toc = False
@@ -161,7 +162,7 @@ def _remove_unwanted_elements(soup: BeautifulSoup) -> None:
     # Remove duplicate section content by tracking what we've seen
     seen_sections = set()
     for heading in soup.find_all(["h2", "h3", "h4", "h5", "h6"]):
-        section_id = heading.get("id", "")
+        section_id = attr_str(heading, "id")
         if section_id and section_id in seen_sections:
             # Remove this heading and its content
             heading.decompose()
@@ -182,9 +183,9 @@ def _extract_local_title(soup: BeautifulSoup) -> str | None:
 
     # Try article title
     article = soup.find("article")
-    if article:
+    if isinstance(article, Tag):
         h1 = article.find("h1")
-        if h1:
+        if isinstance(h1, Tag):
             text = h1.get_text(" ", strip=True)
             if text:
                 return text
@@ -192,7 +193,7 @@ def _extract_local_title(soup: BeautifulSoup) -> str | None:
     # Try meta title
     meta_title = soup.find("meta", property="og:title")
     if meta_title:
-        return meta_title.get("content", "").strip()
+        return attr_str(meta_title, "content").strip()  # type: ignore[arg-type]
 
     return None
 
@@ -222,7 +223,7 @@ def _extract_local_authors(soup: BeautifulSoup) -> list[str]:
     if not authors:
         for cls in ["authors", "author", "contrib-author", "entry-author"]:
             container = soup.find(class_=cls)
-            if container:
+            if isinstance(container, Tag):
                 for link in container.find_all("a"):
                     text = link.get_text(" ", strip=True)
                     if text and text not in authors:
@@ -235,7 +236,7 @@ def _extract_local_abstract(soup: BeautifulSoup) -> tuple[str | None, str | None
     """Extract abstract from local HTML."""
     # Try section with abstract id
     abstract_section = soup.find("section", id="abstract")
-    if abstract_section:
+    if isinstance(abstract_section, Tag):
         # Get text version
         text = abstract_section.get_text(" ", strip=True)
         # Get HTML version (excluding the heading)
@@ -269,7 +270,7 @@ def _extract_local_sections(soup: BeautifulSoup, base_path: Path) -> tuple[list[
         article = soup
 
     # Find all headings in the article
-    headings = article.find_all(["h2", "h3", "h4", "h5", "h6"])
+    headings = article.find_all(["h2", "h3", "h4", "h5", "h6"]) if isinstance(article, Tag) else []
 
     # Filter out unwanted headings
     filtered_headings = []
@@ -292,10 +293,12 @@ def _extract_local_sections(soup: BeautifulSoup, base_path: Path) -> tuple[list[
     for i, heading in enumerate(filtered_headings):
         level = int(heading.name[1])
         title = heading.get_text(" ", strip=True)
-        anchor = heading.get("id") or f"section-{i}"
+        anchor = attr_optional(heading, "id") or f"section-{i}"
 
         # Collect HTML content until next heading of same or higher level
-        html_content = _collect_content_until_next_heading(heading, filtered_headings[i + 1:] if i + 1 < len(filtered_headings) else [])
+        html_content = _collect_content_until_next_heading(
+            heading, filtered_headings[i + 1 :] if i + 1 < len(filtered_headings) else []
+        )
 
         # Rewrite image paths in the HTML
         if html_content:
@@ -340,7 +343,7 @@ def _is_toc_list(elem: Tag) -> bool:
     for li in items:
         link = li.find("a", href=True)
         if link:
-            href = link.get("href", "")
+            href = attr_str(link, "href")
             if href.startswith("#"):
                 toc_link_count += 1
 
@@ -359,7 +362,7 @@ def _collect_content_until_next_heading(heading: Tag, next_headings: list[Tag]) 
 
     # Ensure we have the actual heading element (h1-h6), not a child element
     # Headings may contain nested elements like <i>, <b>, etc.
-    actual_heading = heading
+    actual_heading: Tag | None = heading
     while actual_heading and actual_heading.name not in ("h1", "h2", "h3", "h4", "h5", "h6"):
         actual_heading = actual_heading.parent
 
@@ -377,10 +380,9 @@ def _collect_content_until_next_heading(heading: Tag, next_headings: list[Tag]) 
         # Collect all children after the heading within the section
         started = False
         for child in section.children:
-            if isinstance(child, Tag) and child.name == heading_name:
-                if child.get_text(strip=True) == heading_text:
-                    started = True
-                    continue
+            if isinstance(child, Tag) and child.name == heading_name and child.get_text(strip=True) == heading_text:
+                started = True
+                continue
             if not started:
                 continue
 
@@ -393,7 +395,7 @@ def _collect_content_until_next_heading(heading: Tag, next_headings: list[Tag]) 
                 # Skip navigation elements
                 if child.name in ["nav", "footer", "aside"]:
                     continue
-                if any(cls in str(child.get("class", [])) for cls in ["toolbar", "metrics", "popup"]):
+                if any(cls in str(classes(child)) for cls in ["toolbar", "metrics", "popup"]):
                     continue
                 # Skip TOC lists
                 if _is_toc_list(child):
@@ -436,7 +438,7 @@ def _collect_content_until_next_heading(heading: Tag, next_headings: list[Tag]) 
             if current.name in ["nav", "footer", "aside"]:
                 current = current.next_sibling
                 continue
-            if any(cls in str(current.get("class", [])) for cls in ["toolbar", "metrics", "popup"]):
+            if any(cls in str(classes(current)) for cls in ["toolbar", "metrics", "popup"]):
                 current = current.next_sibling
                 continue
             # Skip TOC lists
@@ -465,7 +467,7 @@ def _rewrite_image_paths(html: str, base_path: Path) -> tuple[str, dict[str, str
     soup = BeautifulSoup(html, "html.parser")
 
     for img in soup.find_all("img"):
-        src = img.get("src")
+        src = attr_str(img, "src")
         if not src:
             continue
 
@@ -505,7 +507,7 @@ async def ingest_local_html(
     sections: list[str] | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a local HTML file and convert to Markdown."""
     sections = sections or []
 
@@ -523,7 +525,7 @@ async def ingest_local_html(
 
     # Use provided metadata or fall back to parsed
     title = parsed.title or query.title or query.html_path.stem
-    authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
+    authors = parsed.authors if parsed.authors else query.authors
     submission_date = query.submission_date
 
     # Create paper-specific output directory
@@ -545,14 +547,10 @@ async def ingest_local_html(
         _copy_associated_files(query.html_path, images_dir)
 
     # Filter sections
-    filtered_sections = filter_sections(
-        parsed.sections, mode=section_filter_mode, selected=sections
-    )
+    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
     if remove_refs:
-        _REFERENCE_TITLES = ("references", "bibliography")
-        filtered_sections = filter_sections(
-            filtered_sections, mode="exclude", selected=_REFERENCE_TITLES
-        )
+        reference_titles = ("references", "bibliography")
+        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=reference_titles)
 
     # Check if abstract should be included
     selected_lower = [s.lower() for s in sections]
@@ -612,7 +610,7 @@ async def ingest_local_html(
     except Exception as e:
         logger.warning(f"Failed to save paper.yml: {e}")
 
-    metadata = {
+    metadata: dict[str, Any] = {
         "title": title,
         "authors": authors,
         "abstract": parsed.abstract,

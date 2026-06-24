@@ -14,9 +14,9 @@ from pdf2image import convert_from_path
 from PIL import Image, ImageChops
 
 from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
+from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import iterable_task_progress
-from arxiv2md_beta.latex.tex_source import TexSourceInfo
 
 
 def _trim_whitespace(img: Image.Image, tolerance: int = 100) -> Image.Image:
@@ -34,7 +34,7 @@ def _trim_whitespace(img: Image.Image, tolerance: int = 100) -> Image.Image:
         Subtract from diff to ignore compression artifacts (0-255).
         Higher values trim more aggressively.
 
-    Returns
+    Returns:
     -------
     Image.Image
         Cropped image, or original if trim fails
@@ -76,7 +76,7 @@ def process_images(
     images_dir_name : str
         Name of images subdirectory
 
-    Returns
+    Returns:
     -------
     ProcessedImages
         Mapping from figure index to relative image path
@@ -92,9 +92,7 @@ def process_images(
 
     if not image_files:
         logger.warning("No images found in TeX source")
-        return ProcessedImages(
-            image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={}
-        )
+        return ProcessedImages(image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={})
 
     logger.info(f"Processing {len(image_files)} images...")
 
@@ -165,7 +163,7 @@ async def process_images_async(
     max_pdf_workers : int | None
         Maximum processes for PDF conversion; defaults to ``max_concurrency``
 
-    Returns
+    Returns:
     -------
     ProcessedImages
         Mapping from figure index to relative image path
@@ -179,9 +177,7 @@ async def process_images_async(
 
     if not image_files:
         logger.warning("No images found in TeX source")
-        return ProcessedImages(
-            image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={}
-        )
+        return ProcessedImages(image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={})
 
     logger.info(f"Processing {len(image_files)} images...")
 
@@ -281,7 +277,7 @@ def _process_single_image(
     index : int
         Image index (for fallback naming)
 
-    Returns
+    Returns:
     -------
     tuple[Path, str]
         Relative path to processed image and original filename
@@ -339,7 +335,7 @@ def _process_single_image(
 
         try:
             # Try to open with PIL (requires ghostscript for EPS)
-            img = Image.open(source_path)
+            img: Image.Image = Image.open(source_path)
             if img.mode != "RGB":
                 img = img.convert("RGB")
             if trim_whitespace:

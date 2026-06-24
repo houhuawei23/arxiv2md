@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from bs4 import BeautifulSoup
 
 from arxiv2md_beta.html.serializers import (
-    get_default_registry,
-    SerializerContext,
     HeadingSerializer,
     ListSerializer,
     ParagraphSerializer,
+    SerializerContext,
     TableSerializer,
-    FigureSerializer,
+    get_default_registry,
 )
 
 
@@ -26,9 +24,7 @@ class TestSerializerRegistry:
         registry = get_default_registry()
         assert registry is not None
         # Check that common serializers are registered
-        assert registry.get_block_serializer(
-            BeautifulSoup("<p>test</p>", "html.parser").find("p")
-        ) is not None
+        assert registry.get_block_serializer(BeautifulSoup("<p>test</p>", "html.parser").find("p")) is not None
 
     def test_serialize_heading(self):
         """Test heading serialization via registry."""

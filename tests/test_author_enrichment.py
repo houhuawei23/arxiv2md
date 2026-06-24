@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
-from arxiv2md_beta.network.author_enrichment import _dedupe_affiliation_strings, _merge_openalex_into_authors
+from arxiv2md_beta.network.author_enrichment import (
+    _dedupe_affiliation_strings,
+    _merge_openalex_into_authors,
+)
 from arxiv2md_beta.output.metadata import _metadata_to_paper_yml
 
 
@@ -47,7 +50,10 @@ def test_merge_openalex_into_authors_sets_affiliations_and_orcid() -> None:
     work = {
         "authorships": [
             {
-                "author": {"display_name": "Jane Doe", "orcid": "https://orcid.org/0000-0002-1825-0097"},
+                "author": {
+                    "display_name": "Jane Doe",
+                    "orcid": "https://orcid.org/0000-0002-1825-0097",
+                },
                 "institutions": [{"display_name": "OpenAlex Lab"}],
                 "raw_affiliation_strings": ["Dept. of AI"],
             }

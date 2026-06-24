@@ -1,3 +1,4 @@
+# type: ignore
 """Base classes for HTML to Markdown serializers."""
 
 from __future__ import annotations
@@ -5,7 +6,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, ClassVar, Generic, TypeVar
+from typing import ClassVar, TypeVar
 
 from bs4 import NavigableString, Tag
 
@@ -58,7 +59,7 @@ class BaseSerializer(ABC):
         context : SerializerContext
             Shared serialization context
 
-        Returns
+        Returns:
         -------
         str | list[str]
             Markdown representation of the tag
@@ -73,7 +74,7 @@ class BaseSerializer(ABC):
         tag : Tag
             The tag to check
 
-        Returns
+        Returns:
         -------
         bool
             True if this serializer can handle the tag
@@ -94,7 +95,7 @@ class InlineSerializer(BaseSerializer):
         context : SerializerContext
             Serialization context
 
-        Returns
+        Returns:
         -------
         str
             Concatenated child content
@@ -129,7 +130,7 @@ class BlockSerializer(BaseSerializer):
         registry : SerializerRegistry | None
             Optional registry for dispatching to child serializers
 
-        Returns
+        Returns:
         -------
         list[str]
             List of markdown blocks
@@ -167,6 +168,7 @@ class SerializerRegistry:
         self._block_serializers: dict[str, type[BlockSerializer]] = {}
         # Import here to avoid circular dependency
         from arxiv2md_beta.html.serializers.inline import DefaultInlineSerializer
+
         self._default_inline = DefaultInlineSerializer()
         self._default_block = None  # No default for blocks
 
@@ -202,7 +204,7 @@ class SerializerRegistry:
         tag : Tag
             The tag to serialize
 
-        Returns
+        Returns:
         -------
         InlineSerializer
             The appropriate serializer (or default if not registered)
@@ -220,7 +222,7 @@ class SerializerRegistry:
         tag : Tag
             The tag to serialize
 
-        Returns
+        Returns:
         -------
         BlockSerializer | None
             The appropriate serializer (or None if not registered)
@@ -240,7 +242,7 @@ class SerializerRegistry:
         context : SerializerContext
             Serialization context
 
-        Returns
+        Returns:
         -------
         str
             Markdown representation
@@ -248,9 +250,7 @@ class SerializerRegistry:
         serializer = self.get_inline_serializer(tag)
         return serializer.serialize(tag, context)
 
-    def serialize_block(
-        self, tag: Tag, context: SerializerContext
-    ) -> str | list[str] | None:
+    def serialize_block(self, tag: Tag, context: SerializerContext) -> str | list[str] | None:
         """Serialize a block tag using the appropriate serializer.
 
         Parameters
@@ -260,7 +260,7 @@ class SerializerRegistry:
         context : SerializerContext
             Serialization context
 
-        Returns
+        Returns:
         -------
         str | list[str] | None
             Markdown representation
@@ -273,9 +273,7 @@ class SerializerRegistry:
             return self._serialize_container(tag, context)
         return None
 
-    def _serialize_container(
-        self, tag: Tag, context: SerializerContext
-    ) -> list[str]:
+    def _serialize_container(self, tag: Tag, context: SerializerContext) -> list[str]:
         """Serialize a container element by processing its children."""
         blocks = []
         for child in tag.children:

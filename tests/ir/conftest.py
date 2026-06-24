@@ -31,17 +31,13 @@ def minimal_doc() -> DocumentIR:
     """Smallest meaningful DocumentIR."""
     return DocumentIR(
         metadata=PaperMetadata(arxiv_id="2501.12345", title="Test Paper"),
-        abstract=[
-            ParagraphIR(inlines=[TextIR(text="This is the abstract.")])
-        ],
+        abstract=[ParagraphIR(inlines=[TextIR(text="This is the abstract.")])],
         sections=[
             SectionIR(
                 title="Introduction",
                 level=1,
                 struct_id="sec_0",
-                blocks=[
-                    ParagraphIR(inlines=[TextIR(text="Hello world.")])
-                ],
+                blocks=[ParagraphIR(inlines=[TextIR(text="Hello world.")])],
             )
         ],
     )
@@ -171,9 +167,7 @@ def complex_doc() -> DocumentIR:
                                 section_id="sec_0_0",
                                 order_index=1,
                                 blocks=[
-                                    ParagraphIR(
-                                        inlines=[TextIR(text="This is a blockquote.")]
-                                    ),
+                                    ParagraphIR(inlines=[TextIR(text="This is a blockquote.")]),
                                 ],
                             ),
                         ],

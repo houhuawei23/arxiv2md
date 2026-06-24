@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 from collections import deque
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from arxiv2md_beta.ir.blocks import (
     BlockQuoteIR,
     BlockUnion,
     CodeIR,
-    EquationIR,
     FigureIR,
     HeadingIR,
     ListIR,
@@ -43,7 +42,7 @@ _SHARED_SOURCE = SourceLoc(parser="latex")
 def _pandoc_attrs_id(attrs: list[Any]) -> str:
     """Extract the element id from Pandoc Attr."""
     if isinstance(attrs, list) and len(attrs) > 0 and isinstance(attrs[0], str):
-        return cast(str, attrs[0])
+        return attrs[0]
     return ""
 
 
@@ -55,7 +54,7 @@ def _pandoc_attrs_classes(attrs: list[Any]) -> list[str]:
 
 
 class LaTeXBuilder(IRBuilder):
-    """Build a :class:`DocumentIR` from LaTeX source via Pandoc JSON AST.
+    r"""Build a :class:`DocumentIR` from LaTeX source via Pandoc JSON AST.
 
     Parameters
     ----------
@@ -85,7 +84,7 @@ class LaTeXBuilder(IRBuilder):
     # ------------------------------------------------------------------
 
     def build(self, source: Any, **kwargs: Any) -> DocumentIR:
-        """Parse LaTeX *source* and return a :class:`DocumentIR`.
+        r"""Parse LaTeX *source* and return a :class:`DocumentIR`.
 
         Parameters
         ----------
@@ -99,7 +98,7 @@ class LaTeXBuilder(IRBuilder):
             * ``base_dir``: Path | None – directory for relative-path resolution
               (forwarded to pandoc).
 
-        Returns
+        Returns:
         -------
         DocumentIR
         """
@@ -108,28 +107,24 @@ class LaTeXBuilder(IRBuilder):
         authors: list[str] = kwargs.get("authors", [])
         abstract_text: str | None = kwargs.get("abstract")
 
-        tex_content = cast(str, source)
+        tex_content = cast("str", source)
 
         # Convert LaTeX → Pandoc JSON AST
         try:
             import pypandoc
-        except ImportError:
+        except ImportError as e:
             from arxiv2md_beta.latex.parser import ParserNotAvailableError
+
             raise ParserNotAvailableError(
-                "pypandoc is required for LaTeX parsing. "
-                "Install it with: pip install pypandoc"
-            )
+                "pypandoc is required for LaTeX parsing. Install it with: pip install pypandoc"
+            ) from e
 
         try:
-            json_str = pypandoc.convert_text(
-                tex_content, "json", format="latex", extra_args=["--wrap=none"]
-            )
+            json_str = pypandoc.convert_text(tex_content, "json", format="latex", extra_args=["--wrap=none"])
         except RuntimeError as e:
             raise RuntimeError(f"Failed to convert LaTeX to Pandoc AST: {e}") from e
         except OSError as e:
-            raise RuntimeError(
-                f"Failed to convert LaTeX (pandoc not found?): {e}"
-            ) from e
+            raise RuntimeError(f"Failed to convert LaTeX (pandoc not found?): {e}") from e
 
         ast = json.loads(json_str)
         blocks: list[dict] = ast.get("blocks", [])
@@ -158,17 +153,18 @@ class LaTeXBuilder(IRBuilder):
                 h_inlines = self._inlines_from_pandoc(blk.get("c", [None, [], []])[2])
                 title_text = self._inlines_to_plain_text(h_inlines).lower().strip()
                 if title_text in (
-                    "references", "bibliography", "reference",
-                    "literature cited", "works cited",
+                    "references",
+                    "bibliography",
+                    "reference",
+                    "literature cited",
+                    "works cited",
                 ):
                     bib_start_idx = i
                     break
 
         if bib_start_idx is not None:
             body_blocks = list(blocks[:bib_start_idx])
-            bib_blocks = self._blocks_from_pandoc(
-                blocks[bib_start_idx:], section_id="bib"
-            )
+            bib_blocks = self._blocks_from_pandoc(blocks[bib_start_idx:], section_id="bib")
 
         # Build sections from body blocks
         sections = self._build_sections(body_blocks)
@@ -221,16 +217,13 @@ class LaTeXBuilder(IRBuilder):
             return []
         # MetaList: {"t": "MetaList", "c": [...]}
         if isinstance(meta_value, dict) and meta_value.get("t") == "MetaList":
-            return [
-                name
-                for item in meta_value.get("c", [])
-                if (name := LaTeXBuilder._meta_to_text(item))
-            ]
+            return [name for item in meta_value.get("c", []) if (name := LaTeXBuilder._meta_to_text(item))]
         text = LaTeXBuilder._meta_to_text(meta_value)
         if not text:
             return []
         # Split by \and
         import re
+
         return [a.strip() for a in re.split(r"\\and|\\AND", text) if a.strip()]
 
     # ------------------------------------------------------------------
@@ -322,9 +315,7 @@ class LaTeXBuilder(IRBuilder):
 
         return result
 
-    def _blocks_from_pandoc(
-        self, blocks: list[dict], section_id: str = ""
-    ) -> list[BlockUnion]:
+    def _blocks_from_pandoc(self, blocks: list[dict], section_id: str = "") -> list[BlockUnion]:
         """Convert a list of Pandoc block dicts to IR blocks."""
         result: list[BlockUnion] = []
         order = 0
@@ -381,17 +372,13 @@ class LaTeXBuilder(IRBuilder):
         t = blk.get("t", "")
         c = blk.get("c", [])
 
-        if t == "Para":
+        if t == "Para" or t == "Plain":
             inlines = self._inlines_from_pandoc(c) if isinstance(c, list) else []
             return ParagraphIR(
-                inlines=inlines, source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
-            )
-        elif t == "Plain":
-            inlines = self._inlines_from_pandoc(c) if isinstance(c, list) else []
-            return ParagraphIR(
-                inlines=inlines, source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                inlines=inlines,
+                source=_SHARED_SOURCE,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "Header":
             c_list = c if isinstance(c, list) else [1, ["", [], []], []]
@@ -399,10 +386,12 @@ class LaTeXBuilder(IRBuilder):
             anchor = _pandoc_attrs_id(c_list[1])
             inlines = self._inlines_from_pandoc(c_list[2] if len(c_list) > 2 else [])
             return HeadingIR(
-                level=level, inlines=inlines,
+                level=level,
+                inlines=inlines,
                 anchor=anchor if anchor else None,
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "CodeBlock":
             c_list = c if isinstance(c, list) else [["", [], []], "", ""]
@@ -413,45 +402,46 @@ class LaTeXBuilder(IRBuilder):
             classes = _pandoc_attrs_classes(attrs)
             language = lang if lang else (classes[0] if classes else None)
             return CodeIR(
-                language=language, text=code,
+                language=language,
+                text=code,
                 anchor=anchor if anchor else None,
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "BlockQuote":
-            inner = self._blocks_from_pandoc(
-                c if isinstance(c, list) else [], section_id
-            )
+            inner = self._blocks_from_pandoc(c if isinstance(c, list) else [], section_id)
             return BlockQuoteIR(
-                blocks=inner, source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                blocks=inner,
+                source=_SHARED_SOURCE,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "OrderedList":
-            list_attrs = c[0] if isinstance(c, list) and len(c) > 0 else [1, {}, {}]
             items_list = c[1] if isinstance(c, list) and len(c) > 1 else c if isinstance(c, list) else []
             items_structure: list[list[BlockUnion]] = []
             for item in items_list:
-                item_blocks = self._blocks_from_pandoc(
-                    item if isinstance(item, list) else [], section_id
-                )
+                item_blocks = self._blocks_from_pandoc(item if isinstance(item, list) else [], section_id)
                 items_structure.append(item_blocks)
             return ListIR(
-                ordered=True, items=items_structure,
+                ordered=True,
+                items=items_structure,
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "BulletList":
             items_list = c if isinstance(c, list) else []
-            items_structure: list[list[BlockUnion]] = []
+            items_structure = []
             for item in items_list:
-                item_blocks = self._blocks_from_pandoc(
-                    item if isinstance(item, list) else [], section_id
-                )
+                item_blocks = self._blocks_from_pandoc(item if isinstance(item, list) else [], section_id)
                 items_structure.append(item_blocks)
             return ListIR(
-                ordered=False, items=items_structure,
+                ordered=False,
+                items=items_structure,
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "Table":
             return self._build_table_from_pandoc(c, section_id, order)
@@ -460,15 +450,14 @@ class LaTeXBuilder(IRBuilder):
         elif t in ("HorizontalRule",):
             return RuleIR(
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "Div":
             attrs = c[0] if isinstance(c, list) and len(c) > 0 else ["", [], []]
             inner_blocks = c[1] if isinstance(c, list) and len(c) > 1 else []
             anchor = _pandoc_attrs_id(attrs)
-            div_blocks = self._blocks_from_pandoc(
-                inner_blocks if isinstance(inner_blocks, list) else [], section_id
-            )
+            div_blocks = self._blocks_from_pandoc(inner_blocks if isinstance(inner_blocks, list) else [], section_id)
             if anchor:
                 for b in div_blocks:
                     if not b.anchor:
@@ -478,24 +467,25 @@ class LaTeXBuilder(IRBuilder):
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"
             content = str(c[1]) if isinstance(c, list) and len(c) > 1 else ""
             return RawBlockIR(
-                format=fmt if fmt in ("html", "latex") else "latex",
+                format=cast("Literal['html', 'latex', 'markdown']", fmt if fmt in ("html", "latex") else "latex"),
                 content=content,
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "LineBlock":
             inlines_list = c if isinstance(c, list) else []
             all_inlines: list[InlineUnion] = []
             for line in inlines_list:
-                line_inlines = self._inlines_from_pandoc(
-                    line if isinstance(line, list) else []
-                )
+                line_inlines = self._inlines_from_pandoc(line if isinstance(line, list) else [])
                 if all_inlines:
                     all_inlines.append(BreakIR())
                 all_inlines.extend(line_inlines)
             return ParagraphIR(
-                inlines=all_inlines, source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                inlines=all_inlines,
+                source=_SHARED_SOURCE,
+                section_id=section_id,
+                order_index=order,
             )
         elif t == "Null":
             return None
@@ -505,7 +495,8 @@ class LaTeXBuilder(IRBuilder):
                 format="latex",
                 content=json.dumps(blk),
                 source=_SHARED_SOURCE,
-                section_id=section_id, order_index=order,
+                section_id=section_id,
+                order_index=order,
             )
 
     # ------------------------------------------------------------------
@@ -533,9 +524,7 @@ class LaTeXBuilder(IRBuilder):
 
         if t == "Str":
             return TextIR(text=str(c) if isinstance(c, str) else str(c))
-        elif t == "Space":
-            return TextIR(text=" ")
-        elif t == "SoftBreak":
+        elif t == "Space" or t == "SoftBreak":
             return TextIR(text=" ")
         elif t == "LineBreak":
             return BreakIR()
@@ -568,24 +557,19 @@ class LaTeXBuilder(IRBuilder):
             c_list = c if isinstance(c, list) else [{"t": "InlineMath"}, ""]
             mathtype = c_list[0] if len(c_list) > 0 else {}
             latex = str(c_list[1]) if len(c_list) > 1 else ""
-            if isinstance(mathtype, dict):
-                display = mathtype.get("t") == "DisplayMath"
-            else:
-                display = False
+            display = mathtype.get("t") == "DisplayMath" if isinstance(mathtype, dict) else False
             return MathIR(latex=latex, display=display)
         elif t == "RawInline":
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"
             content = str(c[1]) if isinstance(c, list) and len(c) > 1 else ""
             return RawInlineIR(
-                format=fmt if fmt in ("html", "latex") else "latex",
+                format=cast("Literal['html', 'latex', 'markdown']", fmt if fmt in ("html", "latex") else "latex"),
                 content=content,
             )
         elif t == "Link":
             c_list = c if isinstance(c, list) else [["", [], []], [], ["", ""]]
             attrs = c_list[0] if len(c_list) > 0 else ["", [], []]
-            inner = self._inlines_from_pandoc(
-                c_list[1] if len(c_list) > 1 else []
-            )
+            inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             target = c_list[2] if len(c_list) > 2 else ["", ""]
             url = str(target[0]) if isinstance(target, list) and len(target) > 0 else ""
             anchor = _pandoc_attrs_id(attrs)
@@ -606,9 +590,7 @@ class LaTeXBuilder(IRBuilder):
         elif t == "Image":
             c_list = c if isinstance(c, list) else [["", [], []], [], ["", ""]]
             attrs = c_list[0] if len(c_list) > 0 else ["", [], []]
-            alt_inlines = self._inlines_from_pandoc(
-                c_list[1] if len(c_list) > 1 else []
-            )
+            alt_inlines = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             target = c_list[2] if len(c_list) > 2 else ["", ""]
             src = str(target[0]) if isinstance(target, list) and len(target) > 0 else ""
             alt = self._inlines_to_plain_text(alt_inlines)
@@ -622,9 +604,7 @@ class LaTeXBuilder(IRBuilder):
             )
         elif t == "Quoted":
             c_list = c if isinstance(c, list) else [{"t": "DoubleQuote"}, []]
-            inner = self._inlines_from_pandoc(
-                c_list[1] if len(c_list) > 1 else []
-            )
+            inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             # Add quote marks around the inlines
             qt = c_list[0] if len(c_list) > 0 else {}
             if isinstance(qt, dict) and qt.get("t") == "DoubleQuote":
@@ -634,9 +614,7 @@ class LaTeXBuilder(IRBuilder):
             return [TextIR(text=left)] + inner + [TextIR(text=right)]
         elif t == "Cite":
             c_list = c if isinstance(c, list) else [[], []]
-            inner = self._inlines_from_pandoc(
-                c_list[1] if len(c_list) > 1 else []
-            )
+            inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             citations = c_list[0] if len(c_list) > 0 else []
             # Extract citation IDs and build superscript markers
             citation_ids: list[str] = []
@@ -666,11 +644,9 @@ class LaTeXBuilder(IRBuilder):
         elif t == "Span":
             c_list = c if isinstance(c, list) else [["", [], []], []]
             attrs = c_list[0] if len(c_list) > 0 else ["", [], []]
-            inner = self._inlines_from_pandoc(
-                c_list[1] if len(c_list) > 1 else []
-            )
+            inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             anchor = _pandoc_attrs_id(attrs)
-            classes = _pandoc_attrs_classes(attrs)
+            _pandoc_attrs_classes(attrs)
             if anchor:
                 inner.insert(0, RawInlineIR(format="html", content=f'<a id="{anchor}"></a>'))
             return inner
@@ -681,9 +657,7 @@ class LaTeXBuilder(IRBuilder):
     # Figure / Table builders
     # ------------------------------------------------------------------
 
-    def _build_figure_from_pandoc(
-        self, c: Any, section_id: str, order: int
-    ) -> BlockUnion | None:
+    def _build_figure_from_pandoc(self, c: Any, section_id: str, order: int) -> BlockUnion | None:
         """Build a FigureIR from Pandoc Figure AST.
 
         Pandoc Figure (≥ 1.23): ``Figure Attr Caption [Body]``
@@ -705,15 +679,13 @@ class LaTeXBuilder(IRBuilder):
                 for cb in cap_blocks:
                     if isinstance(cb, dict) and cb.get("t") in ("Plain", "Para"):
                         caption_inlines.extend(
-                            self._inlines_from_pandoc(
-                                cb.get("c", []) if isinstance(cb.get("c"), list) else []
-                            )
+                            self._inlines_from_pandoc(cb.get("c", []) if isinstance(cb.get("c"), list) else [])
                         )
 
         images: list[ImageRefIR] = []
         for blk in body_blocks if isinstance(body_blocks, list) else []:
             if isinstance(blk, dict) and blk.get("t") in ("Plain", "Para"):
-                for il in (blk.get("c", []) if isinstance(blk.get("c"), list) else []):
+                for il in blk.get("c", []) if isinstance(blk.get("c"), list) else []:
                     if isinstance(il, dict) and il.get("t") == "Image":
                         img_ir = self._inline_from_pandoc(il)
                         if isinstance(img_ir, ImageRefIR):
@@ -729,9 +701,7 @@ class LaTeXBuilder(IRBuilder):
             order_index=order,
         )
 
-    def _build_table_from_pandoc(
-        self, c: Any, section_id: str, order: int
-    ) -> BlockUnion | None:
+    def _build_table_from_pandoc(self, c: Any, section_id: str, order: int) -> BlockUnion | None:
         """Build a TableIR from Pandoc Table AST.
 
         Pandoc Table (≥ 1.23): ``Table Attr Caption [ColSpec] TableHead [TableBody] TableFoot``
@@ -753,9 +723,7 @@ class LaTeXBuilder(IRBuilder):
                 for cb in cap_blocks:
                     if isinstance(cb, dict) and cb.get("t") in ("Plain", "Para"):
                         caption_inlines.extend(
-                            self._inlines_from_pandoc(
-                                cb.get("c", []) if isinstance(cb.get("c"), list) else []
-                            )
+                            self._inlines_from_pandoc(cb.get("c", []) if isinstance(cb.get("c"), list) else [])
                         )
 
         # Head: [head_attr, [head_rows]]
@@ -766,7 +734,7 @@ class LaTeXBuilder(IRBuilder):
         for row_data in head_rows:
             row_cells = self._extract_table_row_cells(row_data)
             if row_cells:
-                headers.append(row_cells)
+                headers.append(row_cells)  # type: ignore[arg-type]
 
         # Body: list of table bodies, each has [body_attr, row_count, colspecs, [rows]]
         rows: list[list[list[InlineUnion]]] = []
@@ -851,21 +819,12 @@ class LaTeXBuilder(IRBuilder):
                 parts.append(il.text)
             elif isinstance(il, MathIR):
                 parts.append(f"${il.latex}$" if not il.display else f"$${il.latex}$$")
-            elif isinstance(il, EmphasisIR):
-                inner = LaTeXBuilder._inlines_to_plain_text(il.inlines)
-                parts.append(inner)
-            elif isinstance(il, LinkIR):
-                inner = LaTeXBuilder._inlines_to_plain_text(il.inlines)
-                parts.append(inner)
-            elif isinstance(il, SuperscriptIR):
-                inner = LaTeXBuilder._inlines_to_plain_text(il.inlines)
-                parts.append(inner)
-            elif isinstance(il, SubscriptIR):
+            elif isinstance(il, EmphasisIR | LinkIR | SuperscriptIR | SubscriptIR):
                 inner = LaTeXBuilder._inlines_to_plain_text(il.inlines)
                 parts.append(inner)
             elif isinstance(il, ImageRefIR):
                 parts.append(il.alt or "[image]")
-            elif isinstance(il, (BreakIR, RawInlineIR)):
+            elif isinstance(il, BreakIR | RawInlineIR):
                 pass  # skip breaks and raw
         return "".join(parts)
 
@@ -898,19 +857,22 @@ class LaTeXBuilder(IRBuilder):
                 parts.append(str(c))
             elif t == "Space":
                 parts.append(" ")
-            elif t in ("Emph", "Strong", "Underline", "Strikeout", "Superscript",
-                        "Subscript", "SmallCaps", "Link", "Span"):
+            elif t in (
+                "Emph",
+                "Strong",
+                "Underline",
+                "Strikeout",
+                "Superscript",
+                "Subscript",
+                "SmallCaps",
+                "Link",
+                "Span",
+            ):
                 inner = c[1] if isinstance(c, list) and len(c) > 1 else c if isinstance(c, list) else []
-                parts.append(LaTeXBuilder._raw_inlines_to_text(
-                    inner if isinstance(inner, list) else []
-                ))
-            elif t == "Code":
-                parts.append(str(c[1]) if isinstance(c, list) and len(c) > 1 else "")
-            elif t == "Math":
+                parts.append(LaTeXBuilder._raw_inlines_to_text(inner if isinstance(inner, list) else []))
+            elif t == "Code" or t == "Math":
                 parts.append(str(c[1]) if isinstance(c, list) and len(c) > 1 else "")
             elif t == "Quoted":
                 inner = c[1] if isinstance(c, list) and len(c) > 1 else []
-                parts.append(LaTeXBuilder._raw_inlines_to_text(
-                    inner if isinstance(inner, list) else []
-                ))
+                parts.append(LaTeXBuilder._raw_inlines_to_text(inner if isinstance(inner, list) else []))
         return "".join(parts)

@@ -11,13 +11,13 @@ from arxiv2md_beta.output.formatter import (
 
 def test_extract_figure_id_from_caption():
     """Extract figure ID from caption block."""
-    blocks = ['<a id="figure-1"></a>', '![alt](path.png)', '> Figure 1: caption']
+    blocks = ['<a id="figure-1"></a>', "![alt](path.png)", "> Figure 1: caption"]
     assert _extract_figure_id_from_blocks(blocks) == "1"
 
 
 def test_extract_figure_id_from_anchor_fallback():
     """Extract figure ID from anchor when caption is absent."""
-    blocks = ['<a id="figure-3"></a>', '![alt](path.png)']
+    blocks = ['<a id="figure-3"></a>', "![alt](path.png)"]
     assert _extract_figure_id_from_blocks(blocks) == "3"
 
 
@@ -34,7 +34,7 @@ def test_contains_figure_reference():
 def test_reorder_simple_figure_to_first_reference():
     """Simple figure should move to after its first citation paragraph."""
     markdown = (
-        "<a id=\"figure-1\"></a>\n\n"
+        '<a id="figure-1"></a>\n\n'
         "![ModalNet-21](images/ModalNet-21.png)\n\n"
         "> Figure 1: The Transformer - model architecture.\n\n"
         "Most competitive neural sequence transduction models have an "
@@ -58,9 +58,9 @@ def test_reorder_simple_figure_to_first_reference():
 def test_reorder_multi_panel_figure():
     """Multi-panel figure block moves as a single unit."""
     markdown = (
-        "<a id=\"figure-2\"></a>\n\n"
-        '![a](images/a.png)\n\n'
-        '![b](images/b.png)\n\n'
+        '<a id="figure-2"></a>\n\n'
+        "![a](images/a.png)\n\n"
+        "![b](images/b.png)\n\n"
         "> Figure 2: Two panels.\n\n"
         "Intro paragraph.\n\n"
         "See Figure 2 for the panels."
@@ -79,7 +79,7 @@ def test_unreferenced_figure_stays_in_place():
     """Unreferenced figure should remain at its original position."""
     markdown = (
         "Paragraph one.\n\n"
-        "<a id=\"figure-3\"></a>\n\n"
+        '<a id="figure-3"></a>\n\n'
         "![img](images/img.png)\n\n"
         "> Figure 3: Unused figure.\n\n"
         "Paragraph two."
@@ -95,10 +95,10 @@ def test_unreferenced_figure_stays_in_place():
 def test_multiple_figures_only_first_reference_moves():
     """Each figure moves independently to its own first citation."""
     markdown = (
-        "<a id=\"figure-1\"></a>\n\n"
+        '<a id="figure-1"></a>\n\n'
         "![1](images/1.png)\n\n"
         "> Figure 1: First.\n\n"
-        "<a id=\"figure-2\"></a>\n\n"
+        '<a id="figure-2"></a>\n\n'
         "![2](images/2.png)\n\n"
         "> Figure 2: Second.\n\n"
         "See Figure 2 here.\n\n"
@@ -117,10 +117,7 @@ def test_multiple_figures_only_first_reference_moves():
 
 def test_figure_without_id_ignored():
     """Figure without identifiable ID is left untouched."""
-    markdown = (
-        "![img](images/img.png)\n\n"
-        "Paragraph with no reference."
-    )
+    markdown = "![img](images/img.png)\n\nParagraph with no reference."
     result = reorder_figures_to_first_reference(markdown)
     # No caption or anchor with figure number, so it stays put
     assert result == markdown
@@ -129,7 +126,7 @@ def test_figure_without_id_ignored():
 def test_latex_style_figure_reference():
     """Support LaTeX-style markdown figure references."""
     markdown = (
-        "<a id=\"figure-1\"></a>\n\n"
+        '<a id="figure-1"></a>\n\n'
         "![img](images/img.png)\n\n"
         "> Figure 1: Caption.\n\n"
         "Refer to [Figure 1](#fig:architecture)."
@@ -147,10 +144,10 @@ def test_figure_bracket_link_reference():
         '<div align="center">\n'
         '  <img src="images/a.png" width="45%" alt="a" />\n'
         '  <img src="images/b.png" width="45%" alt="b" />\n'
-        '</div>\n\n'
-        '> Figure 2: caption.\n\n'
-        'Intro paragraph.\n\n'
-        'See Figure [2](#figure-2) for details.'
+        "</div>\n\n"
+        "> Figure 2: caption.\n\n"
+        "Intro paragraph.\n\n"
+        "See Figure [2](#figure-2) for details."
     )
     result = reorder_figures_to_first_reference(markdown)
     cite_pos = result.find("See Figure [2](#figure-2) for details.")
@@ -162,12 +159,12 @@ def test_figure_bracket_link_reference():
 def test_table_not_moved():
     """Tables should not be treated as figures and must stay in place."""
     markdown = (
-        'Paragraph before.\n\n'
+        "Paragraph before.\n\n"
         '<a id="table-1"></a>\n\n'
-        '> Table 1: Example table.\n\n'
-        '| A | B |\n| --- | --- |\n| 1 | 2 |\n\n'
-        'See Table 1 above.\n\n'
-        'Paragraph after.'
+        "> Table 1: Example table.\n\n"
+        "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n"
+        "See Table 1 above.\n\n"
+        "Paragraph after."
     )
     result = reorder_figures_to_first_reference(markdown)
     pos_before = result.find("Paragraph before.")

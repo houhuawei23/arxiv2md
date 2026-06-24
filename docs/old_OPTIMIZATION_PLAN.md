@@ -196,7 +196,7 @@ class IngestionOrchestrator:
 
 **步骤**:
 
-1. **v0.10.0** (Deprecate): 
+1. **v0.10.0** (Deprecate):
    - `--legacy` 标志保留但打印 `DeprecationWarning`
    - 在 CHANGELOG 中公告 legacy pipeline 将在 v1.0.0 移除
 

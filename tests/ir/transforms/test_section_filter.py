@@ -7,9 +7,7 @@ import pytest
 from arxiv2md_beta.ir import (
     DocumentIR,
     PaperMetadata,
-    ParagraphIR,
     SectionIR,
-    TextIR,
 )
 from arxiv2md_beta.ir.transforms.section_filter import SectionFilterPass
 

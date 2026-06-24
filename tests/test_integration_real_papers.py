@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from arxiv2md_beta.ir.builders.html import HTMLBuilder
 from arxiv2md_beta.html.parser import (
     _extract_authors_with_affiliations,
     _extract_sections,
     _extract_title,
     _find_document_root,
 )
+from arxiv2md_beta.ir.builders.html import HTMLBuilder
 
 pypandoc = pytest.importorskip("pypandoc", reason="pypandoc not installed")
 
@@ -31,6 +31,7 @@ pytestmark = pytest.mark.real_paper
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
 
 def _load_cached_html(arxiv_id: str) -> str | None:
     """Load HTML from local cache if available."""
@@ -107,10 +108,9 @@ class TestAttentionIsAllYouNeed:
         # Most authors should have affiliations.
         # (Illia Polosukhin in 1706.03762 HTML has no explicit affiliation line.)
         authors_with_affils = [a for a in authors if a.affiliations]
-        assert len(authors_with_affils) >= len(authors) - 1, (
-            f"Too many authors missing affiliations: "
-            f"{[a.name for a in authors if not a.affiliations]}"
-        )
+        assert (
+            len(authors_with_affils) >= len(authors) - 1
+        ), f"Too many authors missing affiliations: {[a.name for a in authors if not a.affiliations]}"
 
     def test_html_builder_produces_clean_equations(self, html: str) -> None:
         """Equations must be pure LaTeX — no duplicated Unicode math symbols."""
@@ -118,7 +118,7 @@ class TestAttentionIsAllYouNeed:
 
         soup = BeautifulSoup(html, "html.parser")
         doc_root = _find_document_root(soup)
-        sections = _extract_sections(doc_root)
+        _extract_sections(doc_root)
 
         builder = HTMLBuilder()
         doc = builder.build(html, arxiv_id=self.ARXIV_ID)
@@ -132,10 +132,7 @@ class TestAttentionIsAllYouNeed:
                     # Check for duplicated rendering: if both Unicode and \text{...} appear
                     # that's the bug we fixed. Pure LaTeX should not contain these chars.
                     found_bad = [c for c in bad_chars if c in latex]
-                    assert not found_bad, (
-                        f"Equation contains Unicode math symbols {found_bad!r}: "
-                        f"{latex[:100]}..."
-                    )
+                    assert not found_bad, f"Equation contains Unicode math symbols {found_bad!r}: {latex[:100]}..."
 
     def test_html_builder_produces_clean_tables(self, html: str) -> None:
         """Tables must not contain whitespace-only TextIR nodes."""
@@ -143,7 +140,7 @@ class TestAttentionIsAllYouNeed:
 
         soup = BeautifulSoup(html, "html.parser")
         doc_root = _find_document_root(soup)
-        sections = _extract_sections(doc_root)
+        _extract_sections(doc_root)
 
         builder = HTMLBuilder()
         doc = builder.build(html, arxiv_id=self.ARXIV_ID)
@@ -157,9 +154,7 @@ class TestAttentionIsAllYouNeed:
                                 if inline.type == "text":
                                     text = inline.text.strip()
                                     # Whitespace-only cells are the bug
-                                    assert text, (
-                                        "Table cell contains whitespace-only TextIR"
-                                    )
+                                    assert text, "Table cell contains whitespace-only TextIR"
 
 
 @pytest.mark.skipif(
@@ -203,9 +198,7 @@ class TestLearningMechanics:
             for blk in sec.blocks:
                 if blk.type == "equation":
                     found_bad = [c for c in bad_chars if c in blk.latex]
-                    assert not found_bad, (
-                        f"Equation has Unicode symbols {found_bad!r}: {blk.latex[:100]}"
-                    )
+                    assert not found_bad, f"Equation has Unicode symbols {found_bad!r}: {blk.latex[:100]}"
 
     def test_tables_no_whitespace_cells(self, html: str) -> None:
         builder = HTMLBuilder()
@@ -218,9 +211,7 @@ class TestLearningMechanics:
                         for cell in row:
                             for inline in cell:
                                 if inline.type == "text":
-                                    assert inline.text.strip(), (
-                                        "Whitespace-only table cell"
-                                    )
+                                    assert inline.text.strip(), "Whitespace-only table cell"
 
 
 # ── LaTeX pipeline helpers ─────────────────────────────────────────────────
@@ -231,7 +222,6 @@ def _get_tex_source_sync(arxiv_id: str):
     import asyncio
 
     from arxiv2md_beta.latex.tex_source import (
-        TexSourceInfo,
         fetch_and_extract_tex_source,
     )
 
@@ -272,9 +262,7 @@ class TestLaTeXPipeline:
         assert tex_source.main_tex_file is not None
         assert tex_source.main_tex_file.exists()
         # Should have some content
-        expanded = tex_source.main_tex_file.read_text(
-            encoding="utf-8", errors="ignore"
-        )
+        expanded = tex_source.main_tex_file.read_text(encoding="utf-8", errors="ignore")
         assert "\\documentclass" in expanded
 
     def test_sections_present(self, doc) -> None:

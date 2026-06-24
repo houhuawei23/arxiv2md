@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+tiktoken: Any
 try:
     import tiktoken
 except ImportError:  # pragma: no cover - optional dependency
     tiktoken = None
 
 from arxiv2md_beta.html.sections import split_sections_at_reference
+from arxiv2md_beta.schemas import IngestionResult, SectionNode
+from arxiv2md_beta.settings import get_settings
 
 # 缓存 tiktoken encoding 对象，避免每次计数重复加载
 _tiktoken_encoding_cache: dict[str, object] = {}
 
 
-def _get_cached_encoding(encoding_name: str):
+def _get_cached_encoding(encoding_name: str) -> object | None:
     if encoding_name in _tiktoken_encoding_cache:
         return _tiktoken_encoding_cache[encoding_name]
     if tiktoken is None:
@@ -27,8 +30,7 @@ def _get_cached_encoding(encoding_name: str):
     enc = tiktoken.get_encoding(encoding_name)
     _tiktoken_encoding_cache[encoding_name] = enc
     return enc
-from arxiv2md_beta.schemas import IngestionResult, SectionNode
-from arxiv2md_beta.settings import get_settings
+
 
 _ABSTRACT_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+abstract\s*\n+", re.IGNORECASE)
 _SLUGIFY_PUNCT_RE = re.compile(r"[^\w\s-]", re.UNICODE)
@@ -82,9 +84,7 @@ def format_paper(
         main_sections, ref_sections, appendix_sections = split_sections_at_reference(
             sections, reference_titles=ing.reference_section_titles
         )
-        content = _render_content(
-            abstract=abstract, sections=main_sections, include_toc=include_toc
-        )
+        content = _render_content(abstract=abstract, sections=main_sections, include_toc=include_toc)
         content = reorder_figures_to_first_reference(content)
         content = _format_markdown_output(content)
         ref_raw = _render_content(abstract=None, sections=ref_sections, include_toc=False)
@@ -110,9 +110,7 @@ def format_paper(
 
     token_body = content
     if content_references is not None:
-        token_body = "\n".join(
-            x for x in (content, content_references, content_appendix or "") if x
-        )
+        token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
     token_estimate = _format_token_count(tree + "\n" + token_body)
     if token_estimate:
         summary_lines.append(f"- Estimated tokens: {token_estimate}")
@@ -343,10 +341,7 @@ def reorder_figures_to_first_reference(markdown: str) -> str:
         # Also detect merged figure blocks where anchor+image+caption were
         # collapsed into a single block (e.g. by div processing)
         is_merged_figure = (
-            stripped.startswith('<a id="')
-            and "![" in stripped
-            and "](" in stripped
-            and "> Figure" in stripped
+            stripped.startswith('<a id="') and "![" in stripped and "](" in stripped and "> Figure" in stripped
         )
 
         if is_anchor or is_image or is_merged_figure:

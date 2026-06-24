@@ -38,7 +38,7 @@ class PassPipeline:
     def __init__(self, passes: list[IRPass] | None = None):
         self._passes: list[IRPass] = passes or []
 
-    def add(self, p: IRPass) -> "PassPipeline":
+    def add(self, p: IRPass) -> PassPipeline:
         self._passes.append(p)
         return self
 

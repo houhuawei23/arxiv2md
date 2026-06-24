@@ -45,6 +45,7 @@ class FigureReorderPass(IRPass):
 
         # Find first citation of each figure in paragraph text
         import re
+
         first_cite: dict[str, int] = {}  # figure_id → paragraph index
         for i, block in enumerate(blocks):
             if block.type != "paragraph":

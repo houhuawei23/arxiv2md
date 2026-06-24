@@ -60,6 +60,7 @@ class AnchorPass(IRPass):
 def _slugify(title: str) -> str:
     """Convert a section title to a URL-friendly slug."""
     import re
+
     slug = title.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)
     slug = re.sub(r"\s+", "-", slug)

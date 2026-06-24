@@ -10,9 +10,11 @@ import ast
 import base64
 import re
 from collections import deque
+from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
-from bs4 import BeautifulSoup, NavigableString, Tag  # type: ignore[import-untyped]
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
@@ -43,6 +45,8 @@ from arxiv2md_beta.ir.inlines import (
     TextIR,
 )
 from arxiv2md_beta.ir.resolvers import ImageResolver
+from arxiv2md_beta.utils.html_attrs import attr_optional, attr_str
+from arxiv2md_beta.utils.html_attrs import classes as css_classes
 
 
 class HTMLBuilder(IRBuilder):
@@ -61,12 +65,12 @@ class HTMLBuilder(IRBuilder):
 
     def __init__(
         self,
-        image_map: dict[int, str] | None = None,
-        image_stem_map: dict[str, str] | None = None,
+        image_map: Mapping[int, Path | str] | None = None,
+        image_stem_map: Mapping[str, Path | str] | None = None,
         image_resolver: ImageResolver | None = None,
     ):
-        self.image_map = image_map or {}
-        self.image_stem_map = image_stem_map or {}
+        self.image_map = dict(image_map or {})
+        self.image_stem_map = dict(image_stem_map or {})
         self._image_resolver = image_resolver or ImageResolver(
             index_map=self.image_map,
             stem_map=self.image_stem_map,
@@ -89,7 +93,7 @@ class HTMLBuilder(IRBuilder):
         return self._build_from_html(source, arxiv_id)
 
     def _build_from_parsed(self, parsed: Any, arxiv_id: str) -> DocumentIR:
-        """从已解析的 :class:`ParsedArxivHtml` 构建 IR，避免再次解析完整 HTML。"""
+        """从已解析的 :class:`ParsedArxivHtml` 构建 IR，避免再次解析完整 HTML。."""
         from arxiv2md_beta.html.parser import (
             ParsedArxivHtml,
             _extract_sections,
@@ -106,7 +110,9 @@ class HTMLBuilder(IRBuilder):
         front_matter_blocks = self._html_to_blocks(parsed.front_matter_html, section_id="front_matter")
 
         # Convert section tree and drop leaf sections that have no content
-        section_nodes = _extract_sections(parsed.document_root)
+        document_root = parsed.document_root
+        assert isinstance(document_root, Tag), "parsed.document_root must be a Tag"
+        section_nodes = _extract_sections(document_root)
         sections = [self._build_section(sn) for sn in section_nodes]
         sections = self._filter_empty_sections(sections)
 
@@ -132,7 +138,7 @@ class HTMLBuilder(IRBuilder):
 
     # ── Section building ────────────────────────────────────────────────
 
-    def _build_section(self, section_node) -> SectionIR:
+    def _build_section(self, section_node: Any) -> SectionIR:
         """Convert a ``SectionNode`` into a :class:`SectionIR`."""
         # section_node is from html.parser._extract_sections
         blocks = self._html_to_blocks(section_node.html, section_id=section_node.struct_id or "")
@@ -181,7 +187,7 @@ class HTMLBuilder(IRBuilder):
         return blocks
 
     def _children_to_blocks(
-        self, children, section_id: str, start_idx: int
+        self, children: Iterable[Any], section_id: str, start_idx: int
     ) -> tuple[list[BlockUnion], int]:
         """Process an iterable of BeautifulSoup nodes into IR blocks.
 
@@ -195,11 +201,13 @@ class HTMLBuilder(IRBuilder):
             if isinstance(child, NavigableString):
                 text = str(child).strip()
                 if text:
-                    blocks.append(ParagraphIR(
-                        section_id=section_id,
-                        order_index=idx,
-                        inlines=[TextIR(text=text)],
-                    ))
+                    blocks.append(
+                        ParagraphIR(
+                            section_id=section_id,
+                            order_index=idx,
+                            inlines=[TextIR(text=text)],
+                        )
+                    )
                     idx += 1
                 continue
             if not isinstance(child, Tag):
@@ -220,9 +228,7 @@ class HTMLBuilder(IRBuilder):
                 idx += 1
         return blocks, idx
 
-    def _tag_to_blocks(
-        self, tag: Tag, section_id: str, base_idx: int
-    ) -> list[BlockUnion] | BlockUnion | None:
+    def _tag_to_blocks(self, tag: Tag, section_id: str, base_idx: int) -> list[BlockUnion] | BlockUnion | None:
         """Convert a BeautifulSoup tag to one or more block IR nodes."""
         tag_name = tag.name
 
@@ -231,7 +237,7 @@ class HTMLBuilder(IRBuilder):
             code = self._build_listing(tag, section_id, base_idx)
             return code if code is not None else []
 
-        classes = set(tag.get("class", []))
+        classes = set(css_classes(tag))
 
         # ar5iv paragraph wrappers (span.ltx_p / span.ltx_para) should be treated
         # as paragraphs so that inline math inside them is not emitted as raw HTML.
@@ -242,9 +248,7 @@ class HTMLBuilder(IRBuilder):
             # If the paragraph contains display math, lift those equations out as
             # block-level elements so the Markdown emitter can render them with
             # proper $$ delimiters instead of inline math breaking list layout.
-            split_blocks = self._split_paragraph_inlines(
-                inlines, section_id=section_id, base_idx=base_idx
-            )
+            split_blocks = self._split_paragraph_inlines(inlines, section_id=section_id, base_idx=base_idx)
             if len(split_blocks) == 1:
                 return split_blocks[0]
             return split_blocks
@@ -282,7 +286,7 @@ class HTMLBuilder(IRBuilder):
         if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
             level = int(tag_name[1])
             text = self._get_text(tag)
-            anchor = tag.get("id") or ""
+            anchor = attr_optional(tag, "id") or ""
             if not text:
                 return None
             return HeadingIR(
@@ -316,9 +320,9 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "pre":
             code_tag = tag.find("code")
             lang = ""
-            if code_tag:
-                classes = code_tag.get("class", [])
-                for cls in classes:
+            if isinstance(code_tag, Tag):
+                tag_classes = css_classes(code_tag)
+                for cls in tag_classes:
                     if cls.startswith("language-"):
                         lang = cls.replace("language-", "")
                         break
@@ -397,9 +401,7 @@ class HTMLBuilder(IRBuilder):
         def _flush_current() -> None:
             nonlocal current
             # Drop runs that only contain whitespace text
-            if any(
-                not (il.type == "text" and not il.text.strip()) for il in current
-            ):
+            if any(not (il.type == "text" and not il.text.strip()) for il in current):
                 blocks.append(
                     ParagraphIR(
                         section_id=section_id,
@@ -468,7 +470,7 @@ class HTMLBuilder(IRBuilder):
 
         # Links
         if tag_name == "a":
-            href = tag.get("href", "")
+            href = attr_str(tag, "href")
             text = self._get_text(tag)
             inlines = self._tag_to_inlines(tag) or [TextIR(text=text)]
 
@@ -508,8 +510,8 @@ class HTMLBuilder(IRBuilder):
 
         # Images
         if tag_name == "img":
-            src = tag.get("src", "")
-            alt = tag.get("alt", "")
+            src = attr_str(tag, "src")
+            alt = attr_str(tag, "alt")
             return ImageRefIR(src=src, alt=alt)
 
         # Superscript / Subscript
@@ -528,7 +530,7 @@ class HTMLBuilder(IRBuilder):
 
         # Spans/divs with inline content — recurse, with class-aware styling
         if tag_name in ("span", "cite", "label"):
-            classes = " ".join(tag.get("class", []))
+            classes = " ".join(css_classes(tag))
 
             # Footnotes — extract marker inline, queue content as block
             if "ltx_note" in classes and "ltx_role_footnote" in classes:
@@ -548,16 +550,14 @@ class HTMLBuilder(IRBuilder):
         """Extract footnote marker and queue content for block-level insertion."""
         # Extract marker from first <sup class="ltx_note_mark">
         mark = tag.find("sup", class_="ltx_note_mark")
-        marker_text = self._get_text(mark) if mark else ""
+        marker_text = self._get_text(mark) if isinstance(mark, Tag) else ""
 
         # Extract content from .ltx_note_content
         content_tag = tag.find("span", class_="ltx_note_content")
-        if content_tag:
+        if isinstance(content_tag, Tag):
             # Parse a copy to avoid mutating the original tree
-            content_copy = BeautifulSoup(str(content_tag), "html.parser").find(
-                "span", class_="ltx_note_content"
-            )
-            if content_copy:
+            content_copy = BeautifulSoup(str(content_tag), "html.parser").find("span", class_="ltx_note_content")
+            if isinstance(content_copy, Tag):
                 # Remove inner note marks and tags so only the actual text remains
                 for inner_mark in content_copy.find_all("sup", class_="ltx_note_mark"):
                     inner_mark.decompose()
@@ -586,7 +586,7 @@ class HTMLBuilder(IRBuilder):
         return re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
 
     def _extract_equation_latex(self, tag: Tag) -> str:
-        """Extract LaTeX from an equation table, preferring <math> annotations.
+        r"""Extract LaTeX from an equation table, preferring <math> annotations.
 
         ar5iv renders equations as HTML text *alongside* <math> tags.
         Using ``get_text()`` would concatenate both the Unicode rendering and
@@ -604,11 +604,7 @@ class HTMLBuilder(IRBuilder):
             annotation = math_tag.find("annotation", attrs={"encoding": "application/x-tex"})
             if annotation and annotation.text:
                 latex_parts.append(annotation.text.strip())
-        if latex_parts:
-            latex = " ".join(latex_parts)
-        else:
-            # Fallback: plain text without math tags
-            latex = self._get_text(tag)
+        latex = " ".join(latex_parts) if latex_parts else self._get_text(tag)
         latex = _normalize_math_latex(latex)
         # Strip outer display-math delimiters if present
         if latex.startswith("$$") and latex.endswith("$$"):
@@ -626,20 +622,24 @@ class HTMLBuilder(IRBuilder):
 
     def _build_figure(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
         """Build a FigureIR or AlgorithmIR from a <figure> tag."""
-        classes = " ".join(tag.get("class", []))
+        tag_classes = " ".join(css_classes(tag))
 
         # Caption
         caption_tag = tag.find("figcaption")
-        if not caption_tag:
+        if not isinstance(caption_tag, Tag):
             caption_tag = tag.find("span", class_=re.compile(r"ltx_caption"))
-        caption = self._tag_to_inlines(caption_tag) if caption_tag else []
-        caption_text = self._get_text(caption_tag) if caption_tag else ""
+        if isinstance(caption_tag, Tag):
+            caption = self._tag_to_inlines(caption_tag)
+            caption_text = self._get_text(caption_tag)
+        else:
+            caption = []
+            caption_text = ""
 
         # Extract figure number from caption
         fig_id = _extract_figure_id(caption_text) or f"figure-{self._figure_counter}"
 
         # Algorithm figure
-        if "ltx_float_algorithm" in classes or "ltx_algorithm" in classes:
+        if "ltx_float_algorithm" in tag_classes or "ltx_algorithm" in tag_classes:
             alg_num = _extract_algorithm_number(caption_text)
             return AlgorithmIR(
                 section_id=section_id,
@@ -650,9 +650,9 @@ class HTMLBuilder(IRBuilder):
             )
 
         # Table figure
-        if "ltx_table" in classes:
+        if "ltx_table" in tag_classes:
             inner_table = tag.find("table")
-            if inner_table:
+            if isinstance(inner_table, Tag):
                 return self._build_table(inner_table, section_id, base_idx)
 
         # Image figure (default) — resolve local image paths
@@ -661,7 +661,7 @@ class HTMLBuilder(IRBuilder):
         images = [
             ImageRefIR(
                 src=self._resolve_image_src(img, figure_index),
-                alt=img.get("alt", ""),
+                alt=attr_str(img, "alt"),
             )
             for img in imgs
         ]
@@ -679,14 +679,14 @@ class HTMLBuilder(IRBuilder):
 
     def _resolve_image_src(self, img_tag: Tag, figure_index: int) -> str:
         """Resolve an <img> src to a local path via :class:`ImageResolver`."""
-        src = img_tag.get("src", "")
+        src = attr_str(img_tag, "src")
         if not src:
             return src
         return self._image_resolver.resolve(src, figure_index=figure_index)
 
     def _build_table(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
         """Build a TableIR or EquationIR from a <table> tag."""
-        classes = " ".join(tag.get("class", []))
+        classes = " ".join(css_classes(tag))
 
         # Equation tables
         if _EQUATION_TABLE_RE.search(classes):
@@ -708,8 +708,12 @@ class HTMLBuilder(IRBuilder):
 
         # Caption
         caption_tag = tag.find("caption")
-        caption = self._tag_to_inlines(caption_tag) if caption_tag else []
-        caption_text = self._get_text(caption_tag) if caption_tag else ""
+        if isinstance(caption_tag, Tag):
+            caption = self._tag_to_inlines(caption_tag)
+            caption_text = self._get_text(caption_tag)
+        else:
+            caption = []
+            caption_text = ""
         table_id = _extract_table_id(caption_text)
 
         return TableIR(
@@ -721,20 +725,18 @@ class HTMLBuilder(IRBuilder):
             caption=caption,
         )
 
-    def _build_listing(
-        self, tag: Tag, section_id: str, base_idx: int
-    ) -> CodeIR | None:
+    def _build_listing(self, tag: Tag, section_id: str, base_idx: int) -> CodeIR | None:
         """Build a CodeIR from an arXiv ``div.ltx_listing``.
 
         Prefer the base64 payload embedded in ``ltx_listing_data``; otherwise
         reconstruct the listing from ``ltx_listingline`` rows.
         """
-        cls = " ".join(tag.get("class", []))
+        cls = " ".join(css_classes(tag))
         data = tag.find("div", class_=re.compile(r"ltx_listing_data"))
-        if data:
+        if isinstance(data, Tag):
             a = data.find("a", href=re.compile(r"^data:text/plain"))
-            if a and a.get("href"):
-                decoded = _decode_data_plain_href(a["href"])
+            if isinstance(a, Tag) and attr_str(a, "href"):
+                decoded = _decode_data_plain_href(str(a["href"]))
                 if decoded is not None:
                     lang = _extract_listing_language(cls)
                     lang = _normalize_listing_language(lang, decoded)
@@ -778,7 +780,7 @@ class HTMLBuilder(IRBuilder):
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
                     # Skip item number tags (e.g. <span class="ltx_tag ltx_tag_item">1.</span>)
-                    child_classes = set(child.get("class", []))
+                    child_classes = set(css_classes(child))
                     if "ltx_tag" in child_classes:
                         continue
                     if child.name in ("ul", "ol"):
@@ -790,9 +792,7 @@ class HTMLBuilder(IRBuilder):
                         # Recurse generically so that block-level siblings (e.g.
                         # nested ar5iv lists inside <div class="ltx_para">) are
                         # preserved instead of flattened to raw inline HTML.
-                        blocks, _ = self._children_to_blocks(
-                            child.children, "", len(item_blocks)
-                        )
+                        blocks, _ = self._children_to_blocks(child.children, "", len(item_blocks))
                         item_blocks.extend(blocks)
                     else:
                         inlines = self._tag_to_inlines(child)
@@ -820,7 +820,7 @@ class HTMLBuilder(IRBuilder):
                     if text:
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
-                    child_classes = set(child.get("class", []))
+                    child_classes = set(css_classes(child))
                     # Skip item markers
                     if "ltx_tag" in child_classes or "ltx_tag_item" in child_classes:
                         continue
@@ -836,9 +836,7 @@ class HTMLBuilder(IRBuilder):
                             )
                     elif child.name in ("section", "article", "div", "span"):
                         # Recurse generically but keep inline math intact
-                        blocks, _ = self._children_to_blocks(
-                            child.children, "", len(item_blocks)
-                        )
+                        blocks, _ = self._children_to_blocks(child.children, "", len(item_blocks))
                         item_blocks.extend(blocks)
                     else:
                         result = self._tag_to_blocks(child, "", len(item_blocks))
@@ -883,22 +881,19 @@ def _is_ar5iv_ordered_list(classes: set[str]) -> bool:
 
 def _is_equation_table(tag: Tag) -> bool:
     """Return True if *tag* is an equation table wrapper."""
-    classes = " ".join(tag.get("class", []))
+    classes = " ".join(css_classes(tag))
     return bool(_EQUATION_TABLE_RE.search(classes))
 
 
 def _extract_math_latex(tag: Tag) -> str:
     """Extract LaTeX from a <math> tag, normalizing whitespace."""
     annotation = tag.find("annotation", attrs={"encoding": "application/x-tex"})
-    if annotation and annotation.text:
-        latex = annotation.text.strip()
-    else:
-        latex = tag.get_text(" ", strip=True)
+    latex = annotation.text.strip() if annotation and annotation.text else tag.get_text(" ", strip=True)
     return _normalize_math_latex(latex)
 
 
 def _normalize_math_latex(latex: str) -> str:
-    """Normalize math LaTeX for Markdown display.
+    r"""Normalize math LaTeX for Markdown display.
 
     Literal newlines inside math (common inside ``\\mbox{...}``) break
     Markdown math rendering; collapse them to spaces and trim surrounding
@@ -969,11 +964,11 @@ def _extract_table_id(caption: str) -> str | None:
 def _extract_equation_number(tag: Tag) -> str | None:
     """Extract an equation number from an ar5iv equation table wrapper."""
     eqno_tag = tag.find("span", class_=re.compile(r"ltx_tag_equation"))
-    if eqno_tag:
+    if isinstance(eqno_tag, Tag):
         return _get_equation_number_text(eqno_tag)
     # Older/classic HTML tables place the number in a td with class ltx_eqn_eqno
     eqno_td = tag.find("td", class_=re.compile(r"ltx_eqn_eqno"))
-    if eqno_td:
+    if isinstance(eqno_td, Tag):
         return _get_equation_number_text(eqno_td)
     return None
 
@@ -994,7 +989,7 @@ def _extract_algorithm_number(caption: str) -> str | None:
 
 def _extract_table_data(
     table: Tag,
-    tag_to_inlines,
+    tag_to_inlines: Callable[[Tag], list[InlineUnion]],
 ) -> tuple[list[list[InlineUnion]], list[list[list[InlineUnion]]]]:
     """Extract headers and rows from a <table> tag.
 
@@ -1040,7 +1035,7 @@ def _is_ltx_listing_container(tag: Tag) -> bool:
     """Outer ``div.ltx_listing`` (not ``ltx_listingline`` rows)."""
     if tag.name != "div":
         return False
-    cls = tag.get("class", [])
+    cls = css_classes(tag)
     return "ltx_listing" in cls and "ltx_listingline" not in cls
 
 
@@ -1064,8 +1059,27 @@ def _extract_listing_language(cls: str) -> str:
 
 
 _SHELL_COMMANDS: frozenset[str] = frozenset(
-    {"pip", "conda", "apt", "apt-get", "yum", "brew", "npm", "yarn", "cargo",
-     "curl", "wget", "git", "bash", "sh", "zsh", "make", "cmake", "gcc", "g++"}
+    {
+        "pip",
+        "conda",
+        "apt",
+        "apt-get",
+        "yum",
+        "brew",
+        "npm",
+        "yarn",
+        "cargo",
+        "curl",
+        "wget",
+        "git",
+        "bash",
+        "sh",
+        "zsh",
+        "make",
+        "cmake",
+        "gcc",
+        "g++",
+    }
 )
 
 

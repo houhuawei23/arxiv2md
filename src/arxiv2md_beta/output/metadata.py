@@ -5,11 +5,15 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
+yaml: Any
 try:
     import yaml
 except ImportError:
     yaml = None
+
+import contextlib
 
 from loguru import logger
 
@@ -143,7 +147,7 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     metadata : dict
         Extended metadata from fetch_arxiv_metadata
 
-    Returns
+    Returns:
     -------
     dict
         Dictionary ready for YAML serialization: { paper: { ... } }
@@ -156,7 +160,7 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     paper_id = f"arxiv:{arxiv_id}"
 
     # publication
-    publication = OrderedDict()
+    publication: OrderedDict[str, Any] = OrderedDict()
     publication["type"] = "preprint"
     publication["venue"] = "arXiv"
 
@@ -183,10 +187,8 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     if year is None and metadata.get("year"):
         year = metadata["year"]
     if year is None and date_str:
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             year = int(date_str[:4])
-        except (ValueError, TypeError):
-            pass
     if year is not None:
         publication["year"] = int(year) if isinstance(year, str) and str(year).isdigit() else year
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from time import perf_counter
-from typing import AsyncIterator, Iterator
 
 from loguru import logger
 

@@ -33,9 +33,7 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
             logger.info(f"paper-yml --update: read arXiv id {aid!r} from {path}")
             meta = await fetch_arxiv_metadata(aid)
             query = parse_arxiv_input(aid)
-            await fetch_and_merge_tex_affiliations_for_metadata(
-                meta, query.arxiv_id, query.version
-            )
+            await fetch_and_merge_tex_affiliations_for_metadata(meta, query.arxiv_id, query.version)
             write_paper_yml_file(meta, path, merge_existing=existing_yml)
             print(str(path.resolve()))
             return path
@@ -50,21 +48,15 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
         query = parse_arxiv_input(raw)
         logger.info(f"paper-yml: fetching metadata for {query.arxiv_id}")
         meta = await fetch_arxiv_metadata(query.arxiv_id)
-        await fetch_and_merge_tex_affiliations_for_metadata(
-            meta, query.arxiv_id, query.version
-        )
+        await fetch_and_merge_tex_affiliations_for_metadata(meta, query.arxiv_id, query.version)
         out_path = Path(out).expanduser()
         primary = out_path
-        if primary.is_dir():
-            primary = primary / "paper.yml"
-        elif primary.suffix.lower() not in (".yml", ".yaml"):
+        if primary.is_dir() or primary.suffix.lower() not in (".yml", ".yaml"):
             primary = primary / "paper.yml"
         primary = primary.resolve()
         dest = resolve_paper_yml_output_path(out_path, force=params.force)
         if not params.force and primary.exists() and dest.resolve() != primary:
-            logger.info(
-                f"Primary output {primary} exists; writing to {dest} (use --force to overwrite)"
-            )
+            logger.info(f"Primary output {primary} exists; writing to {dest} (use --force to overwrite)")
         write_paper_yml_file(meta, dest)
         print(str(dest.resolve()))
         return dest

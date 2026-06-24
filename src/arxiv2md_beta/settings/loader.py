@@ -190,7 +190,7 @@ def load_settings(
         merged = _load_yaml_bytes(base_raw)
     except ConfigurationError:
         raise
-    except (yaml.YAMLError, OSError, IOError) as e:
+    except (yaml.YAMLError, OSError) as e:
         raise ConfigurationError(
             f"Failed to load bundled default_config.yml: {e}",
             hint="Ensure arxiv2md_beta is installed with package data (see pyproject.toml).",
@@ -218,10 +218,7 @@ def load_settings(
     except ValidationError as e:
         raise ConfigurationError(
             f"Invalid configuration: {e}",
-            hint=(
-                "Fix keys in your YAML or set env vars, e.g. "
-                "export ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S=15"
-            ),
+            hint=("Fix keys in your YAML or set env vars, e.g. export ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S=15"),
         ) from e
 
     _SETTINGS = settings
@@ -269,7 +266,5 @@ def apply_cli_overrides(settings: AppSettings, args: Any) -> AppSettings:
     if getattr(args, "naming_scheme", None) is not None:
         output_naming = output_naming.model_copy(update={"naming_scheme": args.naming_scheme})
 
-    out = settings.model_copy(
-        update={"cli_defaults": cli, "output": output, "output_naming": output_naming}
-    )
+    out = settings.model_copy(update={"cli_defaults": cli, "output": output, "output_naming": output_naming})
     return out

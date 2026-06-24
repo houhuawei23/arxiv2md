@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from arxiv2md_beta.cli.params import ConvertParams
-from arxiv2md_beta.html.parser import parse_arxiv_html
-from arxiv2md_beta.html.sections import filter_sections, split_sections_at_reference
+from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
+from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.ir import (
     AnchorPass,
@@ -27,6 +27,7 @@ from arxiv2md_beta.ir import (
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
 from arxiv2md_beta.latex.tex_source import (
+    TexSourceInfo,
     TexSourceNotFoundError,
     fetch_and_extract_tex_source,
 )
@@ -68,11 +69,11 @@ class IngestionOrchestrator:
 
         # Mutable pipeline state
         self._html: str = ""
-        self._parsed: Any | None = None
+        self._parsed: ParsedArxivHtml | None = None
         self._api_metadata: dict[str, Any] = {}
         self._display_author_names: list[str] = []
-        self._submission_date: str = ""
-        self._tex_source_info: Any | None = None
+        self._submission_date: str | None = None
+        self._tex_source_info: TexSourceInfo | None = None
         self._image_resolver: ImageResolver | None = None
         self._doc: DocumentIR | None = None
         self._paper_output_dir: Path | None = None
@@ -140,16 +141,14 @@ class IngestionOrchestrator:
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
 
     async def _fetch_html_and_metadata(self) -> None:
-        """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。"""
+        """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。."""
         html_task = asyncio.create_task(self._fetch_html())
         metadata_task = asyncio.create_task(self._fetch_api_metadata())
         await metadata_task
         await html_task
         self._parse_html()
 
-        self._display_author_names = author_display_names_from_metadata(
-            self._api_metadata
-        )
+        self._display_author_names = author_display_names_from_metadata(self._api_metadata)
         if not self._display_author_names and self._parsed is not None:
             self._display_author_names = [a.name for a in self._parsed.authors]
 
@@ -165,9 +164,8 @@ class IngestionOrchestrator:
     def _filter_sections(self) -> None:
         from arxiv2md_beta.cli.helpers import collect_sections
 
-        self._selected_sections = collect_sections(
-            self.params.sections, self.params.section
-        )
+        assert self._parsed is not None
+        self._selected_sections = collect_sections(self.params.sections, self.params.section)
         self._filtered_sections = filter_sections(
             self._parsed.sections,
             mode=self.params.section_filter_mode,
@@ -186,15 +184,14 @@ class IngestionOrchestrator:
         if self.params.section_filter_mode == "exclude":
             self._include_abstract = abstract_key not in selected_lower
         else:
-            self._include_abstract = (
-                not self._selected_sections or abstract_key in selected_lower
-            )
+            self._include_abstract = not self._selected_sections or abstract_key in selected_lower
 
     # ── Step 5: Setup output directory ─────────────────────────────────
 
     def _setup_output_dir(self) -> None:
         from arxiv2md_beta.output.layout import determine_output_dir
 
+        assert self._parsed is not None
         base_output_dir = determine_output_dir(self.params.output)
         base_output_dir.mkdir(parents=True, exist_ok=True)
         self._paper_output_dir = create_paper_output_dir(
@@ -210,6 +207,7 @@ class IngestionOrchestrator:
     # ── Step 6: Fetch TeX source and process images ────────────────────
 
     async def _fetch_tex_and_images(self) -> None:
+        assert self._paper_output_dir is not None
         image_map: dict[int, Path] = {}
         image_stem_map: dict[str, Path] = {}
 
@@ -259,6 +257,7 @@ class IngestionOrchestrator:
     # ── Step 7: Build IR ───────────────────────────────────────────────
 
     def _build_ir(self) -> None:
+        assert self._parsed is not None
         builder = HTMLBuilder(image_resolver=self._image_resolver)
         # 直接复用 parse_arxiv_html 的解析结果，避免 builder 再次解析完整 HTML
         self._doc = builder.build(self._parsed, arxiv_id=self._query.arxiv_id)
@@ -269,6 +268,8 @@ class IngestionOrchestrator:
     def _populate_assets(self) -> None:
         if self._image_resolver is None:
             return
+        assert self._doc is not None
+        assert self._paper_output_dir is not None
         from arxiv2md_beta.ir.assets import ImageAsset, SvgAsset
 
         seen_paths: set[str] = set()
@@ -298,6 +299,8 @@ class IngestionOrchestrator:
     # ── Step 8: Enrich metadata ────────────────────────────────────────
 
     def _enrich_metadata(self) -> None:
+        assert self._doc is not None
+        assert self._parsed is not None
         if self._submission_date:
             self._doc.metadata.submission_date = self._submission_date
 
@@ -309,15 +312,11 @@ class IngestionOrchestrator:
 
     def _merge_affiliations(self) -> None:
         """Merge API + HTML + TeX affiliations into doc.metadata.authors."""
+        assert self._doc is not None
+        assert self._parsed is not None
 
         def _norm(s: str) -> str:
-            return (
-                unicodedata.normalize("NFKD", s)
-                .encode("ascii", "ignore")
-                .decode("ascii")
-                .lower()
-                .strip()
-            )
+            return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii").lower().strip()
 
         # API affiliations (preferred)
         api_affil_map: dict[str, list[str]] = {}
@@ -352,12 +351,15 @@ class IngestionOrchestrator:
     # ── Step 9: Run transform passes ───────────────────────────────────
 
     def _run_transforms(self) -> None:
+        assert self._doc is not None
         pipeline = PassPipeline()
         # Phase 1: Filter first to reduce work for downstream passes
         if self._selected_sections:
+            mode = self.params.section_filter_mode
+            assert mode in ("include", "exclude")
             pipeline.add(
                 SectionFilterPass(
-                    mode=self.params.section_filter_mode,
+                    mode=mode,
                     selected=self._selected_sections,
                 )
             )
@@ -372,6 +374,7 @@ class IngestionOrchestrator:
     # ── Step 10: Normalize abstract ────────────────────────────────────
 
     def _normalize_abstract(self) -> None:
+        assert self._doc is not None
         _strip_abstract_heading(self._doc)
         if not self._include_abstract:
             self._doc.abstract = []
@@ -379,6 +382,7 @@ class IngestionOrchestrator:
     # ── Step 11: Emit markdown ─────────────────────────────────────────
 
     def _emit_markdown(self) -> None:
+        assert self._doc is not None
         emitter = MarkdownEmitter()
         main_irs, ref_irs, app_irs = _split_ir_sections(
             self._doc.sections,
@@ -396,16 +400,12 @@ class IngestionOrchestrator:
         self._doc.abstract = []
         self._doc.sections = ref_irs
         ref_raw = emitter.emit(self._doc) if ref_irs else ""
-        self._content_references = (
-            _format_markdown_output(ref_raw) if ref_raw.strip() else None
-        )
+        self._content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else None
 
         # Appendix sidecar (no abstract)
         self._doc.sections = app_irs
         app_raw = emitter.emit(self._doc) if app_irs else ""
-        self._content_appendix = (
-            _format_markdown_output(app_raw) if app_raw.strip() else None
-        )
+        self._content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else None
 
         # Restore
         self._doc.sections = original_sections
@@ -414,6 +414,8 @@ class IngestionOrchestrator:
     # ── Step 12: Build result ──────────────────────────────────────────
 
     def _build_result(self) -> IngestionResult:
+        assert self._doc is not None
+        assert self._parsed is not None
         m = self._doc.metadata
         title = m.title or self._parsed.title
 
@@ -434,13 +436,8 @@ class IngestionOrchestrator:
                 else:
                     summary_lines.append(f"  - {name}")
         summary_lines.append(f"- Sections: {count_sections(self._filtered_sections)}")
-        token_body = "\n".join(
-            x for x in (self._content, self._content_references, self._content_appendix or "")
-            if x
-        )
-        token_estimate = _format_token_count(
-            _create_sections_tree(self._filtered_sections) + "\n" + token_body
-        )
+        token_body = "\n".join(x for x in (self._content, self._content_references, self._content_appendix or "") if x)
+        token_estimate = _format_token_count(_create_sections_tree(self._filtered_sections) + "\n" + token_body)
         if token_estimate:
             summary_lines.append(f"- Estimated tokens: {token_estimate}")
         summary = "\n".join(summary_lines)
@@ -464,11 +461,9 @@ class IngestionOrchestrator:
 
     async def _save_paper_yml(self) -> None:
         try:
-            base_id = (
-                self._query.arxiv_id.split("v")[0]
-                if "v" in self._query.arxiv_id
-                else self._query.arxiv_id
-            )
+            assert self._parsed is not None
+            assert self._paper_output_dir is not None
+            base_id = self._query.arxiv_id.split("v")[0] if "v" in self._query.arxiv_id else self._query.arxiv_id
             paper_meta = dict(self._api_metadata)
             if not paper_meta.get("title") and self._parsed.title:
                 paper_meta["title"] = self._parsed.title
@@ -480,19 +475,13 @@ class IngestionOrchestrator:
                     html_affil_map[a.name.lower().strip()] = a.affiliations
                 if paper_meta.get("authors"):
                     for pa in paper_meta["authors"]:
-                        if (
-                            isinstance(pa, dict)
-                            and "name" in pa
-                            and not pa.get("affiliations")
-                        ):
+                        if isinstance(pa, dict) and "name" in pa and not pa.get("affiliations"):
                             affs = html_affil_map.get(pa["name"].lower().strip(), [])
                             if affs:
                                 pa["affiliations"] = affs
                 else:
                     paper_meta["authors"] = [
-                        {"name": a.name, "affiliations": a.affiliations}
-                        for a in self._parsed.authors
-                        if a.name
+                        {"name": a.name, "affiliations": a.affiliations} for a in self._parsed.authors if a.name
                     ]
             paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
             merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
@@ -504,6 +493,8 @@ class IngestionOrchestrator:
 
     async def _structured_export(self) -> dict:
         try:
+            assert self._doc is not None
+            assert self._paper_output_dir is not None
             from arxiv2md_beta.ir.emitters.json_emitter import (
                 JsonEmitter,
                 normalize_structured_mode,
@@ -526,6 +517,8 @@ class IngestionOrchestrator:
     # ── Step 15: Build metadata dict ───────────────────────────────────
 
     def _build_metadata(self, structured_export: dict) -> dict[str, Any]:
+        assert self._doc is not None
+        assert self._parsed is not None
         title = self._doc.metadata.title or self._parsed.title
         return {
             "title": title,
@@ -578,16 +571,14 @@ def _strip_abstract_heading(doc: DocumentIR) -> None:
     builder converts to a ``HeadingIR``. The emitter already renders its own
     ``## Abstract`` heading, so this duplicate is removed in-place.
     """
-    from arxiv2md_beta.ir.blocks import HeadingIR
-
     if not doc.abstract:
         return
     keep = []
     for blk in doc.abstract:
         if hasattr(blk, "type") and blk.type == "heading":
-            text = " ".join(
-                il.text for il in (getattr(blk, "inlines", []) or []) if hasattr(il, "text")
-            ).strip().lower()
+            text = (
+                " ".join(il.text for il in (getattr(blk, "inlines", []) or []) if hasattr(il, "text")).strip().lower()
+            )
             if text in ("abstract",):
                 continue
         keep.append(blk)

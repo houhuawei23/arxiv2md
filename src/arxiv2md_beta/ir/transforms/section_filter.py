@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms.base import IRPass
 
@@ -25,17 +23,14 @@ class SectionFilterPass(IRPass):
 
     def __init__(
         self,
-        mode: Literal["include", "exclude"] = "exclude",
+        mode: str = "exclude",
         selected: list[str] | None = None,
     ):
         self.mode = mode
         self.selected = selected or []
 
     def run(self, doc: DocumentIR) -> DocumentIR:
-        doc.sections = [
-            s for s in doc.sections
-            if self._should_keep(s, self.mode)
-        ]
+        doc.sections = [s for s in doc.sections if self._should_keep(s, self.mode)]
         return doc
 
     def _should_keep(self, section: SectionIR, mode: str) -> bool:
@@ -43,15 +38,9 @@ class SectionFilterPass(IRPass):
 
         Also filters children recursively.
         """
-        section.children = [
-            c for c in section.children
-            if self._should_keep(c, mode)
-        ]
+        section.children = [c for c in section.children if self._should_keep(c, mode)]
 
-        matches = any(
-            kw.lower() in section.title.lower()
-            for kw in self.selected
-        ) or section.struct_id in self.selected
+        matches = any(kw.lower() in section.title.lower() for kw in self.selected) or section.struct_id in self.selected
 
         if mode == "include":
             return matches

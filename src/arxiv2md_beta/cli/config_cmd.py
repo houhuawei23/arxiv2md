@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import typer
 import yaml
@@ -43,7 +43,7 @@ def config_show(
     settings = get_settings()
 
     # Build config dict
-    config_dict = {
+    config_dict: dict[str, dict[str, Any]] = {
         "app": {
             "environment": settings.app.environment,
             "log_level": settings.app.log_level,
@@ -103,7 +103,7 @@ def config_show(
 
 @app.command("validate")
 def config_validate(
-    config_file: Optional[Path] = typer.Argument(
+    config_file: Path | None = typer.Argument(
         None,
         help="Path to config file to validate (default: current effective config)",
     ),
@@ -119,7 +119,7 @@ def config_validate(
             console.print("[green]✓[/green] Current configuration is valid")
     except Exception as e:
         console.print(f"[red]✗[/red] Configuration error: {e}")
-        raise typer.Exit(code=2)
+        raise typer.Exit(code=2) from e
 
 
 @app.command("init")
@@ -215,7 +215,7 @@ def config_cache(
         ...,
         help="Action: stats, clear, or invalidate",
     ),
-    arxiv_id: Optional[str] = typer.Option(
+    arxiv_id: str | None = typer.Option(
         None,
         "--arxiv-id",
         help="arXiv ID for invalidate action.",

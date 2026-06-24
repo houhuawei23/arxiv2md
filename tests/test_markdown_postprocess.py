@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from arxiv2md_beta.output.markdown_postprocess import (
     _clean_math_latex,
     _remove_anchor_tags,

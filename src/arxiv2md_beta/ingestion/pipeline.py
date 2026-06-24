@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from arxiv2md_beta.ingestion.html import ingest_paper_html
+from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.ingestion.latex import ingest_paper_latex
+from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
 from arxiv2md_beta.schemas import IngestionResult
 
 
@@ -28,7 +30,7 @@ async def ingest_paper(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
     use_cache: bool = True,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Main ingestion function that routes to HTML or LaTeX parser.
 
     Parameters
@@ -84,23 +86,28 @@ async def ingest_paper(
             use_cache=use_cache,
         )
     else:  # html
-        result, metadata = await ingest_paper_html(
-            arxiv_id=arxiv_id,
-            version=version,
-            html_url=html_url,
-            ar5iv_url=ar5iv_url,
+        params = ConvertParams(
+            input_text=arxiv_id,
+            parser=parser,
+            output=str(base_output_dir),
+            source=source,
+            short=short,
+            no_images=no_images,
             remove_refs=remove_refs,
             remove_toc=remove_toc,
             remove_inline_citations=remove_inline_citations,
             section_filter_mode=section_filter_mode,
-            sections=sections,
-            base_output_dir=base_output_dir,
-            no_images=no_images,
-            source=source,
-            short=short,
+            sections=",".join(sections) if sections else None,
+            section=None,
+            include_tree=False,
+            emit_result_json=False,
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
-            use_cache=use_cache,
+            no_cache=not use_cache,
+            use_legacy=False,
+            naming_scheme="classic",
+            download_pdf=False,
         )
+        result, metadata = await IngestionOrchestrator(params).run()
 
     return result, metadata

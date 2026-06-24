@@ -20,7 +20,7 @@ def is_arxiv_doi(doi: str) -> bool:
     doi : str
         DOI string
 
-    Returns
+    Returns:
     -------
     bool
         True if it's an arXiv DOI
@@ -39,7 +39,7 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
     doi : str
         DOI string (e.g., "10.1234/example" or "10.48550/arXiv.2305.11169")
 
-    Returns
+    Returns:
     -------
     dict | None
         Metadata dictionary if successful, None if failed or not found
@@ -106,7 +106,7 @@ def _parse_crossref_response(json_data: dict) -> dict:
     json_data : dict
         JSON response from Crossref API
 
-    Returns
+    Returns:
     -------
     dict
         Extracted metadata dictionary

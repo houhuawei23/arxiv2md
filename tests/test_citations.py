@@ -9,8 +9,8 @@ from arxiv2md_beta.citations import (
     CitationResolver,
     ParsedCitation,
     extract_identifiers,
-    format_bibtex_entry,
     format_bibtex_database,
+    format_bibtex_entry,
     parse_citations_from_html,
     parse_citations_from_text,
 )
@@ -186,7 +186,7 @@ class TestCitationResolver:
     @pytest.mark.asyncio
     async def test_resolve_citation_with_doi(self):
         """Test resolving citation with DOI."""
-        parsed = ParsedCitation(
+        ParsedCitation(
             key="test",
             text="Test citation",
             identifiers={"doi": "10.1234/example"},

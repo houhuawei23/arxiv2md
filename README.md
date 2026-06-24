@@ -418,6 +418,13 @@ python demo/demo_arxiv2md_beta.py
 
 本项目采用 [MIT License](LICENSE) 开源协议。参照 arxiv2md 项目的代码和结构，作为独立项目开发。
 
-## 贡献
+## 贡献者与致谢
 
 欢迎提交 Issue 和 Pull Request！
+
+### Contributors
+
+- **Hou Huawei** — 项目创建者与主要维护者
+- **Kimi (kimi-k2.7 via kimi-code)** — 共同开发者，参与架构重构、性能优化、CI/CD 建设、静态检查修复与文档更新
+
+> 本项目的多个版本由 Kimi (kimi-k2.7 via kimi-code) 协助完成系统性重构与工程化改进。

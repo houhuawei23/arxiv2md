@@ -21,11 +21,7 @@ class TestHtmlFetching:
         """Test successful HTML fetch from arXiv."""
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
-                return_value=Response(
-                    200,
-                    text=sample_html,
-                    headers={"content-type": "text/html; charset=utf-8"}
-                )
+                return_value=Response(200, text=sample_html, headers={"content-type": "text/html; charset=utf-8"})
             )
 
             html = await fetch_arxiv_html(
@@ -42,14 +38,11 @@ class TestHtmlFetching:
         """Test HTML fetch with 404 response."""
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.99999").mock(
-                return_value=Response(
-                    404,
-                    text="Not found",
-                    headers={"content-type": "text/html; charset=utf-8"}
-                )
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
 
             from arxiv2md_beta.exceptions import NetworkError
+
             with pytest.raises(NetworkError) as exc_info:
                 await fetch_arxiv_html(
                     "https://arxiv.org/html/2501.99999",
@@ -68,16 +61,12 @@ class TestHtmlFetching:
                 return_value=Response(
                     404,
                     text="does not have an HTML version",
-                    headers={"content-type": "text/html; charset=utf-8"}
+                    headers={"content-type": "text/html; charset=utf-8"},
                 )
             )
             # Make ar5iv return success
             respx.get("https://ar5iv.org/html/2501.12345").mock(
-                return_value=Response(
-                    200,
-                    text=sample_html,
-                    headers={"content-type": "text/html; charset=utf-8"}
-                )
+                return_value=Response(200, text=sample_html, headers={"content-type": "text/html; charset=utf-8"})
             )
 
             html = await fetch_arxiv_html(
@@ -95,11 +84,10 @@ class TestHtmlFetching:
         from httpx import ConnectTimeout
 
         with respx.mock:
-            respx.get("https://arxiv.org/html/2501.12345").side_effect = ConnectTimeout(
-                "Connection timed out"
-            )
+            respx.get("https://arxiv.org/html/2501.12345").side_effect = ConnectTimeout("Connection timed out")
 
             from arxiv2md_beta.exceptions import NetworkError
+
             with pytest.raises(NetworkError):
                 await fetch_arxiv_html(
                     "https://arxiv.org/html/2501.12345",
@@ -113,14 +101,11 @@ class TestHtmlFetching:
         """Test handling of non-HTML response."""
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
-                return_value=Response(
-                    200,
-                    text='{"error": "not html"}',
-                    headers={"content-type": "application/json"}
-                )
+                return_value=Response(200, text='{"error": "not html"}', headers={"content-type": "application/json"})
             )
 
             from arxiv2md_beta.exceptions import NetworkError
+
             with pytest.raises((NetworkError, ValueError)):
                 await fetch_arxiv_html(
                     "https://arxiv.org/html/2501.12345",

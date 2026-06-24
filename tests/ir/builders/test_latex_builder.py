@@ -8,7 +8,6 @@ from arxiv2md_beta.ir import (
     DocumentIR,
     LaTeXBuilder,
     MarkdownEmitter,
-    PaperMetadata,
 )
 
 pypandoc = pytest.importorskip("pypandoc")
@@ -150,9 +149,7 @@ def hello():
 \begin{document}
 \includegraphics{fig1.pdf}
 \end{document}"""
-        builder = LaTeXBuilder(
-            image_map={"fig1.pdf": Path("./images/fig1.png")}
-        )
+        builder = LaTeXBuilder(image_map={"fig1.pdf": Path("./images/fig1.png")})
         doc = builder.build(tex, arxiv_id="test")
         assert len(doc.sections) >= 1
 
@@ -183,7 +180,7 @@ Content.
         assert isinstance(doc, DocumentIR)
 
     def test_arxiv_id_propagated(self):
-        """arXiv ID is propagated to metadata."""
+        """ArXiv ID is propagated to metadata."""
         builder = LaTeXBuilder()
         doc = builder.build(r"\documentclass{article}\begin{document}Hi\end{document}", arxiv_id="2501.12345v2")
         assert doc.metadata.arxiv_id == "2501.12345v2"

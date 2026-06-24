@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from arxiv2md_beta.ir import (
     DocumentIR,
     FigureIR,
@@ -23,7 +21,8 @@ class TestFigureReorderPass:
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Test", level=1,
+                    title="Test",
+                    level=1,
                     blocks=[
                         ParagraphIR(inlines=[TextIR(text="See Figure 1 for details.")]),
                         ParagraphIR(inlines=[TextIR(text="Another paragraph.")]),
@@ -51,7 +50,8 @@ class TestFigureReorderPass:
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Test", level=1,
+                    title="Test",
+                    level=1,
                     blocks=[
                         FigureIR(
                             figure_id="figure-1",
@@ -76,7 +76,8 @@ class TestFigureReorderPass:
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Test", level=1,
+                    title="Test",
+                    level=1,
                     blocks=[
                         ParagraphIR(inlines=[TextIR(text="No figure mentioned.")]),
                         FigureIR(
@@ -99,7 +100,8 @@ class TestFigureReorderPass:
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Test", level=1,
+                    title="Test",
+                    level=1,
                     blocks=[
                         ParagraphIR(inlines=[TextIR(text="Ref Figure 2 and Figure 1.")]),
                         FigureIR(figure_id="figure-1", images=[ImageRefIR(src="./a.png")]),

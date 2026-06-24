@@ -122,9 +122,11 @@ class TestRawInlineIR:
 
 class TestInlineComposition:
     def test_mixed_inlines(self, emitter):
-        p = ParagraphIR(inlines=[
-            TextIR(text="Hello "),
-            EmphasisIR(style="bold", inlines=[TextIR(text="world")]),
-            TextIR(text="!"),
-        ])
+        p = ParagraphIR(
+            inlines=[
+                TextIR(text="Hello "),
+                EmphasisIR(style="bold", inlines=[TextIR(text="world")]),
+                TextIR(text="!"),
+            ]
+        )
         assert emitter._emit_block(p) == "Hello **world**!"

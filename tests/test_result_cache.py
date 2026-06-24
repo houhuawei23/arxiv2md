@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from arxiv2md_beta.cache import ResultCache, get_result_cache, reset_result_cache
+from arxiv2md_beta.cache import ResultCache, reset_result_cache
 from arxiv2md_beta.schemas import IngestionResult
 
 

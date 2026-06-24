@@ -68,7 +68,9 @@ def build_output_basename(
     short_max = on.sanitize_short_max_length
     safe_source = _sanitize_for_filesystem(source, max_length=src_max) or s.cli_defaults.source
     safe_short = _sanitize_for_filesystem(short, max_length=short_max) if short else ""
-    safe_title = sanitize_title_for_filesystem(title or on.default_unknown_title, max_length=max_title_length, settings=s)
+    safe_title = sanitize_title_for_filesystem(
+        title or on.default_unknown_title, max_length=max_title_length, settings=s
+    )
 
     if scheme == "paper-pipeline":
         if safe_short:
@@ -89,10 +91,7 @@ def build_output_basename(
             else:
                 fixed_part = f"{date_str}-{safe_source}-{safe_short}-"
         else:
-            if scheme == "paper-pipeline":
-                fixed_part = f"{safe_source}-{date_str}-"
-            else:
-                fixed_part = f"{date_str}-{safe_source}-"
+            fixed_part = f"{safe_source}-{date_str}-" if scheme == "paper-pipeline" else f"{date_str}-{safe_source}-"
         max_title_in_basename = max_dir_length - len(fixed_part)
         if len(safe_title) > max_title_in_basename:
             safe_title = sanitize_title_for_filesystem(

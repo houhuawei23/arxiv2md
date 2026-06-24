@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from arxiv2md_beta.ir.resolvers import ImageResolver
 
 

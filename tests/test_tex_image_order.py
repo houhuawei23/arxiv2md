@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arxiv2md_beta.latex.tex_source import _parse_images_from_tex, _strip_title_blocks_for_image_extraction
+from arxiv2md_beta.latex.tex_source import (
+    _parse_images_from_tex,
+    _strip_title_blocks_for_image_extraction,
+)
 
 
 def test_strip_icmltitle_removes_title_logo_from_includegraphics_order(tmp_path: Path) -> None:
@@ -42,8 +45,10 @@ def test_strip_does_not_confuse_icmltitlerunning() -> None:
     assert "figures/a.png" not in out
 
 
-def test_strip_affiliation_removes_institution_logos_from_includegraphics_order(tmp_path: Path) -> None:
-    """Fairmeta/NeurIPS-style \\affiliation[...]{\\includegraphics...} must not occupy figure indices."""
+def test_strip_affiliation_removes_institution_logos_from_includegraphics_order(
+    tmp_path: Path,
+) -> None:
+    r"""Fairmeta/NeurIPS-style \\affiliation[...]{\\includegraphics...} must not occupy figure indices."""
     tex = tmp_path / "main.tex"
     fig = tmp_path / "figs"
     fig.mkdir(parents=True)

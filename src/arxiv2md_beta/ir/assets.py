@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -39,6 +39,6 @@ class OtherAsset(AssetIR):
 
 
 AssetUnion = Annotated[
-    Union[ImageAsset, SvgAsset, OtherAsset],
+    ImageAsset | SvgAsset | OtherAsset,
     Field(discriminator="type"),
 ]

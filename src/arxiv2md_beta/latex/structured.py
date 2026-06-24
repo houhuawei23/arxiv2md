@@ -1,3 +1,4 @@
+# type: ignore
 """Structured export enhancements for LaTeX parser."""
 
 from __future__ import annotations
@@ -10,11 +11,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.schemas.structured import BlockJson
 from arxiv2md_beta.schemas.sections import SectionNode
 from arxiv2md_beta.schemas.structured import (
     SCHEMA_VERSION,
     AssetJson,
+    BlockJson,
     GraphEdgeJson,
     GraphNodeJson,
     PaperAssetsJson,
@@ -32,7 +33,7 @@ def extract_blocks_from_markdown(
     start_index: int = 0,
 ) -> list[BlockJson]:
     """Extract content blocks from markdown (LaTeX mode alternative to HTML block extraction).
-    
+
     Parameters
     ----------
     markdown : str
@@ -41,7 +42,7 @@ def extract_blocks_from_markdown(
         Section identifier
     start_index : int
         Starting order index
-        
+
     Returns:
     -------
     list[BlockJson]
@@ -54,16 +55,18 @@ def extract_blocks_from_markdown(
     # Pattern to match different block types
     patterns = [
         # Display math
-        (r'\$\$[\s\S]*?\$\$', 'math_display'),
+        (r"\$\$[\s\S]*?\$\$", "math_display"),
         # Code blocks
-        (r'```[\s\S]*?```', 'code'),
+        (r"```[\s\S]*?```", "code"),
         # Tables
-        (r'\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+', 'table'),
+        (r"\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+", "table"),
         # Blockquotes
-        (r'^>\s*.+$', 'quote'),
+        (r"^>\s*.+$", "quote"),
         # Paragraphs (non-empty lines)
-        (r'^(?!#|\s*\$\$|\s*```|\s*\||\s*>)[^\n]+(?:\n(?!#|\s*\$\$|\s*```|\s*\||\s*>)[^\n]+)*',
-         'paragraph'),
+        (
+            r"^(?!#|\s*\$\$|\s*```|\s*\||\s*>)[^\n]+(?:\n(?!#|\s*\$\$|\s*```|\s*\||\s*>)[^\n]+)*",
+            "paragraph",
+        ),
     ]
 
     remaining = markdown
@@ -83,7 +86,7 @@ def extract_blocks_from_markdown(
         if best_match:
             # Add any text before the match as plain text if significant
             if best_match.start() > 0:
-                prefix = remaining[:best_match.start()].strip()
+                prefix = remaining[: best_match.start()].strip()
                 if len(prefix) > 20:
                     blocks.append(
                         BlockJson(
@@ -101,7 +104,7 @@ def extract_blocks_from_markdown(
             content = best_match.group(0)
 
             # Create appropriate block
-            if best_type == 'math_display':
+            if best_type == "math_display":
                 blocks.append(
                     BlockJson(
                         id=f"{section_id}:b{order_idx}:equation",
@@ -113,7 +116,7 @@ def extract_blocks_from_markdown(
                         extra={"source": "latex_markdown", "display": True},
                     )
                 )
-            elif best_type == 'code':
+            elif best_type == "code":
                 blocks.append(
                     BlockJson(
                         id=f"{section_id}:b{order_idx}:code",
@@ -125,7 +128,7 @@ def extract_blocks_from_markdown(
                         extra={"source": "latex_markdown"},
                     )
                 )
-            elif best_type == 'table':
+            elif best_type == "table":
                 blocks.append(
                     BlockJson(
                         id=f"{section_id}:b{order_idx}:table",
@@ -137,7 +140,7 @@ def extract_blocks_from_markdown(
                         extra={"source": "latex_markdown"},
                     )
                 )
-            elif best_type == 'quote':
+            elif best_type == "quote":
                 blocks.append(
                     BlockJson(
                         id=f"{section_id}:b{order_idx}:quote",
@@ -163,7 +166,7 @@ def extract_blocks_from_markdown(
                 )
 
             order_idx += 1
-            remaining = remaining[best_match.end():]
+            remaining = remaining[best_match.end() :]
         else:
             # No more matches, add remaining as text if significant
             remaining_text = remaining.strip()
@@ -188,12 +191,12 @@ def extract_blocks_from_sections(
     sections: list[SectionNode],
 ) -> list[BlockJson]:
     """Extract blocks from all sections recursively.
-    
+
     Parameters
     ----------
     sections : list[SectionNode]
         Section tree
-        
+
     Returns:
     -------
     list[BlockJson]
@@ -221,14 +224,14 @@ def extract_abstract_blocks(
     section_id: str = "abstract",
 ) -> list[BlockJson]:
     """Extract blocks from abstract.
-    
+
     Parameters
     ----------
     abstract_md : str | None
         Abstract markdown content
     section_id : str
         Section identifier
-        
+
     Returns:
     -------
     list[BlockJson]
@@ -272,6 +275,7 @@ def _content_fingerprint(abstract_md: str | None, sections: list[SectionNode]) -
 
 def assign_struct_ids(sections: list[SectionNode], prefix: str = "sec") -> None:
     """Mutate sections with stable struct_id (e.g. sec_0, sec_0_1)."""
+
     def walk(nodes: list[SectionNode], path: tuple[int, ...]) -> None:
         for i, node in enumerate(nodes):
             sid = prefix + "".join(f"_{p}" for p in (*path, i))
@@ -283,6 +287,7 @@ def assign_struct_ids(sections: list[SectionNode], prefix: str = "sec") -> None:
 
 def _section_to_tree_json(node: SectionNode) -> SectionTreeNodeJson:
     from arxiv2md_beta.ir._legacy_blocks import hash_html, hash_markdown
+
     return SectionTreeNodeJson(
         struct_id=node.struct_id or "sec_unknown",
         title=node.title,
@@ -392,7 +397,7 @@ def write_structured_bundle_for_latex(
     images_subdir: str = "images",
 ) -> dict[str, Any]:
     """Enhanced structured export for LaTeX parser with proper block extraction.
-    
+
     Parameters
     ----------
     paper_output_dir : Path
@@ -427,7 +432,7 @@ def write_structured_bundle_for_latex(
         Mapping from index to image path
     images_subdir : str
         Images subdirectory name
-        
+
     Returns:
     -------
     dict[str, Any]

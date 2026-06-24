@@ -18,7 +18,7 @@ async def async_write_text(path: Path, content: str, encoding: str = "utf-8") ->
 
 async def async_read_text(path: Path, encoding: str = "utf-8") -> str:
     """Asynchronously read text from *path*."""
-    async with aiofiles.open(path, "r", encoding=encoding) as f:
+    async with aiofiles.open(path, encoding=encoding) as f:
         return await f.read()
 
 
@@ -36,6 +36,6 @@ async def async_write_json(path: Path, data: Any, encoding: str = "utf-8") -> No
 
 async def async_read_json(path: Path, encoding: str = "utf-8") -> Any:
     """Asynchronously read JSON from *path*."""
-    async with aiofiles.open(path, "r", encoding=encoding) as f:
+    async with aiofiles.open(path, encoding=encoding) as f:
         content = await f.read()
     return json.loads(content)

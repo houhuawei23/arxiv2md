@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from arxiv2md_beta.schemas import SectionNode
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.html_attrs import attr_optional
+from arxiv2md_beta.utils.html_attrs import classes as css_classes
 
 try:
     from bs4 import BeautifulSoup
@@ -22,15 +24,67 @@ _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
 _SKIP_KEYWORDS = {"footnotemark:", "equal contribution", "work performed", "listing order"}
 # Keywords that strongly suggest an affiliation line
 _AFFILIATION_KEYWORDS = {
-    "university", "college", "institute", "institution", "laboratory", "lab",
-    "school", "center", "centre", "department", "faculty", "division",
-    "academy", "consortium", "corporation", "corp", "inc", "ltd", "gmbh",
-    "research", "google", "microsoft", "meta", "amazon", "apple", "deepmind",
-    "openai", "anthropic", "nvidia", "intel", "ibm", "facebook", "twitter",
-    "tesla", "uber", "lyft", "airbnb", "netflix", "stripe", "square",
-    "berkeley", "stanford", "mit", "harvard", "caltech", "cmu", "princeton",
-    "yale", "columbia", "cornell", "oxford", "cambridge", "eth", "epfl",
-    "mpi", "inria", "cern", "nasa", "flatiron", "allen", "astera",
+    "university",
+    "college",
+    "institute",
+    "institution",
+    "laboratory",
+    "lab",
+    "school",
+    "center",
+    "centre",
+    "department",
+    "faculty",
+    "division",
+    "academy",
+    "consortium",
+    "corporation",
+    "corp",
+    "inc",
+    "ltd",
+    "gmbh",
+    "research",
+    "google",
+    "microsoft",
+    "meta",
+    "amazon",
+    "apple",
+    "deepmind",
+    "openai",
+    "anthropic",
+    "nvidia",
+    "intel",
+    "ibm",
+    "facebook",
+    "twitter",
+    "tesla",
+    "uber",
+    "lyft",
+    "airbnb",
+    "netflix",
+    "stripe",
+    "square",
+    "berkeley",
+    "stanford",
+    "mit",
+    "harvard",
+    "caltech",
+    "cmu",
+    "princeton",
+    "yale",
+    "columbia",
+    "cornell",
+    "oxford",
+    "cambridge",
+    "eth",
+    "epfl",
+    "mpi",
+    "inria",
+    "cern",
+    "nasa",
+    "flatiron",
+    "allen",
+    "astera",
 }
 # Regex for footnote markers like *, **, 1, 12, †, ‡
 _FOOTNOTE_MARKER_RE = re.compile(r"^[\*†‡§¶‖#♯\d]+$")
@@ -68,7 +122,9 @@ def _extract_front_matter_html(soup: BeautifulSoup, document_root: Tag) -> str |
     for sib in abstract.find_next_siblings():
         if isinstance(sib, Tag) and sib.name == "section":
             break
-        if isinstance(sib, Tag) and ("ltx_figure" in str(sib) or "ltx_para" in str(sib) or "ltx_logical-block" in " ".join(sib.get("class", []))):
+        if isinstance(sib, Tag) and (
+            "ltx_figure" in str(sib) or "ltx_para" in str(sib) or "ltx_logical-block" in " ".join(css_classes(sib))
+        ):
             parts.append(str(sib))
     return "\n".join(parts) if parts else None
 
@@ -101,10 +157,10 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
 def _find_document_root(soup: BeautifulSoup) -> Tag:
     root = soup.find("article", class_=re.compile(r"ltx_document"))
     if root:
-        return root
+        return root  # type: ignore
     article = soup.find("article")
     if article:
-        return article
+        return article  # type: ignore
     if soup.body:
         return soup.body
     return soup
@@ -126,7 +182,7 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
     for selector in ["h1.title", "h1.paper-title", "meta[property='og:title']"]:
         tag = soup.select_one(selector)
         if tag:
-            text = tag.get("content") if tag.name == "meta" else tag.get_text(" ", strip=True)
+            text = attr_optional(tag, "content") if tag.name == "meta" else tag.get_text(" ", strip=True)  # type: ignore[assignment]
             text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text)
             text = re.sub(r"\bContents\s*$", "", text).strip()
             if text:
@@ -168,12 +224,12 @@ def _extract_authors_with_affiliations(soup: BeautifulSoup) -> list[ParsedAuthor
         return []
 
     # --- Strategy 1: structured author blocks ---
-    structured = _parse_structured_author_blocks(authors_container)
+    structured = _parse_structured_author_blocks(authors_container)  # type: ignore
     if structured:
         return structured
 
     # --- Strategy 2: sequential flat spans ---
-    sequential = _parse_sequential_author_spans(authors_container)
+    sequential = _parse_sequential_author_spans(authors_container)  # type: ignore
     if sequential:
         return sequential
 
@@ -213,7 +269,7 @@ def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
             # Also check for italic text spans inside the creator (common pattern)
             if not affils:
                 for span in creator.find_all("span", class_=re.compile(r"ltx_text")):
-                    classes = span.get("class", [])
+                    classes = css_classes(span)
                     if "ltx_font_italic" in classes or "ltx_font_bold" not in classes:
                         aff_text = _clean_single_author_text(span)
                         if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
@@ -235,10 +291,11 @@ def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
 
 
 def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
-    """Parse authors from a ``ltx_personname`` where
+    """Parse authors from a ``ltx_personname`` where authors are separated by ``<br>``.
+
     - Each author block is separated by ``<br>``
     - Within each block: name, then affiliation, then email
-    - The next author's name may be prefixed with ``&``
+    - The next author's name may be prefixed with ``&``.
 
     Example (1706.03762):
         Ashish Vaswani <br> Google Brain <br> avaswani@google.com <br>
@@ -289,10 +346,12 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
         if _looks_like_name(part):
             # Flush previous author if any
             if current_name:
-                results.append(ParsedAuthor(
-                    name=current_name,
-                    affiliations=_dedupe_strings(current_affils),
-                ))
+                results.append(
+                    ParsedAuthor(
+                        name=current_name,
+                        affiliations=_dedupe_strings(current_affils),
+                    )
+                )
             current_name = part
             current_affils = []
         elif _looks_like_affiliation(part):
@@ -306,10 +365,12 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
 
     # Flush last author
     if current_name:
-        results.append(ParsedAuthor(
-            name=current_name,
-            affiliations=_dedupe_strings(current_affils),
-        ))
+        results.append(
+            ParsedAuthor(
+                name=current_name,
+                affiliations=_dedupe_strings(current_affils),
+            )
+        )
 
     return results
 
@@ -332,8 +393,8 @@ def _parse_tabular_authors_in_creator(creator: Tag) -> list[ParsedAuthor]:
     # Fallback: bold + italic spans directly inside the personname without cells
     personname = creator.find(class_=re.compile(r"ltx_personname"))
     if personname:
-        bolds = personname.find_all("span", class_=re.compile(r"ltx_font_bold"))
-        italics = personname.find_all("span", class_=re.compile(r"ltx_font_italic"))
+        bolds = personname.find_all("span", class_=re.compile(r"ltx_font_bold"))  # type: ignore
+        italics = personname.find_all("span", class_=re.compile(r"ltx_font_italic"))  # type: ignore
         if len(bolds) > 1 and len(italics) >= len(bolds):
             return _pair_bold_italic_spans(bolds, italics)
 
@@ -372,22 +433,22 @@ def _pair_bold_italic_spans(bolds: list[Tag], italics: list[Tag]) -> list[Parsed
     all_nodes.sort(key=lambda x: (x[0].sourceline or 0, id(x[0])))
 
     results: list[ParsedAuthor] = []
-    i = 0
-    while i < len(all_nodes):
-        node, kind = all_nodes[i]
+    i = 0  # type: ignore[assignment]
+    while i < len(all_nodes):  # type: ignore[operator]
+        node, kind = all_nodes[i]  # type: ignore
         if kind == "bold":
             name = _clean_single_author_text(node)
             if name:
                 # Collect following italic spans until next bold
                 affils: list[str] = []
-                j = i + 1
+                j = i + 1  # type: ignore[operator]
                 while j < len(all_nodes) and all_nodes[j][1] == "italic":
                     aff_text = _clean_single_author_text(all_nodes[j][0])
                     if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
                         affils.append(aff_text)
                     j += 1
                 results.append(ParsedAuthor(name=name, affiliations=_dedupe_strings(affils)))
-        i += 1
+        i += 1  # type: ignore[assignment, operator]
 
     return results
 
@@ -405,7 +466,7 @@ def _parse_sequential_author_spans(container: Tag) -> list[ParsedAuthor]:
             if child.name in ("script", "style"):
                 continue
             # Skip nested structures that are already handled
-            classes = " ".join(child.get("class", []))
+            classes = " ".join(css_classes(child))
             if "ltx_creator" in classes or "ltx_role_author" in classes or "ltx_author" in classes:
                 # Let structured parser handle these
                 continue
@@ -458,11 +519,7 @@ def _parse_sequential_author_spans(container: Tag) -> list[ParsedAuthor]:
             j = i + 1
             while j < len(candidates):
                 next_node, next_bold = candidates[j]
-                next_text = (
-                    _get_clean_text(next_node)
-                    if isinstance(next_node, Tag)
-                    else str(next_node).strip()
-                )
+                next_text = _get_clean_text(next_node) if isinstance(next_node, Tag) else str(next_node).strip()
                 next_text = re.sub(r"\s+", " ", next_text).strip()
 
                 if not next_text or _EMAIL_RE.match(next_text) or _FOOTNOTE_MARKER_RE.match(next_text):
@@ -521,10 +578,7 @@ def _looks_like_name(text: str) -> bool:
         return False
 
     # Looks like an email
-    if "@" in cleaned:
-        return False
-
-    return True
+    return "@" not in cleaned
 
 
 def _looks_like_affiliation(text: str) -> bool:
@@ -575,10 +629,7 @@ def _get_clean_text(tag: Tag) -> str:
 
 def _clean_single_author_text(node: Tag | NavigableString) -> str:
     """Extract a single clean text string from a node, filtering out noise."""
-    if isinstance(node, NavigableString):
-        text = str(node).strip()
-    else:
-        text = _get_clean_text(node)
+    text = str(node).strip() if isinstance(node, NavigableString) else _get_clean_text(node)
 
     if not text:
         return ""
@@ -682,26 +733,29 @@ def _extract_abstract_html(soup: BeautifulSoup) -> str | None:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
         return None
-    inner = "".join(str(c) for c in abstract.children)
+    inner = "".join(str(c) for c in abstract.children)  # type: ignore
     return inner.strip() if inner.strip() else None
 
 
 def _extract_submission_date(soup: BeautifulSoup) -> str | None:
     """Extract submission date from arXiv HTML.
-    
+
     Returns date in YYYYMMDD format, or None if not found.
     """
     # Try to find date in various formats
     # Look for date patterns in the HTML
     date_patterns = [
         # Look for meta tags with date
-        (lambda s: s.find("meta", attrs={"name": "citation_date"}), lambda tag: tag.get("content")),
+        (lambda s: s.find("meta", attrs={"name": "citation_date"}), lambda tag: attr_optional(tag, "content")),
         # Look for date in header/footer
-        (lambda s: s.find(class_=re.compile(r"ltx_date|arxiv-date|submission-date")), lambda tag: tag.get_text()),
+        (
+            lambda s: s.find(class_=re.compile(r"ltx_date|arxiv-date|submission-date")),
+            lambda tag: tag.get_text(),
+        ),
         # Look for date in title area
         (lambda s: s.find("time"), lambda tag: tag.get("datetime") or tag.get_text()),
     ]
-    
+
     for finder, extractor in date_patterns:
         try:
             element = finder(soup)
@@ -714,7 +768,7 @@ def _extract_submission_date(soup: BeautifulSoup) -> str | None:
                         return parsed_date
         except Exception:
             continue
-    
+
     # Fallback: try to extract from arXiv ID pattern in URL or metadata
     # This is less reliable but sometimes works
     return None
@@ -724,7 +778,7 @@ def _parse_date_string(date_str: str) -> str | None:
     """Parse various date formats and return YYYYMMDD."""
     import re
     from datetime import datetime
-    
+
     # Try common date formats
     formats = [
         "%Y-%m-%d",
@@ -734,16 +788,16 @@ def _parse_date_string(date_str: str) -> str | None:
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M:%SZ",
     ]
-    
+
     # Clean the string
     date_str = date_str.strip()
-    
+
     # Try to extract YYYY-MM-DD pattern
     match = re.search(r"(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})", date_str)
     if match:
         year, month, day = match.groups()
         return f"{year}{month.zfill(2)}{day.zfill(2)}"
-    
+
     # Try parsing with datetime
     for fmt in formats:
         try:
@@ -751,7 +805,7 @@ def _parse_date_string(date_str: str) -> str | None:
             return dt.strftime("%Y%m%d")
         except ValueError:
             continue
-    
+
     return None
 
 
@@ -763,7 +817,9 @@ def _extract_sections(root: Tag) -> list[SectionNode]:
     for heading in headings:
         level = int(heading.name[1])
         title = heading.get_text(" ", strip=True)
-        anchor = heading.get("id") or heading.parent.get("id")
+        anchor = attr_optional(heading, "id")
+        if not anchor and isinstance(heading.parent, Tag):
+            anchor = attr_optional(heading.parent, "id")
         html = _collect_section_html(heading)
 
         node = SectionNode(title=title, level=level, anchor=anchor, html=html)
@@ -791,7 +847,7 @@ def _iter_headings(root: Tag) -> Iterable[Tag]:
 
 
 def _is_title_heading(heading: Tag) -> bool:
-    classes = heading.get("class", [])
+    classes = css_classes(heading)
     return "ltx_title_document" in classes
 
 
@@ -812,7 +868,7 @@ def _collect_section_html(heading: Tag) -> str | None:
             continue
         if isinstance(child, Tag) and any(
             cls.startswith("ltx_section") or cls.startswith("ltx_subsection") or cls.startswith("ltx_subsubsection")
-            for cls in child.get("class", [])
+            for cls in css_classes(child)
         ):
             continue
         if isinstance(child, NavigableString):

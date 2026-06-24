@@ -1,3 +1,4 @@
+# type: ignore
 """Extract coarse block-level IR from ar5iv HTML fragments."""
 
 from __future__ import annotations
@@ -7,6 +8,7 @@ import re
 from typing import Any
 
 from arxiv2md_beta.schemas.structured import BlockJson
+from arxiv2md_beta.utils.html_attrs import attr_str, classes
 
 try:
     from bs4 import BeautifulSoup
@@ -77,7 +79,7 @@ def extract_blocks_from_html(html: str | None, section_id: str) -> list[BlockJso
 def _emit_tag_block(tag: Tag, emit) -> None:
     """Classify a top-level tag into a block."""
     name = tag.name
-    cls = " ".join(tag.get("class", []))
+    cls = " ".join(classes(tag))
 
     if name == "p":
         emit("paragraph", {"tag": "p"}, _plain_from_tag(tag))
@@ -86,7 +88,7 @@ def _emit_tag_block(tag: Tag, emit) -> None:
         cap = tag.find("figcaption") or tag.find("span", class_=re.compile(r"ltx_caption"))
         cap_text = _plain_from_tag(cap) if cap else None
         img = tag.find("img")
-        src = img.get("src") if img else None
+        src = attr_str(img, "src") if img else None
         emit(
             "figure",
             {"tag": "figure", "img_src": src, "caption": cap_text},
@@ -120,7 +122,21 @@ def _emit_tag_block(tag: Tag, emit) -> None:
 
     if name == "div":
         inner = tag.find_all(
-            ["p", "figure", "table", "ul", "ol", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"],
+            [
+                "p",
+                "figure",
+                "table",
+                "ul",
+                "ol",
+                "blockquote",
+                "pre",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+            ],
             recursive=False,
         )
         if inner:

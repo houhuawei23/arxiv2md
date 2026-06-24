@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import pytest
-
 from arxiv2md_beta.ir import (
     DocumentIR,
     IRVisitor,
     PaperMetadata,
     ParagraphIR,
     SectionIR,
-    TextIR,
     TextCollector,
+    TextIR,
     walk,
 )
 from arxiv2md_beta.ir.core import IRNode
-
 
 # ── Custom visitors for testing ───────────────────────────────────────
 
@@ -147,22 +144,24 @@ class TestDeepNesting:
         """Walk through deeply nested emphasis: bold(italic(bold(text)))."""
         from arxiv2md_beta.ir import EmphasisIR
 
-        deep = ParagraphIR(inlines=[
-            EmphasisIR(
-                style="bold",
-                inlines=[
-                    EmphasisIR(
-                        style="italic",
-                        inlines=[
-                            EmphasisIR(
-                                style="bold",
-                                inlines=[TextIR(text="deep")],
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        ])
+        deep = ParagraphIR(
+            inlines=[
+                EmphasisIR(
+                    style="bold",
+                    inlines=[
+                        EmphasisIR(
+                            style="italic",
+                            inlines=[
+                                EmphasisIR(
+                                    style="bold",
+                                    inlines=[TextIR(text="deep")],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ]
+        )
 
         doc = DocumentIR(
             metadata=PaperMetadata(arxiv_id="nest"),
@@ -265,7 +264,7 @@ class TestDeepNesting:
 
 class TestVisitorDispatch:
     def test_specific_visitor_called(self):
-        """verify that visit_paragraph is preferred over visit_default."""
+        """Verify that visit_paragraph is preferred over visit_default."""
 
         class ParaOnly(IRVisitor):
             def __init__(self):
@@ -283,7 +282,7 @@ class TestVisitorDispatch:
         assert v.hit is True
 
     def test_fallback_to_default(self):
-        """verify that visit_default is called when no specific handler."""
+        """Verify that visit_default is called when no specific handler."""
 
         class DefaultOnly(IRVisitor):
             def __init__(self):

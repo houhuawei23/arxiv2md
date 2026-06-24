@@ -4,30 +4,13 @@ from __future__ import annotations
 
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
-    BlockQuoteIR,
-    CodeIR,
     EquationIR,
     FigureIR,
-    HeadingIR,
     ListIR,
-    ParagraphIR,
-    RawBlockIR,
-    RuleIR,
     TableIR,
 )
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
-from arxiv2md_beta.ir.inlines import (
-    BreakIR,
-    EmphasisIR,
-    ImageRefIR,
-    LinkIR,
-    MathIR,
-    RawInlineIR,
-    SubscriptIR,
-    SuperscriptIR,
-    TextIR,
-)
 
 # ── inline delimiter map ──────────────────────────────────────────────
 
@@ -99,9 +82,7 @@ class MarkdownEmitter(IREmitter):
     # ── Blocks ─────────────────────────────────────────────────────────
 
     def _emit_blocks(self, blocks: list) -> str:
-        return "\n\n".join(
-            b for b in (self._emit_block(blk) for blk in blocks) if b
-        )
+        return "\n\n".join(b for b in (self._emit_block(blk) for blk in blocks) if b)
 
     def _emit_block(self, block) -> str:
         t = block.type
@@ -153,9 +134,7 @@ class MarkdownEmitter(IREmitter):
             return f"{d}{self._emit_inlines(inline.inlines)}{c}"
         elif t == "link":
             text = self._emit_inlines(inline.inlines)
-            if inline.kind == "citation" and inline.target_id:
-                return f"[{text}](#{inline.target_id})"
-            elif inline.kind == "internal" and inline.target_id:
+            if inline.kind == "citation" and inline.target_id or inline.kind == "internal" and inline.target_id:
                 return f"[{text}](#{inline.target_id})"
             elif inline.url:
                 return f"[{text}]({inline.url})"

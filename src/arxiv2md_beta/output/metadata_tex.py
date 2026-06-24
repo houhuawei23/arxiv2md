@@ -1,4 +1,4 @@
-"""TeX-based author affiliation enrichment shared by ``convert`` and ``paper-yml``.
+r"""TeX-based author affiliation enrichment shared by ``convert`` and ``paper-yml``.
 
 ``fetch_arxiv_metadata`` already applies abs-page + OpenAlex enrichment. This module
 adds parsing of ``\\icmlauthor`` / ``\\author`` / IEEE blocks from the arXiv TeX source
@@ -12,7 +12,11 @@ from typing import Any
 from loguru import logger
 
 from arxiv2md_beta.exceptions import Arxiv2mdError, NetworkError
-from arxiv2md_beta.latex.tex_source import TexSourceInfo, TexSourceNotFoundError, fetch_and_extract_tex_source
+from arxiv2md_beta.latex.tex_source import (
+    TexSourceInfo,
+    TexSourceNotFoundError,
+    fetch_and_extract_tex_source,
+)
 from arxiv2md_beta.settings import get_settings
 
 
@@ -25,7 +29,7 @@ def merge_tex_affiliations_if_configured(
     Used by the HTML/LaTeX pipelines after TeX has already been downloaded for images
     (or for HTML ``--no-images`` when a separate fetch was performed).
 
-    Returns
+    Returns:
     -------
     int
         Number of authors matched (same as ``merge_tex_affiliations_into_metadata``).
@@ -63,7 +67,7 @@ async def fetch_and_merge_tex_affiliations_for_metadata(
     version
         Optional version suffix (e.g. ``v2``), or ``None`` for latest.
 
-    Returns
+    Returns:
     -------
     int
         Match count from merge, or ``0`` if skipped or failed.

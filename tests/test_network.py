@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 import respx
-from httpx import Response, ConnectTimeout, HTTPStatusError
+from httpx import Response
 
 from arxiv2md_beta.exceptions import NetworkError
+from arxiv2md_beta.network.fetch import _cache_dir_for, _is_cache_fresh, fetch_arxiv_html
+from arxiv2md_beta.network.http import _build_client, async_http_client, get_http_client
 from arxiv2md_beta.query.parser import parse_arxiv_input
-from arxiv2md_beta.network.fetch import fetch_arxiv_html, _is_cache_fresh, _cache_dir_for
-from arxiv2md_beta.network.http import get_http_client, async_http_client, _build_client
 
 
 class TestHttpClient:
@@ -46,10 +46,14 @@ class TestFetchArxivHtml:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'resolved_cache_path': lambda: tmp_path,
-                'cache': type('cache', (), {'ttl_seconds': 86400})()
-            })()
+            lambda: type(
+                "obj",
+                (object,),
+                {
+                    "resolved_cache_path": lambda: tmp_path,
+                    "cache": type("cache", (), {"ttl_seconds": 86400})(),
+                },
+            )(),
         )
 
         with respx.mock:
@@ -57,7 +61,7 @@ class TestFetchArxivHtml:
                 return_value=Response(
                     200,
                     text="<html>Test content</html>",
-                    headers={"content-type": "text/html; charset=utf-8"}
+                    headers={"content-type": "text/html; charset=utf-8"},
                 )
             )
 
@@ -77,19 +81,19 @@ class TestFetchArxivHtml:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'resolved_cache_path': lambda: tmp_path,
-                'cache': type('cache', (), {'ttl_seconds': 86400})()
-            })()
+            lambda: type(
+                "obj",
+                (object,),
+                {
+                    "resolved_cache_path": lambda: tmp_path,
+                    "cache": type("cache", (), {"ttl_seconds": 86400})(),
+                },
+            )(),
         )
 
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
-                return_value=Response(
-                    404,
-                    text="Not found",
-                    headers={"content-type": "text/html; charset=utf-8"}
-                )
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
 
             with pytest.raises(NetworkError) as exc_info:
@@ -122,6 +126,7 @@ class TestFetchArxivHtml:
             class MockSettings:
                 def resolved_cache_path(self):
                     return tmp_path
+
                 http = MockHttp()
                 cache = MockCache()
 
@@ -130,6 +135,7 @@ class TestFetchArxivHtml:
         monkeypatch.setattr(settings_module, "get_settings", mock_get_settings)
 
         with respx.mock:
+
             def side_effect(request):
                 nonlocal call_count
                 call_count += 1
@@ -141,8 +147,6 @@ class TestFetchArxivHtml:
 
             # This should eventually succeed after retries
             # Note: Actual retry logic is in _fetch_with_retries
-
-
 
 
 class TestParseArxivInput:
@@ -190,9 +194,7 @@ class TestCacheHelpers:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'resolved_cache_path': lambda: tmp_path
-            })()
+            lambda: type("obj", (object,), {"resolved_cache_path": lambda: tmp_path})(),
         )
 
         cache_dir = _cache_dir_for("2501.12345", None)
@@ -206,9 +208,7 @@ class TestCacheHelpers:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'resolved_cache_path': lambda: tmp_path
-            })()
+            lambda: type("obj", (object,), {"resolved_cache_path": lambda: tmp_path})(),
         )
 
         cache_dir = _cache_dir_for("2501.12345", "v2")
@@ -222,9 +222,7 @@ class TestCacheHelpers:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'cache': type('cache', (), {'ttl_seconds': 3600})()
-            })()
+            lambda: type("obj", (object,), {"cache": type("cache", (), {"ttl_seconds": 3600})()})(),
         )
 
         cache_file = tmp_path / "test.html"
@@ -237,9 +235,7 @@ class TestCacheHelpers:
         monkeypatch.setattr(
             settings_module,
             "get_settings",
-            lambda: type('obj', (object,), {
-                'cache': type('cache', (), {'ttl_seconds': 0})()
-            })()
+            lambda: type("obj", (object,), {"cache": type("cache", (), {"ttl_seconds": 0})()})(),
         )
         # Should be fresh with zero TTL (infinite cache)
         assert _is_cache_fresh(cache_file) is True

@@ -30,43 +30,46 @@ Usage::
 
 from __future__ import annotations
 
-from abc import ABC
 from typing import Any
 
-from arxiv2md_beta.ir.blocks import BlockUnion
 from arxiv2md_beta.ir.core import IRNode
-from arxiv2md_beta.ir.document import DocumentIR, SectionIR
-from arxiv2md_beta.ir.inlines import InlineUnion
 
 # ── Node kinds that wrap nested children ──
 # Each entry: (type literal, attribute name that holds the children, child-list type)
 # We use the type literal string so we don't need to import every concrete class.
 _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
     # Inlines with children
-    "emphasis":     [("inlines", "inline")],
-    "link":         [("inlines", "inline")],
-    "superscript":  [("inlines", "inline")],
-    "subscript":    [("inlines", "inline")],
+    "emphasis": [("inlines", "inline")],
+    "link": [("inlines", "inline")],
+    "superscript": [("inlines", "inline")],
+    "subscript": [("inlines", "inline")],
     # Blocks with children
-    "paragraph":    [("inlines", "inline")],
-    "heading":      [("inlines", "inline")],
-    "blockquote":   [("blocks", "block")],
-    "list":         [("items", "block_list")],
-    "figure":       [("caption", "inline")],
-    "table":        [("headers", "inline_list"), ("rows", "inline_list_list"), ("caption", "inline")],
-    "algorithm":    [("steps", "block"), ("caption", "inline")],
-    "code":         [("caption", "inline")],
+    "paragraph": [("inlines", "inline")],
+    "heading": [("inlines", "inline")],
+    "blockquote": [("blocks", "block")],
+    "list": [("items", "block_list")],
+    "figure": [("caption", "inline")],
+    "table": [("headers", "inline_list"), ("rows", "inline_list_list"), ("caption", "inline")],
+    "algorithm": [("steps", "block"), ("caption", "inline")],
+    "code": [("caption", "inline")],
     # Document level
-    "section":      [("blocks", "block"), ("children", "section")],
-    "document":     [("abstract", "block"), ("front_matter", "block"), ("sections", "section"), ("bibliography", "block")],
+    "section": [("blocks", "block"), ("children", "section")],
+    "document": [
+        ("abstract", "block"),
+        ("front_matter", "block"),
+        ("sections", "section"),
+        ("bibliography", "block"),
+    ],
 }
 
 
-class IRVisitor(ABC):
+class IRVisitor:
     """Double-dispatch visitor for IR nodes.
 
     Override ``visit_<node_type>(self, node)`` for specific types.
     Falls back to ``visit_default(self, node)`` when no override exists.
+
+    ``enter_node`` and ``leave_node`` are optional lifecycle hooks used by IRWalker.
     """
 
     def visit(self, node: IRNode) -> Any:
@@ -80,8 +83,6 @@ class IRVisitor(ABC):
     def visit_default(self, node: IRNode) -> Any:
         """Called when no type-specific visitor exists."""
         return None
-
-    # Optional lifecycle hooks (used by IRWalker)
 
     def enter_node(self, node: IRNode) -> None:
         """Called before visiting a node (for state push)."""
@@ -158,6 +159,7 @@ class TextCollector(IRVisitor):
 
     def visit_text(self, node: IRNode) -> None:
         from arxiv2md_beta.ir.inlines import TextIR
+
         if isinstance(node, TextIR):
             self.texts.append(node.text)
 
@@ -185,4 +187,5 @@ class NodeCounter(IRVisitor):
         self.counts: dict[str, int] = {}
 
     def visit_default(self, node: IRNode) -> None:
-        self.counts[node.type] = self.counts.get(node.type, 0) + 1
+        node_type = node.type
+        self.counts[node_type] = self.counts.get(node_type, 0) + 1

@@ -32,15 +32,9 @@ class ImageResolver:
         stem_map: dict[str, Any] | None = None,
         path_map: dict[str, Any] | None = None,
     ) -> None:
-        self._index_map: dict[int, Path] = {
-            k: Path(v) for k, v in (index_map or {}).items()
-        }
-        self._stem_map: dict[str, Path] = {
-            k: Path(v) for k, v in (stem_map or {}).items()
-        }
-        self._path_map: dict[str, Path] = {
-            k: Path(v) for k, v in (path_map or {}).items()
-        }
+        self._index_map: dict[int, Path] = {k: Path(v) for k, v in (index_map or {}).items()}
+        self._stem_map: dict[str, Path] = {k: Path(v) for k, v in (stem_map or {}).items()}
+        self._path_map: dict[str, Path] = {k: Path(v) for k, v in (path_map or {}).items()}
         self._used_indices: set[int] = set()
         self._cache: dict[str, str] = {}
 
@@ -52,10 +46,7 @@ class ImageResolver:
             return self._cache[src]
 
         resolved = (
-            self._try_exact(src)
-            or self._try_stem(src)
-            or self._try_index(figure_index)
-            or self._try_path_map(src)
+            self._try_exact(src) or self._try_stem(src) or self._try_index(figure_index) or self._try_path_map(src)
         )
         result = str(resolved) if resolved else src
         self._cache[src] = result
@@ -72,29 +63,17 @@ class ImageResolver:
     def _try_stem(self, src: str) -> Path | None:
         """Match by filename stem (HTML *stem_map* + LaTeX *path_map* stems)."""
         src_basename = src.rsplit("/", 1)[-1] if "/" in src else src
-        src_stem = (
-            src_basename.rsplit(".", 1)[0]
-            if "." in src_basename
-            else src_basename
-        )
+        src_stem = src_basename.rsplit(".", 1)[0] if "." in src_basename else src_basename
 
         # HTML stem_map: case-insensitive exact stem match first
         for stem_key, local_path in self._stem_map.items():
-            key_stem = (
-                stem_key.rsplit(".", 1)[0]
-                if "." in stem_key
-                else stem_key
-            )
+            key_stem = stem_key.rsplit(".", 1)[0] if "." in stem_key else stem_key
             if key_stem.lower() == src_stem.lower():
                 return local_path
 
         # Fallback: substring match in basename only (not full path)
         for stem_key, local_path in self._stem_map.items():
-            key_stem = (
-                stem_key.rsplit(".", 1)[0]
-                if "." in stem_key
-                else stem_key
-            )
+            key_stem = stem_key.rsplit(".", 1)[0] if "." in stem_key else stem_key
             if key_stem.lower() in src_basename.lower():
                 return local_path
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from bs4 import BeautifulSoup
 
 from arxiv2md_beta.citations.resolver import extract_identifiers
+from arxiv2md_beta.utils.html_attrs import attr_optional
 from arxiv2md_beta.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 logger = get_logger()
 
 
-def parse_citations_from_html(html: str) -> list["ParsedCitation"]:
+def parse_citations_from_html(html: str) -> list[ParsedCitation]:
     """Parse citations from an HTML bibliography section.
 
     Parameters
@@ -24,7 +25,7 @@ def parse_citations_from_html(html: str) -> list["ParsedCitation"]:
     html : str
         HTML content containing bibliography
 
-    Returns
+    Returns:
     -------
     list[ParsedCitation]
         List of parsed citations
@@ -43,15 +44,17 @@ def parse_citations_from_html(html: str) -> list["ParsedCitation"]:
             if text:
                 key = f"bib{i + 1}"
                 # Try to find id attribute
-                if item.get("id"):
-                    key = item.get("id").replace("bib.", "")
+                if attr_optional(item, "id"):
+                    key = attr_optional(item, "id").replace("bib.", "")
 
                 identifiers = extract_identifiers(text)
-                citations.append(ParsedCitation(
-                    key=key,
-                    text=text,
-                    identifiers=identifiers,
-                ))
+                citations.append(
+                    ParsedCitation(
+                        key=key,
+                        text=text,
+                        identifiers=identifiers,
+                    )
+                )
 
         # If no list items found, try paragraphs or divs
         if not citations:
@@ -60,11 +63,13 @@ def parse_citations_from_html(html: str) -> list["ParsedCitation"]:
                 if text:
                     key = f"bib{i + 1}"
                     identifiers = extract_identifiers(text)
-                    citations.append(ParsedCitation(
-                        key=key,
-                        text=text,
-                        identifiers=identifiers,
-                    ))
+                    citations.append(
+                        ParsedCitation(
+                            key=key,
+                            text=text,
+                            identifiers=identifiers,
+                        )
+                    )
 
     # If no bibliography section, try looking for cite elements throughout
     if not citations:
@@ -72,17 +77,19 @@ def parse_citations_from_html(html: str) -> list["ParsedCitation"]:
             text = cite.get_text(" ", strip=True)
             if text:
                 identifiers = extract_identifiers(text)
-                citations.append(ParsedCitation(
-                    key=f"cite{i + 1}",
-                    text=text,
-                    identifiers=identifiers,
-                ))
+                citations.append(
+                    ParsedCitation(
+                        key=f"cite{i + 1}",
+                        text=text,
+                        identifiers=identifiers,
+                    )
+                )
 
     logger.info(f"Parsed {len(citations)} citations from HTML")
     return citations
 
 
-def parse_citations_from_text(text: str) -> list["ParsedCitation"]:
+def parse_citations_from_text(text: str) -> list[ParsedCitation]:
     """Parse citations from plain text bibliography.
 
     Parameters
@@ -90,7 +97,7 @@ def parse_citations_from_text(text: str) -> list["ParsedCitation"]:
     text : str
         Plain text bibliography
 
-    Returns
+    Returns:
     -------
     list[ParsedCitation]
         List of parsed citations
@@ -117,11 +124,13 @@ def parse_citations_from_text(text: str) -> list["ParsedCitation"]:
             if current_entry:
                 entry_num += 1
                 identifiers = extract_identifiers(current_entry)
-                citations.append(ParsedCitation(
-                    key=f"ref{entry_num}",
-                    text=current_entry,
-                    identifiers=identifiers,
-                ))
+                citations.append(
+                    ParsedCitation(
+                        key=f"ref{entry_num}",
+                        text=current_entry,
+                        identifiers=identifiers,
+                    )
+                )
             current_entry = line
         else:
             # Continue previous entry
@@ -131,11 +140,13 @@ def parse_citations_from_text(text: str) -> list["ParsedCitation"]:
     if current_entry:
         entry_num += 1
         identifiers = extract_identifiers(current_entry)
-        citations.append(ParsedCitation(
-            key=f"ref{entry_num}",
-            text=current_entry,
-            identifiers=identifiers,
-        ))
+        citations.append(
+            ParsedCitation(
+                key=f"ref{entry_num}",
+                text=current_entry,
+                identifiers=identifiers,
+            )
+        )
 
     logger.info(f"Parsed {len(citations)} citations from text")
     return citations

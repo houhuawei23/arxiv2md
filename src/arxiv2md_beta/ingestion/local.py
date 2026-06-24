@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import shutil
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
@@ -39,7 +40,7 @@ async def ingest_local_archive(
     sections: list[str] | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a local archive file (tar.gz, tgz, or zip) and convert to Markdown.
 
     This function handles both LaTeX-based archives (containing .tex files)
@@ -140,11 +141,12 @@ async def _ingest_latex_archive(
     no_images: bool,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a LaTeX-based local archive."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
 
     # Parse LaTeX to extract metadata before creating output dir
+    assert tex_source_info.main_tex_file is not None, "main_tex_file is required for local LaTeX archive"
     try:
         # Try to get title from LaTeX content first
         tex_content = tex_source_info.main_tex_file.read_text(encoding="utf-8", errors="ignore")
@@ -170,7 +172,7 @@ async def _ingest_latex_archive(
     # Process images if enabled
     processed_images = None
     if not no_images:
-        processed_images = process_images(tex_source_info, paper_output_dir, images_dir_name)
+        processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
 
     # Build image map from LaTeX labels/paths to local paths
     latex_image_map: dict[str, Path] = {}
@@ -187,9 +189,10 @@ async def _ingest_latex_archive(
                 except ValueError:
                     pass
 
-    # Parse LaTeX to Markdown
+    # Parse LaTeX to Markdown (offload blocking pandoc call to thread pool)
     try:
-        parsed_latex = parse_latex_to_markdown(
+        parsed_latex = await asyncio.to_thread(
+            parse_latex_to_markdown,
             tex_source_info.main_tex_file,
             tex_source_info.extracted_dir,
             latex_image_map,
@@ -307,9 +310,9 @@ async def _ingest_html_archive(
     sections: list[str],
     structured_output: str = "none",
     emit_graph_csv: bool = False,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Process an HTML-based local archive."""
-    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
     from arxiv2md_beta.html.parser import parse_arxiv_html
     from arxiv2md_beta.html.sections import filter_sections
     from arxiv2md_beta.output.layout import create_paper_output_dir
@@ -346,14 +349,10 @@ async def _ingest_html_archive(
         _copy_local_images(extracted_dir, images_dir)
 
     # Filter sections
-    filtered_sections = filter_sections(
-        parsed.sections, mode=section_filter_mode, selected=sections
-    )
+    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
     if remove_refs:
-        _REFERENCE_TITLES = ("references", "bibliography")
-        filtered_sections = filter_sections(
-            filtered_sections, mode="exclude", selected=_REFERENCE_TITLES
-        )
+        reference_titles = ("references", "bibliography")
+        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=reference_titles)
 
     # Check if abstract should be included
     selected_lower = [s.lower() for s in sections]
@@ -468,7 +467,7 @@ def _populate_section_markdown(
     images_dir: Path | None = None,
 ) -> None:
     """Populate markdown for section and children."""
-    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
 
     if figure_counter is None:
         figure_counter = [0]
@@ -491,7 +490,13 @@ def _populate_section_markdown(
 def _find_main_html_file(extracted_dir: Path, html_files: list[Path]) -> Path:
     """Find the main HTML file in the extracted archive."""
     # Priority order for main HTML files
-    priority_names = ["index.html", "full_article.html", "article.html", "main.html", "abstract.html"]
+    priority_names = [
+        "index.html",
+        "full_article.html",
+        "article.html",
+        "main.html",
+        "abstract.html",
+    ]
 
     for name in priority_names:
         for html_file in html_files:

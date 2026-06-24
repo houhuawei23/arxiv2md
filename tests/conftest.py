@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 import respx
@@ -59,13 +58,9 @@ def mock_arxiv_html(sample_html: str) -> respx.MockRouter:
     """
     with respx.mock(assert_all_mocked=False, assert_all_called=False) as router:
         # Mock specific test URL
-        router.get(
-            url__regex=r"https://arxiv\.org/html/2501\.12345$"
-        ).mock(return_value=Response(
-            200,
-            text=sample_html,
-            headers={"content-type": "text/html; charset=utf-8"}
-        ))
+        router.get(url__regex=r"https://arxiv\.org/html/2501\.12345$").mock(
+            return_value=Response(200, text=sample_html, headers={"content-type": "text/html; charset=utf-8"})
+        )
         yield router
 
 
@@ -76,24 +71,28 @@ def mock_arxiv_api(sample_metadata: dict) -> respx.MockRouter:
         # API query endpoint
         api_response = {
             "feed": {
-                "entry": [{
-                    "id": f"http://arxiv.org/abs/{sample_metadata['arxiv_id']}",
-                    "title": sample_metadata["title"],
-                    "author": [{"name": name} for name in sample_metadata["authors"]],
-                    "summary": sample_metadata["abstract"],
-                    "published": sample_metadata["published"],
-                    "arxiv:primary_category": {"@term": sample_metadata["primary_category"]},
-                    "category": [{"@term": cat} for cat in sample_metadata["categories"]],
-                    "link": [
-                        {"@rel": "alternate", "@href": sample_metadata["links"]["abs"]},
-                        {"@rel": "related", "@type": "application/pdf", "@href": sample_metadata["links"]["pdf"]},
-                    ],
-                }]
+                "entry": [
+                    {
+                        "id": f"http://arxiv.org/abs/{sample_metadata['arxiv_id']}",
+                        "title": sample_metadata["title"],
+                        "author": [{"name": name} for name in sample_metadata["authors"]],
+                        "summary": sample_metadata["abstract"],
+                        "published": sample_metadata["published"],
+                        "arxiv:primary_category": {"@term": sample_metadata["primary_category"]},
+                        "category": [{"@term": cat} for cat in sample_metadata["categories"]],
+                        "link": [
+                            {"@rel": "alternate", "@href": sample_metadata["links"]["abs"]},
+                            {
+                                "@rel": "related",
+                                "@type": "application/pdf",
+                                "@href": sample_metadata["links"]["pdf"],
+                            },
+                        ],
+                    }
+                ]
             }
         }
-        router.get(
-            "http://export.arxiv.org/api/query"
-        ).mock(return_value=Response(200, json=api_response))
+        router.get("http://export.arxiv.org/api/query").mock(return_value=Response(200, json=api_response))
         yield router
 
 
@@ -101,11 +100,7 @@ def mock_arxiv_api(sample_metadata: dict) -> respx.MockRouter:
 def mock_ar5iv_fallback(sample_html: str) -> respx.MockRouter:
     """Mock ar5iv fallback endpoint."""
     with respx.mock(assert_all_mocked=False) as router:
-        router.get(
-            url__regex=r"https://ar5iv\.org/html/\d+\.\d+"
-        ).mock(return_value=Response(
-            200,
-            text=sample_html,
-            headers={"content-type": "text/html; charset=utf-8"}
-        ))
+        router.get(url__regex=r"https://ar5iv\.org/html/\d+\.\d+").mock(
+            return_value=Response(200, text=sample_html, headers={"content-type": "text/html; charset=utf-8"})
+        )
         yield router

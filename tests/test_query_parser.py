@@ -10,8 +10,6 @@ from arxiv2md_beta.query.parser import (
     parse_arxiv_input,
     parse_local_archive,
     parse_local_html,
-    is_local_html_path,
-    is_local_archive_path,
 )
 
 
@@ -51,7 +49,6 @@ class TestArxivQueryParsing:
         """Parse arXiv PDF URL."""
         result = parse_arxiv_input("https://arxiv.org/pdf/2501.12345.pdf")
         assert result.arxiv_id == "2501.12345"
-
 
     def test_parse_arxiv_id_with_whitespace(self):
         """Parse arXiv ID with surrounding whitespace."""

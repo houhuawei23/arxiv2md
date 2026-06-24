@@ -35,7 +35,7 @@ class SectionTreeNodeJson(BaseModel):
     anchor: str | None = None
     html_sha256: str | None = None
     markdown_sha256: str | None = None
-    children: list["SectionTreeNodeJson"] = Field(default_factory=list)
+    children: list[SectionTreeNodeJson] = Field(default_factory=list)
 
 
 class BlockJson(BaseModel):

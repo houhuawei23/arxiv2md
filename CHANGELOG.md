@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Performance
+
+- **HTTP client 全面复用**：PDF 下载、TeX source 下载、OpenAlex API 统一使用共享 `httpx.AsyncClient`（`network.http.get_http_client()`），配合请求级超时，避免每次网络请求新建连接池。
+- **LaTeX 解析异步化**：HTML 旧路径、LaTeX 路径、本地归档路径的 `parse_latex_to_markdown()` 均通过 `asyncio.to_thread()`  offload 到线程池，避免阻塞 pandoc 调用阻塞事件循环。
+- **图片处理全异步**：旧 HTML/本地归档路径中的图片处理改为 `await process_images_async()`，与 IR 管线保持一致，使用 `ProcessPoolExecutor` + 线程池并发。
+- **IR builder 与 visitor 类型基础加固**：`IRNode` 基类补全 `type` 字段，消除 visitor 中的类型盲区。
+
+### Engineering
+
+- **静态检查清零**：`ruff check`、`ruff format`、`mypy src/arxiv2md_beta` 均通过。
+- **CI/CD**：新增 `.github/workflows/ci.yml`（lint/type/test 矩阵）和 `.github/workflows/release.yml`（tag 触发 PyPI 发布 + 版本校验）。
+- **Pre-commit 统一**：`.githooks/pre-commit` 末尾追加 `exec pre-commit run --show-diff-on-failure`。
+- **入口统一**：`ingest_paper()` 的 HTML 模式默认委托给 `IngestionOrchestrator`，旧路径保留用于 LaTeX/本地归档。
+- **死代码清理**：删除 `html/markdown.py::convert_html_to_markdown_v2` 及 `latex/parser.py` 中 7 个未调用函数。
+- **文档更新**：重写 `AGENTS.md`，更新架构图、CLI 示例与配置说明。
+
+### Changed
+
+- **Version**: 0.11.0 → 0.12.0
+
+Wrapped up by Kimi (kimi-k2.7 via kimi-code) on 2026-06-24
+
 ## [0.11.0] - 2026-06-19
 
 ### Performance

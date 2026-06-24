@@ -182,10 +182,10 @@ class TestBlockConversion:
 
         payload = "pip install causal-learn"
         b64 = base64.b64encode(payload.encode()).decode()
+        listing_line = '\n        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>pip</span><span> </span><span>install</span><span> </span><span>causal</span><span>-</span><span>learn</span></div>'  # noqa: E501
         html = f"""
         <div class="ltx_listing ltx_lst_language_Python ltx_lst_numbers_left ltx_lstlisting ltx_listing">
-        <div class="ltx_listing_data"><a href="data:text/plain;base64,{b64}" download="">⬇</a></div>
-        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>pip</span><span> </span><span>install</span><span> </span><span>causal</span><span>-</span><span>learn</span></div>
+        <div class="ltx_listing_data"><a href="data:text/plain;base64,{b64}" download="">⬇</a></div>{listing_line}
         </div>
         """
         doc = builder.build(
@@ -200,10 +200,10 @@ class TestBlockConversion:
 
     def test_ltx_listing_lines_fallback(self, builder):
         """When no data URL is present, listing lines are joined into a code block."""
-        html = """
-        <div class="ltx_listing ltx_lst_language_Python">
-        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>cg</span><span> </span><span>=</span><span> </span><span>pc</span><span>(</span><span>data</span><span>)</span></div>
-        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">2</span><span>cg</span><span>.</span><span>draw</span><span>()</span></div>
+        line1 = '\n        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">1</span><span>cg</span><span> </span><span>=</span><span> </span><span>pc</span><span>(</span><span>data</span><span>)</span></div>'  # noqa: E501
+        line2 = '\n        <div class="ltx_listingline"><span class="ltx_tag ltx_tag_listingline">2</span><span>cg</span><span>.</span><span>draw</span><span>()</span></div>'  # noqa: E501
+        html = f"""
+        <div class="ltx_listing ltx_lst_language_Python">{line1}{line2}
         </div>
         """
         doc = builder.build(
@@ -374,7 +374,6 @@ class TestRoundTrip:
         doc = builder.build(html, arxiv_id="test")
         emitter = MarkdownEmitter()
         md = emitter.emit(doc)
-        import re
 
         assert "Abstract" in md
         assert "Section 1" in md
@@ -471,10 +470,10 @@ class TestMathDisplay:
         assert not math.display
 
     def test_block_math_is_display(self, builder):
-        html = """
+        math_line = '\n        <p><math alttext="E=mc^2" display="block"><annotation encoding="application/x-tex">E=mc^2</annotation></math></p>'  # noqa: E501
+        html = f"""
         <article class="ltx_document">
-        <section class="ltx_section"><h2>T</h2>
-        <p><math alttext="E=mc^2" display="block"><annotation encoding="application/x-tex">E=mc^2</annotation></math></p>
+        <section class="ltx_section"><h2>T</h2>{math_line}
         </section>
         </article>"""
         doc = builder.build(html, arxiv_id="test")
@@ -570,19 +569,16 @@ class TestAr5ivMarkup:
         assert blocks[1].type == "equation"
         assert blocks[1].latex == "E=mc^2"
         assert blocks[2].type == "paragraph"
-        assert not any(
-            il.type == "raw_inline" and "<table" in getattr(il, "content", "")
-            for il in blocks[0].inlines
-        )
+        assert not any(il.type == "raw_inline" and "<table" in getattr(il, "content", "") for il in blocks[0].inlines)
 
     def test_math_latex_newlines_are_normalized(self, builder):
         """Literal newlines inside math LaTeX are collapsed to spaces."""
-        html = """
+        latex = "\n            \\mbox{for all } e \\in E: \\quad X^e \\mbox{ has an arbitrary\n          distribution and } Y^e = \\varepsilon^e"  # noqa: E501
+        html = f"""
         <article class="ltx_document">
         <section class="ltx_section"><h2>T</h2>
         <p><math display="block">
-          <annotation encoding="application/x-tex">
-            \\mbox{for all } e \\in E: \\quad X^e \\mbox{ has an arbitrary\n          distribution and } Y^e = \\varepsilon^e
+          <annotation encoding="application/x-tex">{latex}
           </annotation>
         </math></p>
         </section>

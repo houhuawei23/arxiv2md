@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-
 from loguru import logger
 
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 
 
@@ -31,13 +31,13 @@ async def fetch_openalex_work_for_arxiv(base_id: str) -> dict[str, Any] | None:
     timeout = httpx.Timeout(h.fetch_timeout_s)
     headers = {"User-Agent": h.user_agent, "Accept": "application/json"}
 
+    client = get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-            r = await client.get(url)
-            if r.status_code == 404:
-                return None
-            r.raise_for_status()
-            return r.json()
+        r = await client.get(url, timeout=timeout, headers=headers)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
     except httpx.HTTPStatusError as e:
         logger.debug(f"OpenAlex HTTP error for {base_id}: {e}")
         return None

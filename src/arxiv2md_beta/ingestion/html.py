@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
-from arxiv2md_beta.images.resolver import process_images
+from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 from arxiv2md_beta.network.arxiv_api import (
     author_display_names_from_metadata,
@@ -18,7 +18,7 @@ from arxiv2md_beta.network.arxiv_api import (
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
 
 
@@ -40,7 +40,7 @@ async def ingest_paper_html(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
     use_cache: bool = True,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Fetch, parse, and serialize an arXiv paper into Markdown with image support.
 
     Parameters
@@ -88,15 +88,11 @@ async def ingest_paper_html(
     submission_date = api_metadata.get("submission_date") or parsed.submission_date
     # Use API title if parsed title is None
     if not parsed.title and api_metadata.get("title"):
-        parsed.title = api_metadata["title"]
+        parsed.title = cast("str | None", api_metadata["title"])
 
-    filtered_sections = filter_sections(
-        parsed.sections, mode=section_filter_mode, selected=sections
-    )
+    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
     if remove_refs:
-        filtered_sections = filter_sections(
-            filtered_sections, mode="exclude", selected=ing.reference_section_titles
-        )
+        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=ing.reference_section_titles)
 
     # Check if abstract should be included based on section filter
     abstract_key = ing.abstract_section_title.lower()
@@ -108,8 +104,13 @@ async def ingest_paper_html(
 
     # Create paper-specific output directory
     from arxiv2md_beta.output.layout import create_paper_output_dir
+
     paper_output_dir = create_paper_output_dir(
-        base_output_dir, submission_date, parsed.title, source=source, short=short
+        base_output_dir,
+        cast("str | None", submission_date),
+        parsed.title,
+        source=source,
+        short=short,
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name
@@ -121,10 +122,8 @@ async def ingest_paper_html(
     tex_source_info = None
     if not no_images:
         try:
-            tex_source_info = await fetch_and_extract_tex_source(
-                arxiv_id, version=version, use_cache=use_cache
-            )
-            processed_images = process_images(tex_source_info, paper_output_dir, images_dir_name)
+            tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_cache)
+            processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
             image_map = processed_images.image_map
             image_stem_map = processed_images.stem_to_image_path
         except TexSourceNotFoundError:
@@ -133,6 +132,7 @@ async def ingest_paper_html(
         except Exception as e:
             # Log error but continue
             from loguru import logger
+
             logger.warning(f"Failed to process images: {e}")
 
     if (
@@ -142,13 +142,12 @@ async def ingest_paper_html(
         and ing.fetch_tex_for_affiliations_when_no_images
     ):
         try:
-            tex_source_info = await fetch_and_extract_tex_source(
-                arxiv_id, version=version, use_cache=use_cache
-            )
+            tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_cache)
         except TexSourceNotFoundError:
             pass
         except Exception as e:
             from loguru import logger
+
             logger.warning(f"TeX fetch for affiliations failed: {e}")
 
     # Populate markdown with image map (shared figure_counter across abstract + sections)
@@ -217,6 +216,7 @@ async def ingest_paper_html(
         save_paper_metadata(paper_meta, paper_output_dir)
     except Exception as e:
         from loguru import logger
+
         logger.warning(f"Failed to save paper.yml: {e}")
 
     structured_export: dict[str, Any] = {}
@@ -236,7 +236,7 @@ async def ingest_paper_html(
                 arxiv_version=version,
                 title=parsed.title,
                 authors=list(display_author_names or []),
-                submission_date=submission_date,
+                submission_date=cast("str | None", submission_date),
                 html_url=html_url,
                 ar5iv_url=ar5iv_url,
                 parser="html",
@@ -268,7 +268,7 @@ async def ingest_paper_html(
 
 
 def _populate_section_markdown(
-    section,
+    section: SectionNode,
     *,
     remove_inline_citations: bool = False,
     image_map: dict[int, Path] | None = None,

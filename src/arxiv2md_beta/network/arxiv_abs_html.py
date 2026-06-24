@@ -7,11 +7,13 @@ from html import unescape
 
 from bs4 import BeautifulSoup
 
+from arxiv2md_beta.utils.html_attrs import attr_optional
+
 
 def parse_abs_page_for_authors(html: str) -> tuple[list[str], list[str]]:
     """Extract author names and any affiliation strings from ``arxiv.org/abs/*`` HTML.
 
-    Returns
+    Returns:
     -------
     names : list[str]
         Display names in order (from ``div.authors`` links).
@@ -30,7 +32,7 @@ def parse_abs_page_for_authors(html: str) -> tuple[list[str], list[str]]:
 
     hints: list[str] = []
     for meta in soup.find_all("meta"):
-        if meta.get("name") == "citation_author_institution" and meta.get("content"):
+        if attr_optional(meta, "name") == "citation_author_institution" and attr_optional(meta, "content"):
             hints.append(meta["content"].strip())
 
     abs_block = soup.select_one("#abs") or soup.select_one("div#abs")

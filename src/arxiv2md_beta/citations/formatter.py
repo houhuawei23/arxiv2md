@@ -46,7 +46,7 @@ def _format_authors(authors: list[str]) -> str:
     return " and ".join(formatted)
 
 
-def format_bibtex_entry(entry: "CitationEntry") -> str:
+def format_bibtex_entry(entry: CitationEntry) -> str:
     """Format a CitationEntry as BibTeX.
 
     Parameters
@@ -54,7 +54,7 @@ def format_bibtex_entry(entry: "CitationEntry") -> str:
     entry : CitationEntry
         The citation entry to format
 
-    Returns
+    Returns:
     -------
     str
         BibTeX formatted entry
@@ -114,7 +114,7 @@ def format_bibtex_entry(entry: "CitationEntry") -> str:
     return "\n".join(lines)
 
 
-def format_bibtex_database(entries: list["CitationEntry"]) -> str:
+def format_bibtex_database(entries: list[CitationEntry]) -> str:
     """Format multiple entries as a BibTeX database.
 
     Parameters
@@ -122,7 +122,7 @@ def format_bibtex_database(entries: list["CitationEntry"]) -> str:
     entries : list[CitationEntry]
         List of citation entries
 
-    Returns
+    Returns:
     -------
     str
         Complete BibTeX database
@@ -161,7 +161,7 @@ def generate_citation_key(
     index : int
         Index for disambiguation
 
-    Returns
+    Returns:
     -------
     str
         Generated citation key
@@ -172,10 +172,7 @@ def generate_citation_key(
     if authors:
         first_author = authors[0]
         # Extract surname (assume "First Last" or "Last, First" format)
-        if "," in first_author:
-            surname = first_author.split(",")[0].strip()
-        else:
-            surname = first_author.split()[-1]
+        surname = first_author.split(",")[0].strip() if "," in first_author else first_author.split()[-1]
         # Remove non-alphanumeric
         surname = re.sub(r"[^\w]", "", surname)
         parts.append(surname)

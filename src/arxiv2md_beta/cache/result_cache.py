@@ -5,9 +5,10 @@ Caches the final Markdown output and metadata keyed by arXiv ID + conversion opt
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -191,7 +192,7 @@ class ResultCache:
         arxiv_id: str,
         version: str | None,
         parser: str,
-        result: "IngestionResult",
+        result: IngestionResult,
         metadata: dict,
         remove_refs: bool = False,
         remove_toc: bool = False,
@@ -267,11 +268,10 @@ class ResultCache:
             for cache_file in subdir.glob("*.json"):
                 try:
                     data = await async_read_json(cache_file)
-                    if data.get("arxiv_id") == arxiv_id:
-                        if version is None or data.get("version") == version:
-                            cache_file.unlink()
-                            removed += 1
-                            logger.debug(f"Invalidated cache: {cache_file}")
+                    if data.get("arxiv_id") == arxiv_id and (version is None or data.get("version") == version):
+                        cache_file.unlink()
+                        removed += 1
+                        logger.debug(f"Invalidated cache: {cache_file}")
                 except (json.JSONDecodeError, OSError):
                     continue
         logger.info(f"Invalidated {removed} cache entries for {arxiv_id}")
@@ -294,14 +294,12 @@ class ResultCache:
                 except OSError:
                     continue
             # Remove empty subdirectories
-            try:
+            with contextlib.suppress(OSError):
                 subdir.rmdir()
-            except OSError:
-                pass
         logger.info(f"Cleared {removed} cache entries")
         return removed
 
-    def get_stats(self) -> dict[str, int]:
+    def get_stats(self) -> dict[str, int | float]:
         """Get cache statistics.
 
         Returns:

@@ -1,3 +1,3 @@
 """arxiv2md-beta: Convert arXiv papers to Markdown with image support."""
 
-__version__ = "0.10.7"
+__version__ = "0.12.0"

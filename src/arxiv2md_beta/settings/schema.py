@@ -24,12 +24,8 @@ class HttpSection(BaseModel):
     user_agent: str
     retry_status_codes: list[int]
     large_transfer_timeout_multiplier: float = Field(gt=0)
-    max_connections: int = Field(
-        default=100, ge=1, description="httpx connection pool size"
-    )
-    max_keepalive_connections: int = Field(
-        default=20, ge=0, description="httpx keep-alive limit"
-    )
+    max_connections: int = Field(default=100, ge=1, description="httpx connection pool size")
+    max_keepalive_connections: int = Field(default=20, ge=0, description="httpx keep-alive limit")
 
 
 class CacheSection(BaseModel):
@@ -75,8 +71,11 @@ class OutputNamingSection(BaseModel):
     sanitize_short_max_length: int = Field(ge=1)
     naming_scheme: Literal["classic", "paper-pipeline"] = Field(
         default="paper-pipeline",
-        description="Output naming scheme. paper-pipeline: {source}-{date}-{title} with fixed internal filenames (paper.md, Appendix.md, References.md). "
-        "classic: legacy {date}-{source}-{title} naming.",
+        description=(
+            "Output naming scheme. paper-pipeline: {source}-{date}-{title} with fixed"
+            " internal filenames (paper.md, Appendix.md, References.md). classic: legacy"
+            " {date}-{source}-{title} naming."
+        ),
     )
 
 
@@ -133,7 +132,7 @@ class OutputSection(BaseModel):
     tiktoken_encoding: str = "o200k_base"
     include_anchors: bool = Field(
         default=False,
-        description="If True, keep <a id=\"...\"></a> anchor tags in generated Markdown.",
+        description='If True, keep <a id="..."></a> anchor tags in generated Markdown.',
     )
 
 
@@ -163,11 +162,7 @@ class AppSettings(BaseModel):
         if p.is_absolute():
             return p.resolve()
         xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
-        base = (
-            Path(xdg).expanduser().resolve()
-            if xdg
-            else (Path.home() / ".cache").resolve()
-        )
+        base = Path(xdg).expanduser().resolve() if xdg else (Path.home() / ".cache").resolve()
         return (base / "arxiv2md-beta" / p).resolve()
 
     def resolved_user_config_dir(self) -> Path:

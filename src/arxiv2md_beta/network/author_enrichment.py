@@ -5,12 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import httpx
 from loguru import logger
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
-from arxiv2md_beta.network.openalex_api import arxiv_base_id, fetch_openalex_work_for_arxiv
 from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.openalex_api import arxiv_base_id, fetch_openalex_work_for_arxiv
 from arxiv2md_beta.settings import get_settings
 
 
@@ -86,7 +85,7 @@ def _merge_openalex_into_authors(
 ) -> int:
     """Mutate ``authors`` in place with institutions / ORCID from OpenAlex ``authorships``.
 
-    Returns
+    Returns:
     -------
     int
         Number of local authors matched to an OpenAlex authorship.
@@ -112,11 +111,8 @@ def _merge_openalex_into_authors(
                     aff_parts.append(str(x).strip())
             aff_parts = _dedupe_affiliation_strings(aff_parts)
             aff_joined = "; ".join(aff_parts[:5])
-            if aff_parts and not au.get("affiliation"):
+            if aff_parts and (not au.get("affiliation") or len(aff_joined) > len(str(au.get("affiliation", "")))):
                 au["affiliation"] = aff_joined
-            elif aff_parts and au.get("affiliation"):
-                if len(aff_joined) > len(str(au.get("affiliation", ""))):
-                    au["affiliation"] = aff_joined
             if aff_parts:
                 au["affiliations"] = aff_parts
             oid = _orcid_id((ash.get("author") or {}).get("orcid"))

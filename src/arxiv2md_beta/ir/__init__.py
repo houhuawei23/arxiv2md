@@ -29,6 +29,12 @@ Quick start::
     print(doc.model_dump_json(indent=2))
 """
 
+from arxiv2md_beta.ir.assets import (  # noqa: F401
+    AssetUnion,
+    ImageAsset,
+    OtherAsset,
+    SvgAsset,
+)
 from arxiv2md_beta.ir.blocks import (  # noqa: F401
     AlgorithmIR,
     BlockQuoteIR,
@@ -43,14 +49,21 @@ from arxiv2md_beta.ir.blocks import (  # noqa: F401
     RuleIR,
     TableIR,
 )
+from arxiv2md_beta.ir.builders import HTMLBuilder, IRBuilder, LaTeXBuilder  # noqa: F401
 from arxiv2md_beta.ir.core import (  # noqa: F401
     AssetIR,
     BlockIR,
-    IRNode,
     InlineIR,
+    IRNode,
     SourceLoc,
 )
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR  # noqa: F401
+from arxiv2md_beta.ir.emitters import (  # noqa: F401
+    IREmitter,
+    JsonEmitter,
+    MarkdownEmitter,
+    PlainTextEmitter,
+)
 from arxiv2md_beta.ir.inlines import (  # noqa: F401
     BreakIR,
     EmphasisIR,
@@ -63,20 +76,6 @@ from arxiv2md_beta.ir.inlines import (  # noqa: F401
     SuperscriptIR,
     TextIR,
 )
-from arxiv2md_beta.ir.visitor import (  # noqa: F401
-    IRVisitor,
-    NodeCounter,
-    TextCollector,
-    walk,
-)
-from arxiv2md_beta.ir.assets import (  # noqa: F401
-    AssetUnion,
-    ImageAsset,
-    OtherAsset,
-    SvgAsset,
-)
-from arxiv2md_beta.ir.builders import IRBuilder, HTMLBuilder, LaTeXBuilder  # noqa: F401
-from arxiv2md_beta.ir.emitters import IREmitter, JsonEmitter, MarkdownEmitter, PlainTextEmitter  # noqa: F401
 from arxiv2md_beta.ir.transforms import (  # noqa: F401
     AnchorPass,
     FigureReorderPass,
@@ -84,6 +83,12 @@ from arxiv2md_beta.ir.transforms import (  # noqa: F401
     NumberingPass,
     PassPipeline,
     SectionFilterPass,
+)
+from arxiv2md_beta.ir.visitor import (  # noqa: F401
+    IRVisitor,
+    NodeCounter,
+    TextCollector,
+    walk,
 )
 
 __all__ = [

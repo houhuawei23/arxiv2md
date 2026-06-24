@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
+from typing import Any, cast
 
 import httpx
-
 from loguru import logger
 
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.html_attrs import attr_str
 
 
 def submission_date_from_new_style_arxiv_id(arxiv_id: str) -> str | None:
@@ -126,7 +127,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
     arxiv_id : str
         arXiv ID (e.g., "2501.11120" or "2501.11120v1")
 
-    Returns
+    Returns:
     -------
     dict
         Metadata including title, authors, published date, etc., enriched with Crossref data if available
@@ -167,8 +168,8 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
                     )
 
                     # Skip arXiv DOIs
-                    if not is_arxiv_doi(doi):
-                        crossref_metadata = await fetch_crossref_metadata(doi)
+                    if not is_arxiv_doi(cast("str", doi)):
+                        crossref_metadata = await fetch_crossref_metadata(cast("str", doi))
                         if crossref_metadata:
                             # Merge metadata: arXiv as base, Crossref as supplement
                             merged = _merge_metadata(arxiv_metadata, crossref_metadata)
@@ -187,7 +188,8 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
             backoff = h.fetch_backoff_s * (2**attempt)
             if response is not None and response.status_code == 429:
                 logger.warning(
-                    f"arXiv API rate-limited (429) for {base_id}; retry {attempt + 1}/{h.fetch_max_retries + 1} after {backoff}s"
+                    f"arXiv API rate-limited (429) for {base_id}; "
+                    f"retry {attempt + 1}/{h.fetch_max_retries + 1} after {backoff}s"
                 )
             await asyncio.sleep(backoff)
 
@@ -216,7 +218,7 @@ def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:
     crossref_metadata : dict
         Metadata from Crossref API
 
-    Returns
+    Returns:
     -------
     dict
         Merged metadata dictionary
@@ -224,7 +226,16 @@ def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:
     merged = arxiv_metadata.copy()
 
     # Merge simple fields (prefer Crossref if available)
-    for key in ["volume", "issue", "page", "publisher", "isbn", "issn", "container_title", "crossref_type"]:
+    for key in [
+        "volume",
+        "issue",
+        "page",
+        "publisher",
+        "isbn",
+        "issn",
+        "container_title",
+        "crossref_type",
+    ]:
         if crossref_metadata.get(key):
             merged[key] = crossref_metadata[key]
 
@@ -242,11 +253,11 @@ def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:
         crossref_authors = crossref_metadata["crossref_authors"]
         merged_authors = []
         for arxiv_author in arxiv_authors:
-            arxiv_name = arxiv_author.get("name", "").lower()
+            arxiv_name = (arxiv_author.get("name") or "").lower()
             # Try to find matching Crossref author
             matched = False
             for crossref_author in crossref_authors:
-                crossref_name = crossref_author.get("name", "").lower()
+                crossref_name = (crossref_author.get("name") or "").lower()
                 # Simple matching: check if last name matches
                 if arxiv_name and crossref_name:
                     arxiv_last = arxiv_name.split()[-1] if arxiv_name.split() else ""
@@ -419,7 +430,7 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
             link_elems = entry.findall("atom:link", ns)
             for link_elem in link_elems:
                 if link_elem.get("title") == "doi":
-                    href = link_elem.get("href", "")
+                    href = attr_str(link_elem, "href")  # type: ignore[arg-type]
                     # Extract DOI from URL like http://dx.doi.org/10.1529/biophysj.104.047340
                     match = re.search(r"doi\.org/(.+)", href)
                     if match:
@@ -433,8 +444,8 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
             rel = link_elem.get("rel")
             link_type = link_elem.get("type")
             link_title = link_elem.get("title")
-            href = link_elem.get("href", "")
-            
+            href = attr_str(link_elem, "href")  # type: ignore[arg-type]
+
             if rel == "alternate" and link_type == "text/html":
                 abstract_url = href
             elif rel == "related" and link_title == "pdf":
@@ -486,12 +497,12 @@ def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]
 
 
 def _generate_bibtex(
-    title: str | None,
-    authors: list[dict],
-    year: str | None,
-    arxiv_id: str | None,
-    primary_category: str | None,
-    abstract_url: str | None,
+    title: Any,
+    authors: Any,
+    year: Any,
+    arxiv_id: Any,
+    primary_category: Any,
+    abstract_url: Any,
 ) -> str:
     """Generate BibTeX entry from metadata."""
     if not title or not authors or not year or not arxiv_id:
@@ -505,7 +516,7 @@ def _generate_bibtex(
     else:
         parts = first_author.split()
         last_name = parts[-1] if parts else "author"
-    
+
     # Clean last name for citation key
     last_name_clean = re.sub(r"[^a-zA-Z]", "", last_name).lower()
     citation_key = f"{last_name_clean}{year}{arxiv_id.split('.')[0]}"
@@ -513,7 +524,7 @@ def _generate_bibtex(
     # Format authors for BibTeX
     author_list = []
     for author in authors:
-        name = author.get("name", "")
+        name = author.get("name")
         if name:
             # Convert "First Last" to "Last, First" for BibTeX
             if "," not in name:
@@ -552,10 +563,10 @@ def _generate_bibtex(
 
 
 def _generate_citation(
-    authors: list[dict],
-    year: str | None,
-    title: str | None,
-    arxiv_id: str | None,
+    authors: Any,
+    year: Any,
+    title: Any,
+    arxiv_id: Any,
 ) -> str:
     """Generate short citation string."""
     if not authors or not title:

@@ -32,7 +32,7 @@ class SectionIR(IRNode):
     anchor: str | None = None
     struct_id: str | None = None  # e.g. "sec_0", "sec_0_1"
     blocks: list[BlockUnion] = Field(default_factory=list)
-    children: list["SectionIR"] = Field(default_factory=list)
+    children: list[SectionIR] = Field(default_factory=list)
 
 
 class PaperMetadata(IRNode):

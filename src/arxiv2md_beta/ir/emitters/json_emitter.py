@@ -72,7 +72,6 @@ def _flatten_section_blocks(
     sections: list[SectionIR],
 ) -> list[dict[str, Any]]:
     """Return a flat list of block dicts with assigned ``id`` and ``section_id``."""
-
     out: list[dict[str, Any]] = []
 
     def walk(secs: list[SectionIR]) -> None:
@@ -169,11 +168,13 @@ def build_graph(doc: DocumentIR) -> dict[str, Any]:
     edges: list[dict[str, Any]] = []
 
     arxiv_id = doc.metadata.arxiv_id
-    nodes.append({
-        "id": "paper",
-        "type": "paper",
-        "properties": {"arxiv_id": arxiv_id},
-    })
+    nodes.append(
+        {
+            "id": "paper",
+            "type": "paper",
+            "properties": {"arxiv_id": arxiv_id},
+        }
+    )
 
     # Walk sections
     def walk_sections(
@@ -184,39 +185,47 @@ def build_graph(doc: DocumentIR) -> dict[str, Any]:
         prev_sid: str | None = None
         for sec in secs:
             sid = sec.struct_id or "sec_unknown"
-            nodes.append({
-                "id": sid,
-                "type": "section",
-                "properties": {"title": sec.title, "level": sec.level},
-            })
+            nodes.append(
+                {
+                    "id": sid,
+                    "type": "section",
+                    "properties": {"title": sec.title, "level": sec.level},
+                }
+            )
             rel = "child_section" if not is_root else "contains"
             edges.append({"src": parent_id, "dst": sid, "type": rel})
             if prev_sid is not None:
-                edges.append({
-                    "src": prev_sid,
-                    "dst": sid,
-                    "type": "next",
-                    "properties": {"scope": "section"},
-                })
+                edges.append(
+                    {
+                        "src": prev_sid,
+                        "dst": sid,
+                        "type": "next",
+                        "properties": {"scope": "section"},
+                    }
+                )
             prev_sid = sid
 
             # Add block nodes for this section
             prev_bid: str | None = None
             for bi, blk in enumerate(sec.blocks):
                 bid = f"{sid}:b{bi}:{blk.type}"
-                nodes.append({
-                    "id": bid,
-                    "type": "block",
-                    "properties": {"block_type": blk.type},
-                })
+                nodes.append(
+                    {
+                        "id": bid,
+                        "type": "block",
+                        "properties": {"block_type": blk.type},
+                    }
+                )
                 edges.append({"src": sid, "dst": bid, "type": "contains"})
                 if prev_bid is not None:
-                    edges.append({
-                        "src": prev_bid,
-                        "dst": bid,
-                        "type": "next",
-                        "properties": {"scope": "block"},
-                    })
+                    edges.append(
+                        {
+                            "src": prev_bid,
+                            "dst": bid,
+                            "type": "next",
+                            "properties": {"scope": "block"},
+                        }
+                    )
                 prev_bid = bid
 
             walk_sections(sid, sec.children, False)
@@ -311,9 +320,7 @@ class JsonEmitter(IREmitter):
 
         # --- paper.graph.json (+ optional CSV) ---
         if mode == "all":
-            written.update(
-                self._write_graph(doc, paper_output_dir, emit_graph_csv)
-            )
+            written.update(self._write_graph(doc, paper_output_dir, emit_graph_csv))
 
         return {
             "schema_version": SCHEMA_VERSION,
@@ -371,9 +378,7 @@ class JsonEmitter(IREmitter):
     # Internal: file writers
     # ------------------------------------------------------------------
 
-    def _write_meta(
-        self, doc: DocumentIR, out_dir: Path
-    ) -> dict[str, str]:
+    def _write_meta(self, doc: DocumentIR, out_dir: Path) -> dict[str, str]:
         data = self._build_meta(doc)
         path = out_dir / "paper.meta.json"
         path.write_text(
@@ -383,9 +388,7 @@ class JsonEmitter(IREmitter):
         logger.info(f"Structured metadata written to: {path}")
         return {"paper.meta.json": str(path.relative_to(out_dir))}
 
-    def _write_document(
-        self, doc: DocumentIR, out_dir: Path
-    ) -> dict[str, str]:
+    def _write_document(self, doc: DocumentIR, out_dir: Path) -> dict[str, str]:
         data = self._build_document(doc)
         path = out_dir / "paper.document.json"
         path.write_text(
@@ -395,9 +398,7 @@ class JsonEmitter(IREmitter):
         logger.info(f"Structured document written to: {path}")
         return {"paper.document.json": str(path.relative_to(out_dir))}
 
-    def _write_assets(
-        self, doc: DocumentIR, out_dir: Path, images_subdir: str
-    ) -> dict[str, str]:
+    def _write_assets(self, doc: DocumentIR, out_dir: Path, images_subdir: str) -> dict[str, str]:
         assets, stem_map = _build_asset_list(doc, images_subdir)
         data: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
@@ -414,9 +415,7 @@ class JsonEmitter(IREmitter):
         logger.info(f"Structured assets written to: {path}")
         return {"paper.assets.json": str(path.relative_to(out_dir))}
 
-    def _write_bib(
-        self, doc: DocumentIR, out_dir: Path
-    ) -> dict[str, str]:
+    def _write_bib(self, doc: DocumentIR, out_dir: Path) -> dict[str, str]:
         data: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "arxiv_id": doc.metadata.arxiv_id,
@@ -453,18 +452,25 @@ class JsonEmitter(IREmitter):
                 w = csv.writer(f)
                 w.writerow(["id", "type", "properties_json"])
                 for n in graph["nodes"]:
-                    w.writerow([
-                        n["id"], n["type"],
-                        json.dumps(n.get("properties", {}), ensure_ascii=False),
-                    ])
+                    w.writerow(
+                        [
+                            n["id"],
+                            n["type"],
+                            json.dumps(n.get("properties", {}), ensure_ascii=False),
+                        ]
+                    )
             with open(edges_path, "w", encoding="utf-8", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["src", "dst", "type", "properties_json"])
                 for e in graph["edges"]:
-                    w.writerow([
-                        e["src"], e["dst"], e["type"],
-                        json.dumps(e.get("properties", {}), ensure_ascii=False),
-                    ])
+                    w.writerow(
+                        [
+                            e["src"],
+                            e["dst"],
+                            e["type"],
+                            json.dumps(e.get("properties", {}), ensure_ascii=False),
+                        ]
+                    )
             written["paper.graph.nodes.csv"] = str(nodes_path.relative_to(out_dir))
             written["paper.graph.edges.csv"] = str(edges_path.relative_to(out_dir))
             logger.info(f"Graph CSV written to: {nodes_path}, {edges_path}")

@@ -34,6 +34,9 @@ class IRNode(BaseModel):
 
     model_config = ConfigDict(frozen=False, extra="forbid")
 
+    # -- node type discriminator (overridden by concrete subclasses) --
+    type: str = ""
+
     # -- structural identifiers (set by builder, used by transforms) --
     id: str = ""
     section_id: str = ""

@@ -22,9 +22,9 @@ class CitationEntry:
     url: str | None = None
     publisher: str | None = None
     booktitle: str | None = None
-    entry_type: Literal[
-        "article", "book", "inproceedings", "incollection", "techreport", "phdthesis", "misc"
-    ] = "article"
+    entry_type: Literal["article", "book", "inproceedings", "incollection", "techreport", "phdthesis", "misc"] = (
+        "article"
+    )
     abstract: str | None = None
     note: str | None = None
     raw_text: str | None = None  # Original text from paper
@@ -32,6 +32,7 @@ class CitationEntry:
     def to_bibtex(self) -> str:
         """Convert to BibTeX format."""
         from arxiv2md_beta.citations.formatter import format_bibtex_entry
+
         return format_bibtex_entry(self)
 
 

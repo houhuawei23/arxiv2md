@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from arxiv2md_beta.ir import (
@@ -19,7 +20,7 @@ from arxiv2md_beta.ir import (
     LinkIR,
     ListIR,
     MathIR,
-    PaperMetadata,
+    NodeCounter,
     ParagraphIR,
     RawBlockIR,
     RawInlineIR,
@@ -30,9 +31,7 @@ from arxiv2md_beta.ir import (
     TableIR,
     TextIR,
     walk,
-    NodeCounter,
 )
-
 
 # ── Basic construction ────────────────────────────────────────────────
 
@@ -124,10 +123,13 @@ class TestBlockConstruction:
         assert b.latex == "x^2 + y^2 = 1"
 
     def test_list_ir_ordered(self):
-        b = ListIR(ordered=True, items=[
-            [ParagraphIR(inlines=[TextIR(text="item 1")])],
-            [ParagraphIR(inlines=[TextIR(text="item 2")])],
-        ])
+        b = ListIR(
+            ordered=True,
+            items=[
+                [ParagraphIR(inlines=[TextIR(text="item 1")])],
+                [ParagraphIR(inlines=[TextIR(text="item 2")])],
+            ],
+        )
         assert b.type == "list"
         assert b.ordered is True
         assert len(b.items) == 2
@@ -138,9 +140,7 @@ class TestBlockConstruction:
         assert b.language == "python"
 
     def test_blockquote_ir(self):
-        b = BlockQuoteIR(blocks=[
-            ParagraphIR(inlines=[TextIR(text="quoted")])
-        ])
+        b = BlockQuoteIR(blocks=[ParagraphIR(inlines=[TextIR(text="quoted")])])
         assert b.type == "blockquote"
         assert len(b.blocks) == 1
 
@@ -173,6 +173,7 @@ class TestStructuralIdentifiers:
 
     def test_source_loc(self):
         from arxiv2md_beta.ir import SourceLoc
+
         loc = SourceLoc(file="test.html", line_start=42, parser="html")
         assert loc.file == "test.html"
         assert loc.parser == "html"
@@ -184,14 +185,13 @@ class TestStructuralIdentifiers:
 class TestDiscriminatedUnion:
     def test_inline_union_roundtrip(self):
         """InlineUnion JSON roundtrip preserves type and data."""
-        from arxiv2md_beta.ir.inlines import InlineUnion
-        from typing import get_args
-
         # Build a snippet via ParagraphIR to exercise Union
-        p = ParagraphIR(inlines=[
-            TextIR(text="Hello "),
-            EmphasisIR(style="bold", inlines=[TextIR(text="world")]),
-        ])
+        p = ParagraphIR(
+            inlines=[
+                TextIR(text="Hello "),
+                EmphasisIR(style="bold", inlines=[TextIR(text="world")]),
+            ]
+        )
         js = p.model_dump_json()
         data = json.loads(js)
         assert data["inlines"][0]["type"] == "text"
@@ -323,7 +323,7 @@ class TestNodeCounting:
         assert counts.get("document", 0) == 1
         assert counts.get("section", 0) == 1
         assert counts.get("paragraph", 0) == 2  # 1 abstract + 1 section
-        assert counts.get("text", 0) == 2     # 1 abstract + 1 section
+        assert counts.get("text", 0) == 2  # 1 abstract + 1 section
 
 
 # ── Field validation ───────────────────────────────────────────────────
@@ -331,7 +331,7 @@ class TestNodeCounting:
 
 class TestFieldValidation:
     def test_heading_level_bounds(self):
-        """level must be 1-6."""
+        """Level must be 1-6."""
         with pytest.raises(ValueError):
             HeadingIR(level=0, inlines=[TextIR(text="bad")])
         with pytest.raises(ValueError):

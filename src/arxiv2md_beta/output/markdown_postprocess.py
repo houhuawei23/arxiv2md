@@ -11,9 +11,7 @@ if TYPE_CHECKING:
 from arxiv2md_beta.settings import get_settings
 
 _ANCHOR_TAG_RE = re.compile(r'<a id="[^"]*"></a>')
-_TRAILING_MATH_SPACE_RE = re.compile(
-    r'\\(?: |\,|\;|\:|\!|quad|qquad|hspace\{[^}]*\})\s*$'
-)
+_TRAILING_MATH_SPACE_RE = re.compile(r"\\(?: |\,|\;|\:|\!|quad|qquad|hspace\{[^}]*\})\s*$")
 # Multi-line display math blocks, capturing leading indentation on both fences.
 _DISPLAY_MATH_BLOCK_RE = re.compile(
     r"^([ \t]*)\$\$\n(.*?)\n\1\$\$",
@@ -22,7 +20,7 @@ _DISPLAY_MATH_BLOCK_RE = re.compile(
 
 
 def _remove_anchor_tags(text: str) -> str:
-    """Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines."""
+    r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines."""
     text = _ANCHOR_TAG_RE.sub("", text)
     # Collapse 3+ newlines to 2 and trim trailing whitespace per line.
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -124,7 +122,7 @@ def _clean_math_and_spacing(text: str) -> str:
 
 
 def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> str:
-    """Apply final Markdown cleanup.
+    r"""Apply final Markdown cleanup.
 
     Parameters
     ----------
@@ -134,7 +132,7 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
         If ``True``, keep ``<a id=\"...\"></a>`` tags. If ``None``, read from
         ``settings.output.include_anchors`` (default ``False``).
 
-    Returns
+    Returns:
     -------
     str
         Cleaned Markdown content.
@@ -161,16 +159,12 @@ def apply_markdown_postprocessing(
         update={
             "content": clean_markdown_output(result.content, include_anchors=include_anchors),
             "content_references": (
-                clean_markdown_output(
-                    result.content_references, include_anchors=include_anchors
-                )
+                clean_markdown_output(result.content_references, include_anchors=include_anchors)
                 if result.content_references is not None
                 else None
             ),
             "content_appendix": (
-                clean_markdown_output(
-                    result.content_appendix, include_anchors=include_anchors
-                )
+                clean_markdown_output(result.content_appendix, include_anchors=include_anchors)
                 if result.content_appendix is not None
                 else None
             ),

@@ -13,7 +13,7 @@ from arxiv2md_beta.network.author_enrichment import _dedupe_affiliation_strings,
 
 
 def parse_author_affiliations_from_tex(tex: str) -> list[dict[str, Any]]:
-    """Extract ``[{name, affiliations}, ...]`` from expanded TeX (best-effort).
+    r"""Extract ``[{name, affiliations}, ...]`` from expanded TeX (best-effort).
 
     Handles common patterns: ICML ``\\icmlauthor`` / ``\\icmlaffiliation`` (icml2026),
     IEEE ``\\IEEEauthorblockN`` / ``\\IEEEauthorblockA``,
@@ -110,7 +110,7 @@ def merge_tex_affiliations_into_metadata(
 
 
 def _extract_author_region(tex: str) -> str:
-    """Slice likely author markup: body before abstract / first section, plus preamble if needed.
+    r"""Slice likely author markup: body before abstract / first section, plus preamble if needed.
 
     Many conference styles (ICLR, NeurIPS) place ``\\author{...}`` in the **preamble**
     before ``\\begin{document}``. Without including the preamble, those blocks are invisible.
@@ -283,7 +283,7 @@ def _affiliation_markers_from_superscript(sup_body: str, aff_map: dict[str, str]
 
 
 def _parse_iclr_neurips_superscript_author(region: str) -> list[dict[str, Any]]:
-    """Parse ``\\author{... Name$^{n}$ ... \\\\ $^{n}$ Institution ...}`` (ICLR/NeurIPS camera-ready)."""
+    r"""Parse ``\\author{... Name$^{n}$ ... \\\\ $^{n}$ Institution ...}`` (ICLR/NeurIPS camera-ready)."""
     m = re.search(r"\\author\s*\{", region, re.I)
     if not m:
         return []
@@ -462,7 +462,7 @@ def _flatten_affil_inner(inner: str) -> str:
 
 
 def _strip_thanks_blocks(s: str) -> str:
-    """Remove ``\\thanks{...}`` using balanced braces (handles ``$^{\\ast}$`` inside)."""
+    r"""Remove ``\\thanks{...}`` using balanced braces (handles ``$^{\\ast}$`` inside)."""
     while True:
         m = re.search(r"\\thanks\s*\{", s, re.I)
         if not m:

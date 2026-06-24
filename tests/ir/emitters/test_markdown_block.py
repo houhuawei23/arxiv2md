@@ -29,6 +29,7 @@ def emitter() -> MarkdownEmitter:
 
 # ── ParagraphIR ────────────────────────────────────────────────────────
 
+
 class TestParagraph:
     def test_simple(self, emitter):
         b = ParagraphIR(inlines=[TextIR(text="hello world")])
@@ -40,6 +41,7 @@ class TestParagraph:
 
 
 # ── HeadingIR ──────────────────────────────────────────────────────────
+
 
 class TestHeading:
     def test_h1(self, emitter):
@@ -58,6 +60,7 @@ class TestHeading:
 
 
 # ── FigureIR ───────────────────────────────────────────────────────────
+
 
 class TestFigure:
     def test_single_image(self, emitter):
@@ -83,7 +86,7 @@ class TestFigure:
         assert '<div align="center">' in result
         assert '<img src="./a.png"' in result
         assert '<img src="./b.png"' in result
-        assert '</div>' in result
+        assert "</div>" in result
 
     def test_no_images(self, emitter):
         b = FigureIR(images=[], caption=[TextIR(text="no img")])
@@ -92,6 +95,7 @@ class TestFigure:
 
 
 # ── TableIR ────────────────────────────────────────────────────────────
+
 
 class TestTable:
     def test_simple(self, emitter):
@@ -132,6 +136,7 @@ class TestTable:
 
 # ── EquationIR ─────────────────────────────────────────────────────────
 
+
 class TestEquation:
     def test_numbered(self, emitter):
         b = EquationIR(latex="x=1", equation_number="(1)")
@@ -154,26 +159,33 @@ class TestEquation:
 
 # ── ListIR ─────────────────────────────────────────────────────────────
 
+
 class TestList:
     def test_unordered(self, emitter):
-        b = ListIR(items=[
-            [ParagraphIR(inlines=[TextIR(text="a")])],
-            [ParagraphIR(inlines=[TextIR(text="b")])],
-        ])
+        b = ListIR(
+            items=[
+                [ParagraphIR(inlines=[TextIR(text="a")])],
+                [ParagraphIR(inlines=[TextIR(text="b")])],
+            ]
+        )
         result = emitter._emit_block(b)
         lines = result.split("\n")
         assert lines[0].startswith("- a")
         assert lines[1].startswith("- b")
 
     def test_nested(self, emitter):
-        b = ListIR(items=[
-            [
-                ParagraphIR(inlines=[TextIR(text="Parent")]),
-                ListIR(items=[
-                    [ParagraphIR(inlines=[TextIR(text="Child")])],
-                ]),
-            ],
-        ])
+        b = ListIR(
+            items=[
+                [
+                    ParagraphIR(inlines=[TextIR(text="Parent")]),
+                    ListIR(
+                        items=[
+                            [ParagraphIR(inlines=[TextIR(text="Child")])],
+                        ]
+                    ),
+                ],
+            ]
+        )
         result = emitter._emit_block(b)
         assert "- Parent" in result
         assert "  - Child" in result
@@ -184,6 +196,7 @@ class TestList:
 
 
 # ── CodeIR ─────────────────────────────────────────────────────────────
+
 
 class TestCode:
     def test_with_language(self, emitter):
@@ -199,6 +212,7 @@ class TestCode:
 
 # ── BlockQuoteIR ───────────────────────────────────────────────────────
 
+
 class TestBlockQuote:
     def test_blockquote(self, emitter):
         b = BlockQuoteIR(blocks=[ParagraphIR(inlines=[TextIR(text="quoted")])])
@@ -206,10 +220,12 @@ class TestBlockQuote:
         assert result == "> quoted"
 
     def test_multiline(self, emitter):
-        b = BlockQuoteIR(blocks=[
-            ParagraphIR(inlines=[TextIR(text="line 1")]),
-            ParagraphIR(inlines=[TextIR(text="line 2")]),
-        ])
+        b = BlockQuoteIR(
+            blocks=[
+                ParagraphIR(inlines=[TextIR(text="line 1")]),
+                ParagraphIR(inlines=[TextIR(text="line 2")]),
+            ]
+        )
         result = emitter._emit_block(b)
         lines = result.split("\n")
         assert lines[0] == "> line 1"
@@ -218,12 +234,14 @@ class TestBlockQuote:
 
 # ── RuleIR ─────────────────────────────────────────────────────────────
 
+
 class TestRule:
     def test_rule(self, emitter):
         assert emitter._emit_block(RuleIR()) == "---"
 
 
 # ── AlgorithmIR ────────────────────────────────────────────────────────
+
 
 class TestAlgorithm:
     def test_algorithm(self, emitter):
@@ -242,6 +260,7 @@ class TestAlgorithm:
 
 # ── RawBlockIR ─────────────────────────────────────────────────────────
 
+
 class TestRawBlock:
     def test_raw_block(self, emitter):
         b = RawBlockIR(format="html", content="<div>x</div>")
@@ -250,9 +269,10 @@ class TestRawBlock:
 
 # ── Document-level emission ────────────────────────────────────────────
 
+
 class TestDocumentEmission:
     def test_abstract_section(self, emitter):
-        from arxiv2md_beta.ir import DocumentIR, PaperMetadata, SectionIR
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata
 
         doc = DocumentIR(
             metadata=PaperMetadata(arxiv_id="test"),

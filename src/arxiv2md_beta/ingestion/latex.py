@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 from loguru import logger
 
@@ -10,7 +12,6 @@ from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.parser import (
     ParserNotAvailableError,
-    _enhance_section_markdown,
     parse_latex_to_markdown,
 )
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
@@ -37,7 +38,7 @@ async def ingest_paper_latex(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
     use_cache: bool = True,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown."""
     async with async_timed_operation(f"ingest_paper_latex({arxiv_id})"):
         return await _ingest_paper_latex_impl(
@@ -72,7 +73,7 @@ async def _ingest_paper_latex_impl(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
     use_cache: bool = True,
-) -> tuple[IngestionResult, dict[str, str | list[str] | None]]:
+) -> tuple[IngestionResult, dict[str, Any]]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown.
 
     Parameters
@@ -114,15 +115,14 @@ async def _ingest_paper_latex_impl(
 
     # Create paper-specific output directory
     from arxiv2md_beta.output.layout import create_paper_output_dir
+
     paper_output_dir = create_paper_output_dir(
-        base_output_dir, submission_date, title, source=source, short=short
+        base_output_dir, cast("str | None", submission_date), cast("str | None", title), source=source, short=short
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
 
     # Fetch and extract TeX source
-    tex_source_info = await fetch_and_extract_tex_source(
-        arxiv_id, version=version, use_cache=use_cache
-    )
+    tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_cache)
 
     if not tex_source_info.main_tex_file:
         raise TexSourceNotFoundError(f"No main LaTeX file found for {arxiv_id}")
@@ -130,9 +130,7 @@ async def _ingest_paper_latex_impl(
     # Process images if enabled
     processed_images = None
     if not no_images:
-        processed_images = await process_images_async(
-            tex_source_info, paper_output_dir, images_dir_name
-        )
+        processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
 
     # Build image map from LaTeX labels/paths to local paths
     # The image_map from tex_source_info uses labels, we need to map them to processed images
@@ -150,9 +148,10 @@ async def _ingest_paper_latex_impl(
                 except ValueError:
                     pass
 
-    # Parse LaTeX to Markdown
+    # Parse LaTeX to Markdown (offload blocking pandoc call to thread pool)
     try:
-        parsed_latex = parse_latex_to_markdown(
+        parsed_latex = await asyncio.to_thread(
+            parse_latex_to_markdown,
             tex_source_info.main_tex_file,
             tex_source_info.extracted_dir,
             latex_image_map,
@@ -193,13 +192,7 @@ async def _ingest_paper_latex_impl(
             selected=ing.reference_section_titles,
         )
 
-    # Enhance section markdown with anchors
-    _enhance_section_markdown(sections_to_use)
-
-    display_author_names = (
-        author_display_names_from_metadata(api_metadata)
-        or list(parsed_latex.authors or [])
-    )
+    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed_latex.authors or [])
 
     # Format output with file splitting and TOC support
     result = format_paper(
@@ -225,7 +218,7 @@ async def _ingest_paper_latex_impl(
 
     structured_export: dict[str, object] = {}
     try:
-        from arxiv2md_beta.latex.structured import (
+        from arxiv2md_beta.latex.structured import (  # type: ignore[attr-defined]
             extract_abstract_blocks,
             extract_blocks_from_sections,
             write_structured_bundle_for_latex,
@@ -275,4 +268,3 @@ async def _ingest_paper_latex_impl(
     }
 
     return result, metadata
-

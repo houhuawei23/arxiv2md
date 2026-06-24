@@ -10,7 +10,6 @@ from arxiv2md_beta.ir import (
     FigureIR,
     ImageRefIR,
     PaperMetadata,
-    ParagraphIR,
     SectionIR,
     TableIR,
     TextIR,
@@ -58,10 +57,13 @@ class TestNumberingPass:
 
     def test_stable_ids(self, doc):
         """Existing figure_id is preserved."""
-        doc.sections[0].blocks.insert(0, FigureIR(
-            figure_id="existing-id",
-            images=[ImageRefIR(src="./x.png")],
-        ))
+        doc.sections[0].blocks.insert(
+            0,
+            FigureIR(
+                figure_id="existing-id",
+                images=[ImageRefIR(src="./x.png")],
+            ),
+        )
         NumberingPass().run(doc)
         figs = [b for b in doc.sections[0].blocks if b.type == "figure"]
         assert figs[0].figure_id == "existing-id"
@@ -79,17 +81,20 @@ class TestNumberingPass:
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Parent", level=1,
+                    title="Parent",
+                    level=1,
                     blocks=[FigureIR(images=[ImageRefIR(src="./a.png")])],
                     children=[
                         SectionIR(
-                            title="Child", level=2,
+                            title="Child",
+                            level=2,
                             blocks=[FigureIR(images=[ImageRefIR(src="./b.png")])],
                         ),
                     ],
                 ),
                 SectionIR(
-                    title="S2", level=1,
+                    title="S2",
+                    level=1,
                     blocks=[FigureIR(images=[ImageRefIR(src="./c.png")])],
                 ),
             ],
@@ -97,12 +102,14 @@ class TestNumberingPass:
         NumberingPass().run(doc)
 
         all_figs = []
+
         def collect(s):
             for b in s.blocks:
                 if b.type == "figure":
                     all_figs.append(b.figure_id)
             for c in s.children:
                 collect(c)
+
         for s in doc.sections:
             collect(s)
 
@@ -111,14 +118,15 @@ class TestNumberingPass:
 
 class TestPassPipeline:
     def test_pipeline(self):
-        from arxiv2md_beta.ir.transforms.base import PassPipeline
         from arxiv2md_beta.ir.transforms.anchor import AnchorPass
+        from arxiv2md_beta.ir.transforms.base import PassPipeline
 
         doc = DocumentIR(
             metadata=PaperMetadata(arxiv_id="test"),
             sections=[
                 SectionIR(
-                    title="Intro", level=1,
+                    title="Intro",
+                    level=1,
                     blocks=[FigureIR(images=[ImageRefIR(src="./a.png")])],
                 ),
             ],

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    from loguru._logger import Logger
 
 from arxiv2md_beta.cli.config_cmd import app as config_app
 from arxiv2md_beta.cli.convert_cli import (
@@ -37,11 +40,12 @@ app = typer.Typer(
 def _version_callback(show_version: bool) -> None:
     if show_version:
         from arxiv2md_beta import __version__
+
         typer.echo(f"arxiv2md-beta {__version__}")
         raise typer.Exit()
 
 
-def _handle_command_error(logger: object, exc: BaseException) -> None:
+def _handle_command_error(logger: Logger, exc: BaseException) -> None:
     """Map typed errors to exit codes; generic exceptions exit with 1."""
     if isinstance(exc, Arxiv2mdError):
         logger.error(f"Error: {exc}")
@@ -53,13 +57,13 @@ def _handle_command_error(logger: object, exc: BaseException) -> None:
 @app.callback()
 def global_callback(
     ctx: typer.Context,
-    config: Optional[Path] = typer.Option(
+    config: Path | None = typer.Option(
         None,
         "--config",
         metavar="PATH",
         help="User YAML configuration file (merged after bundled default and environment profile).",
     ),
-    env: Optional[str] = typer.Option(
+    env: str | None = typer.Option(
         None,
         "--env",
         "-E",
@@ -114,23 +118,23 @@ def convert_cmd(
         metavar="INPUT",
         help="arXiv ID, URL, local archive path, or local HTML file path.",
     ),
-    parser: Optional[str] = typer.Option(
+    parser: str | None = typer.Option(
         None,
         "--parser",
         help="Parser mode: html or latex.",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
         help="Output directory; a subdirectory may be created inside.",
     ),
-    source: Optional[str] = typer.Option(
+    source: str | None = typer.Option(
         None,
         "--source",
         help="Article source (conference/journal name).",
     ),
-    short: Optional[str] = typer.Option(
+    short: str | None = typer.Option(
         None,
         "--short",
         help="Short name for the article.",
@@ -155,12 +159,12 @@ def convert_cmd(
         "--remove-inline-citations",
         help="Remove inline citation text from output.",
     ),
-    section_filter_mode: Optional[str] = typer.Option(
+    section_filter_mode: str | None = typer.Option(
         None,
         "--section-filter-mode",
         help="Section filtering: include or exclude.",
     ),
-    sections: Optional[str] = typer.Option(
+    sections: str | None = typer.Option(
         None,
         "--sections",
         help='Comma-separated section titles (e.g. "Abstract,Introduction").',
@@ -203,9 +207,9 @@ def convert_cmd(
     include_anchors: bool = typer.Option(
         False,
         "--include-anchors",
-        help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
+        help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
     ),
-    naming_scheme: Optional[str] = typer.Option(
+    naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
         help="Output naming scheme: classic (default) or paper-pipeline.",
@@ -213,8 +217,7 @@ def convert_cmd(
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
-        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
-             "Will be removed in v1.0.0.",
+        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. Will be removed in v1.0.0.",
     ),
     download_pdf: bool = typer.Option(
         True,
@@ -258,7 +261,7 @@ def convert_cmd(
     try:
         run_convert_sync(params)
     except BaseException as exc:
-        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+        if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise
         _handle_command_error(logger, exc)
 
@@ -270,25 +273,28 @@ def batch_cmd(
         metavar="INPUT_FILE",
         exists=True,
         readable=True,
-        help="Text file: one INPUT per line (arXiv ID, URL, local archive, or local HTML file). Lines starting with # are ignored.",
+        help=(
+            "Text file: one INPUT per line (arXiv ID, URL, local archive, or local HTML"
+            " file). Lines starting with # are ignored."
+        ),
     ),
-    parser: Optional[str] = typer.Option(
+    parser: str | None = typer.Option(
         None,
         "--parser",
         help="Parser mode: html or latex.",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
         help="Output directory; a subdirectory may be created inside.",
     ),
-    source: Optional[str] = typer.Option(
+    source: str | None = typer.Option(
         None,
         "--source",
         help="Article source (conference/journal name).",
     ),
-    short: Optional[str] = typer.Option(
+    short: str | None = typer.Option(
         None,
         "--short",
         help="Short name for the article.",
@@ -313,12 +319,12 @@ def batch_cmd(
         "--remove-inline-citations",
         help="Remove inline citation text from output.",
     ),
-    section_filter_mode: Optional[str] = typer.Option(
+    section_filter_mode: str | None = typer.Option(
         None,
         "--section-filter-mode",
         help="Section filtering: include or exclude.",
     ),
-    sections: Optional[str] = typer.Option(
+    sections: str | None = typer.Option(
         None,
         "--sections",
         help='Comma-separated section titles (e.g. "Abstract,Introduction").',
@@ -377,9 +383,9 @@ def batch_cmd(
     include_anchors: bool = typer.Option(
         False,
         "--include-anchors",
-        help="Emit <a id=\"...\"></a> anchor tags in the generated Markdown.",
+        help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
     ),
-    naming_scheme: Optional[str] = typer.Option(
+    naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
         help="Output naming scheme: classic (default) or paper-pipeline.",
@@ -387,8 +393,7 @@ def batch_cmd(
     use_legacy: bool = typer.Option(
         False,
         "--legacy",
-        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. "
-             "Will be removed in v1.0.0.",
+        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. Will be removed in v1.0.0.",
     ),
     download_pdf: bool = typer.Option(
         True,
@@ -439,7 +444,7 @@ def batch_cmd(
             delay_seconds=delay_seconds,
         )
     except BaseException as exc:
-        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+        if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise
         _handle_command_error(logger, exc)
 
@@ -465,24 +470,31 @@ def batch_cmd(
 
 @app.command("paper-yml")
 def paper_yml_cmd(
-    arxiv: Optional[str] = typer.Argument(
+    arxiv: str | None = typer.Argument(
         None,
         metavar="ARXIV",
         help="arXiv ID or URL (required when not using --update).",
     ),
-    update: Optional[Path] = typer.Option(
+    update: Path | None = typer.Option(
         None,
         "--update",
         "-u",
         metavar="PATH",
-        help="Existing paper.yml to refresh in place (reads identifiers.arxiv / paper.id). Merges with fetched metadata: keys you added (e.g. urls.website) are kept; API fields overwrite.",
+        help=(
+            "Existing paper.yml to refresh in place (reads identifiers.arxiv / paper.id)."
+            " Merges with fetched metadata: keys you added (e.g. urls.website) are kept;"
+            " API fields overwrite."
+        ),
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
         metavar="PATH",
-        help="Output paper.yml path (file or directory ending in paper.yml). If the file exists, writes paper.1.yml, paper.2.yml, … unless --force.",
+        help=(
+            "Output paper.yml path (file or directory ending in paper.yml). If the file"
+            " exists, writes paper.1.yml, paper.2.yml, … unless --force."
+        ),
     ),
     force: bool = typer.Option(
         False,
@@ -528,7 +540,7 @@ def paper_yml_cmd(
     try:
         run_paper_yml_sync(params)
     except BaseException as exc:
-        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+        if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise
         _handle_command_error(logger, exc)
 
@@ -540,14 +552,14 @@ def images_cmd(
         metavar="ARXIV",
         help="arXiv ID or URL.",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
         metavar="DIR",
         help="Output directory; images go to DIR/<images-subdir>.",
     ),
-    images_subdir: Optional[str] = typer.Option(
+    images_subdir: str | None = typer.Option(
         None,
         "--images-subdir",
         metavar="NAME",
@@ -573,7 +585,7 @@ def images_cmd(
     try:
         run_images_sync(params)
     except BaseException as exc:
-        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+        if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise
         _handle_command_error(logger, exc)
 
@@ -588,7 +600,7 @@ def bibtex_cmd(
         metavar="ARXIV",
         help="arXiv ID, URL, or path to local HTML/Markdown file containing bibliography.",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -614,7 +626,7 @@ def bibtex_cmd(
 
     logger = get_logger()
 
-    async def _run():
+    async def _run() -> None:
         # Check if input is a local file
         input_path = Path(arxiv_input)
         if input_path.exists():
@@ -665,7 +677,7 @@ def bibtex_cmd(
     try:
         asyncio.run(_run())
     except BaseException as exc:
-        if isinstance(exc, (typer.Exit, KeyboardInterrupt)):
+        if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise
         _handle_command_error(logger, exc)
 

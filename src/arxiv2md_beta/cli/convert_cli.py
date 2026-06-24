@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Optional
 
 import typer
 
@@ -13,13 +12,13 @@ from arxiv2md_beta.settings import apply_cli_overrides, get_settings, set_settin
 
 def apply_convert_cli_settings(
     *,
-    parser: Optional[str],
-    source: Optional[str],
-    section_filter_mode: Optional[str],
+    parser: str | None,
+    source: str | None,
+    section_filter_mode: str | None,
     structured_output: str,
     no_progress: bool,
     include_anchors: bool = False,
-    naming_scheme: Optional[str] = None,
+    naming_scheme: str | None = None,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
 
@@ -29,16 +28,10 @@ def apply_convert_cli_settings(
     d = s.cli_defaults
     parser_mode = parser if parser is not None else d.parser
     if parser_mode not in ("html", "latex"):
-        typer.echo(
-            f"Invalid --parser {parser_mode!r}; expected html or latex.", err=True
-        )
+        typer.echo(f"Invalid --parser {parser_mode!r}; expected html or latex.", err=True)
         raise typer.Exit(code=2)
     source_v = source if source is not None else d.source
-    mode = (
-        section_filter_mode
-        if section_filter_mode is not None
-        else d.section_filter_mode
-    )
+    mode = section_filter_mode if section_filter_mode is not None else d.section_filter_mode
     if mode not in ("include", "exclude"):
         typer.echo(
             f"Invalid --section-filter-mode {mode!r}; expected include or exclude.",
@@ -84,15 +77,15 @@ def make_convert_params(
     input_text: str,
     *,
     parser_mode: str,
-    output: Optional[str],
+    output: str | None,
     source_v: str,
-    short: Optional[str],
+    short: str | None,
     no_images: bool,
     remove_refs: bool,
     remove_toc: bool,
     remove_inline_citations: bool,
     mode: str,
-    sections: Optional[str],
+    sections: str | None,
     section: list[str],
     include_tree: bool,
     emit_result_json: bool,

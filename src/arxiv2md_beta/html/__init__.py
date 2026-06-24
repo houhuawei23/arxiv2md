@@ -1,6 +1,6 @@
 """HTML parsing and HTML fragment to Markdown conversion."""
 
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown
+from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 

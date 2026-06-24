@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from typing import AsyncIterator, Callable, Iterator
 
 from rich.console import Console
 from rich.progress import (

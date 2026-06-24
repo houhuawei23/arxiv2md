@@ -8,12 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from aiofiles import open as aio_open
 from loguru import logger
 
-from aiofiles import open as aio_open
-
 from arxiv2md_beta.exceptions import NetworkError
-from arxiv2md_beta.network.http import async_http_client, get_http_client
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_compat import async_write_text
 from arxiv2md_beta.utils.progress import async_byte_download_progress
@@ -139,43 +138,43 @@ async def fetch_arxiv_pdf(
     pdf_timeout = h.fetch_timeout_s * h.large_transfer_timeout_multiplier
     last_exc: Exception | None = None
 
-    async with async_http_client(timeout_s=pdf_timeout) as client:
-        for attempt in range(h.fetch_max_retries + 1):
-            try:
-                async with client.stream("GET", pdf_url) as response:
-                    if response.status_code == 404:
-                        raise NetworkError(f"PDF not found at {pdf_url}")
+    client = get_http_client()
+    for attempt in range(h.fetch_max_retries + 1):
+        try:
+            async with client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
+                if response.status_code == 404:
+                    raise NetworkError(f"PDF not found at {pdf_url}")
 
-                    if response.status_code in retry_status:
-                        last_exc = NetworkError(
-                            f"HTTP {response.status_code} from arXiv"
-                        )
-                    else:
-                        response.raise_for_status()
+                if response.status_code in retry_status:
+                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
+                else:
+                    response.raise_for_status()
 
-                        cache_dir.mkdir(parents=True, exist_ok=True)
+                    cache_dir.mkdir(parents=True, exist_ok=True)
 
-                        disable_tqdm = s.images.disable_tqdm
+                    disable_tqdm = s.images.disable_tqdm
 
-                        total_size = int(response.headers.get("content-length", 0))
-                        async with async_byte_download_progress(
+                    total_size = int(response.headers.get("content-length", 0))
+                    async with (
+                        async_byte_download_progress(
                             "Downloading PDF",
                             total_size if total_size > 0 else None,
                             disable=disable_tqdm,
-                        ) as advance:
-                            async with aio_open(cache_path, "wb") as f:
-                                async for chunk in response.aiter_bytes():
-                                    await f.write(chunk)
-                                    advance(len(chunk))
+                        ) as advance,
+                        aio_open(cache_path, "wb") as f,
+                    ):
+                        async for chunk in response.aiter_bytes():
+                            await f.write(chunk)
+                            advance(len(chunk))
 
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(cache_path, output_path)
-                        return output_path
-            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
-                last_exc = exc
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(cache_path, output_path)
+                    return output_path
+        except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
+            last_exc = exc
 
-            if attempt < h.fetch_max_retries:
-                backoff = h.fetch_backoff_s * (2**attempt)
-                await asyncio.sleep(backoff)
+        if attempt < h.fetch_max_retries:
+            backoff = h.fetch_backoff_s * (2**attempt)
+            await asyncio.sleep(backoff)
 
-        raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}")
+    raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}")

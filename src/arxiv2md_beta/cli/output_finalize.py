@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -23,7 +24,7 @@ logger = get_logger()
 
 def _fix_citation_links(content: str, refs_filename: str) -> str:
     """Replace #ref-N anchors with relative links to References file."""
-    return re.sub(r'\(#(ref-\d+)\)', rf'({refs_filename}#\1)', content)
+    return re.sub(r"\(#(ref-\d+)\)", rf"({refs_filename}#\1)", content)
 
 
 async def write_split_markdown_sidecars(
@@ -64,7 +65,7 @@ def emit_result_json_line(
     params: ConvertParams,
     structured: dict[str, object] | None = None,
 ) -> None:
-    """单行机器可读结果，供父进程脚本解析（``ARXIV2MD_RESULT_JSON=...``）。"""
+    """单行机器可读结果，供父进程脚本解析（``ARXIV2MD_RESULT_JSON=...``）。."""
     if not params.emit_result_json:
         return
     payload: dict[str, object] = {"paper_output_dir": str(paper_output_dir.resolve())}
@@ -76,7 +77,7 @@ def emit_result_json_line(
 
 
 def _result_json_filename_key(arxiv_id: str) -> str:
-    """用于结果侧车文件名：新式 ID 去掉 ``vN`` 后缀，与流水线侧查找一致。"""
+    """用于结果侧车文件名：新式 ID 去掉 ``vN`` 后缀，与流水线侧查找一致。."""
     s = arxiv_id.strip()
     m = re.match(r"^(\d{4}\.\d{4,5})(v\d+)?$", s)
     if m:
@@ -92,7 +93,7 @@ async def write_result_json_sidecar(
     arxiv_id: str | None = None,
     structured: dict[str, object] | None = None,
 ) -> None:
-    """在输出根目录写入 ``.arxiv2md-result-{key}.json``。"""
+    """在输出根目录写入 ``.arxiv2md-result-{key}.json``。."""
     payload: dict[str, object] = {
         "paper_output_dir": str(paper_output_dir.resolve()),
         "result_key": result_key,
@@ -119,7 +120,7 @@ def format_output(summary: str, tree: str, content: str, *, include_tree: bool) 
 
 
 def resolve_paper_output_dir(
-    metadata: dict[str, str | list[str] | None],
+    metadata: dict[str, Any],
     base_output_dir: Path,
     *,
     source: str,
@@ -147,7 +148,7 @@ def resolve_paper_output_dir(
 async def finalize_convert_output(
     *,
     result: IngestionResult,
-    metadata: dict[str, str | list[str] | None],
+    metadata: dict[str, Any],
     params: ConvertParams,
     base_output_dir: Path,
     result_key: str,
@@ -236,9 +237,7 @@ async def finalize_convert_output(
             logger.warning(f"Failed to download PDF: {e}")
 
     if log_local_success:
-        logger.info(
-            "Local archive processed successfully (no PDF download for local archives)"
-        )
+        logger.info("Local archive processed successfully (no PDF download for local archives)")
 
     print("\nSummary:")
     try:

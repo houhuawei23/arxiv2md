@@ -17,7 +17,7 @@ Union type
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -80,12 +80,13 @@ class EmphasisIR(InlineIR):
 
     type: Literal["emphasis"] = "emphasis"
     style: Literal["italic", "bold", "code", "underline", "strikethrough"] = "italic"
-    inlines: list["InlineUnion"] = Field(default_factory=list)
+    inlines: list[InlineUnion] = Field(default_factory=list)
 
 
 class LinkIR(InlineIR):
-    """Hyperlink — unified model for external URLs, internal anchors,
-    citation references, and footnote references.
+    """Hyperlink — unified model for external URLs, internal anchors, etc.
+
+    Also covers citation references and footnote references.
 
     The ``kind`` discriminator tells the emitter how to render the link.
     ``target_id`` is set by the *ResolveRefsPass* after cross-reference
@@ -94,7 +95,7 @@ class LinkIR(InlineIR):
 
     type: Literal["link"] = "link"
     url: str | None = None
-    inlines: list["InlineUnion"] = Field(default_factory=list)
+    inlines: list[InlineUnion] = Field(default_factory=list)
     kind: Literal["external", "internal", "citation", "footnote"] = "external"
     target_id: str | None = None
 
@@ -103,14 +104,14 @@ class SuperscriptIR(InlineIR):
     """Superscript text span."""
 
     type: Literal["superscript"] = "superscript"
-    inlines: list["InlineUnion"] = Field(default_factory=list)
+    inlines: list[InlineUnion] = Field(default_factory=list)
 
 
 class SubscriptIR(InlineIR):
     """Subscript text span."""
 
     type: Literal["subscript"] = "subscript"
-    inlines: list["InlineUnion"] = Field(default_factory=list)
+    inlines: list[InlineUnion] = Field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -118,16 +119,6 @@ class SubscriptIR(InlineIR):
 # ═══════════════════════════════════════════════════════════════════════
 
 InlineUnion = Annotated[
-    Union[
-        TextIR,
-        EmphasisIR,
-        LinkIR,
-        MathIR,
-        ImageRefIR,
-        SuperscriptIR,
-        SubscriptIR,
-        BreakIR,
-        RawInlineIR,
-    ],
+    TextIR | EmphasisIR | LinkIR | MathIR | ImageRefIR | SuperscriptIR | SubscriptIR | BreakIR | RawInlineIR,
     Field(discriminator="type"),
 ]

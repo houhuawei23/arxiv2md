@@ -14,4 +14,4 @@ class SectionNode(BaseModel):
     struct_id: str | None = None
     html: str | None = None
     markdown: str | None = None
-    children: list["SectionNode"] = Field(default_factory=list)
+    children: list[SectionNode] = Field(default_factory=list)

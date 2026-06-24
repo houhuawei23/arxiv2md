@@ -54,7 +54,7 @@ def build_document_from_latex(
     authors: list[str] | None = None,
     abstract: str | None = None,
 ) -> DocumentIR:
-    """Build a :class:`DocumentIR` from LaTeX content via Pandoc JSON AST.
+    r"""Build a :class:`DocumentIR` from LaTeX content via Pandoc JSON AST.
 
     Parameters
     ----------
@@ -104,6 +104,7 @@ def create_default_pipeline(
         pp.add(FigureReorderPass())
     if section_filter:
         mode, titles = section_filter
+        assert mode in ("include", "exclude")
         pp.add(SectionFilterPass(mode=mode, selected=titles))
     pp.add(AnchorPass())
     return pp
@@ -152,9 +153,7 @@ def document_to_ingestion_result(
     )
 
 
-def _build_section_tree_lines(
-    sections: list[Any], lines: list[str], indent: int = 0
-) -> None:
+def _build_section_tree_lines(sections: list[Any], lines: list[str], indent: int = 0) -> None:
     """Recursively build section tree lines."""
     prefix = "  " * indent
     for sec in sections:
@@ -185,9 +184,7 @@ def sections_to_ingestion_result(
     )
 
 
-def _build_section_tree_lines_from_nodes(
-    sections: list[SectionNode], lines: list[str], indent: int = 0
-) -> None:
+def _build_section_tree_lines_from_nodes(sections: list[SectionNode], lines: list[str], indent: int = 0) -> None:
     prefix = "  " * indent
     for sec in sections:
         lines.append(f"{prefix}- {sec.title}")

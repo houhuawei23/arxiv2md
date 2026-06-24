@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from arxiv2md_beta.latex.parser import _beautify_math_display
 
 
@@ -47,11 +45,11 @@ class TestBeautifyMathDisplay:
         text = "text $$a + b$$"
         result = _beautify_math_display(text)
         assert result.endswith("$$")
-        assert "text\n\n$$\na + b\n$$" == result
+        assert result == "text\n\n$$\na + b\n$$"
 
     def test_excessive_internal_newlines_collapsed(self):
         """More than two internal newlines are collapsed."""
         text = "$$\na\n\n\n\nb\n$$"
         result = _beautify_math_display(text)
         assert "\n\n\n" not in result
-        assert "$$\na\n\nb\n$$" == result
+        assert result == "$$\na\n\nb\n$$"

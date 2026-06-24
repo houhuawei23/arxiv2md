@@ -51,12 +51,12 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
     input_text : str
         Path to local archive file (e.g., /path/to/paper.tar.gz or /path/to/paper.zip)
 
-    Returns
+    Returns:
     -------
     LocalArchiveQuery
         Parsed query object
 
-    Raises
+    Raises:
     ------
     ValueError
         If the path is not a valid archive file
@@ -78,10 +78,7 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
     # Determine archive type from extension
     archive_type = _get_archive_type(archive_path)
     if not archive_type:
-        raise ValueError(
-            f"Unsupported archive format: {archive_path.suffix}. "
-            "Supported formats: .tar.gz, .tgz, .zip"
-        )
+        raise ValueError(f"Unsupported archive format: {archive_path.suffix}. Supported formats: .tar.gz, .tgz, .zip")
 
     query_id = uuid4()
 
@@ -102,7 +99,7 @@ def is_local_html_path(input_text: str) -> bool:
     input_text : str
         Input string to check
 
-    Returns
+    Returns:
     -------
     bool
         True if input appears to be a local HTML file path
@@ -136,12 +133,12 @@ def parse_local_html(input_text: str) -> LocalHtmlQuery:
     input_text : str
         Path to local HTML file (e.g., /path/to/paper.html)
 
-    Returns
+    Returns:
     -------
     LocalHtmlQuery
         Parsed query object
 
-    Raises
+    Raises:
     ------
     ValueError
         If the path is not a valid HTML file
@@ -162,10 +159,7 @@ def parse_local_html(input_text: str) -> LocalHtmlQuery:
 
     # Validate it's an HTML file
     if html_path.suffix.lower() not in (".html", ".htm"):
-        raise ValueError(
-            f"Unsupported file format: {html_path.suffix}. "
-            "Supported formats: .html, .htm"
-        )
+        raise ValueError(f"Unsupported file format: {html_path.suffix}. Supported formats: .html, .htm")
 
     query_id = uuid4()
 
@@ -185,7 +179,7 @@ def is_local_archive_path(input_text: str) -> bool:
     input_text : str
         Input string to check
 
-    Returns
+    Returns:
     -------
     bool
         True if input appears to be a local archive path
@@ -220,7 +214,7 @@ def _get_archive_type(path: Path) -> str | None:
     path : Path
         File path to check
 
-    Returns
+    Returns:
     -------
     str | None
         Archive type ("tar.gz", "tgz", "zip") or None if not recognized

@@ -28,9 +28,9 @@ class CitationResolver:
 
     def __init__(self) -> None:
         """Initialize the resolver."""
-        self._cache: dict[str, "CitationEntry"] = {}
+        self._cache: dict[str, CitationEntry] = {}
 
-    async def resolve_citation(self, parsed: "ParsedCitation", index: int = 0) -> "CitationEntry":
+    async def resolve_citation(self, parsed: ParsedCitation, index: int = 0) -> CitationEntry:
         """Resolve a parsed citation to a full entry.
 
         Parameters
@@ -40,13 +40,11 @@ class CitationResolver:
         index : int
             Index for generating unique keys
 
-        Returns
+        Returns:
         -------
         CitationEntry
             Resolved citation entry
         """
-        from arxiv2md_beta.citations.models import CitationEntry
-
         # Check cache by DOI
         if parsed.identifiers.get("doi"):
             doi = parsed.identifiers["doi"]
@@ -70,7 +68,7 @@ class CitationResolver:
         # Fall back to parsed text
         return self._create_entry_from_text(parsed, index)
 
-    async def _resolve_by_doi(self, parsed: "ParsedCitation", index: int) -> "CitationEntry" | None:
+    async def _resolve_by_doi(self, parsed: ParsedCitation, index: int) -> CitationEntry | None:
         """Resolve citation using DOI."""
         doi = parsed.identifiers.get("doi")
         if not doi:
@@ -90,7 +88,12 @@ class CitationResolver:
             authors = [a.get("name", "") for a in metadata["crossref_authors"] if a.get("name")]
 
         entry = CitationEntry(
-            key=generate_citation_key(authors, metadata.get("published_print_year"), metadata.get("container_title"), index),
+            key=generate_citation_key(
+                authors,
+                metadata.get("published_print_year"),
+                metadata.get("container_title"),
+                index,
+            ),
             title=metadata.get("container_title"),
             authors=authors,
             year=metadata.get("published_print_year") or metadata.get("published_online_year"),
@@ -105,7 +108,7 @@ class CitationResolver:
 
         return entry
 
-    async def _resolve_by_arxiv(self, parsed: "ParsedCitation", index: int) -> "CitationEntry" | None:
+    async def _resolve_by_arxiv(self, parsed: ParsedCitation, index: int) -> CitationEntry | None:
         """Resolve citation using arXiv ID."""
         arxiv_id = parsed.identifiers.get("arxiv_id")
         if not arxiv_id:
@@ -114,20 +117,33 @@ class CitationResolver:
         logger.debug(f"Resolving arXiv ID: {arxiv_id}")
 
         # Import here to avoid circular imports
-        from arxiv2md_beta.network.arxiv_api import query_arxiv_api
+        from arxiv2md_beta.network.arxiv_api import (
+            author_display_names_from_metadata,
+            fetch_arxiv_metadata,
+            submission_date_from_new_style_arxiv_id,
+        )
 
         try:
-            result = await query_arxiv_api(arxiv_id)
-            if not result:
+            metadata = await fetch_arxiv_metadata(arxiv_id)
+            if not metadata:
                 return None
 
             from arxiv2md_beta.citations.models import CitationEntry
 
+            title = metadata.get("title")
+            title = title if isinstance(title, str) else None
+            authors = author_display_names_from_metadata(metadata)
+            year = metadata.get("year")
+            if year is None:
+                sd = submission_date_from_new_style_arxiv_id(arxiv_id)
+                year = sd[:4] if sd else None
+            year = year if isinstance(year, str) else str(year) if year is not None else None
+
             entry = CitationEntry(
-                key=generate_citation_key(result.authors, result.year, result.title, index),
-                title=result.title,
-                authors=result.authors,
-                year=result.year,
+                key=generate_citation_key(authors, year, title, index),
+                title=title,
+                authors=authors,
+                year=year,
                 journal="arXiv preprint",
                 url=f"https://arxiv.org/abs/{arxiv_id}",
                 entry_type="article",
@@ -139,7 +155,7 @@ class CitationResolver:
             logger.warning(f"Failed to resolve arXiv ID {arxiv_id}: {e}")
             return None
 
-    def _create_entry_from_text(self, parsed: "ParsedCitation", index: int) -> "CitationEntry":
+    def _create_entry_from_text(self, parsed: ParsedCitation, index: int) -> CitationEntry:
         """Create a basic entry from parsed text when no identifiers resolve."""
         from arxiv2md_beta.citations.models import CitationEntry
 
@@ -155,7 +171,7 @@ class CitationResolver:
             entry_type="misc",
         )
 
-    async def resolve_citations(self, parsed_list: list["ParsedCitation"]) -> list["CitationEntry"]:
+    async def resolve_citations(self, parsed_list: list[ParsedCitation]) -> list[CitationEntry]:
         """Resolve multiple citations concurrently.
 
         Parameters
@@ -163,15 +179,12 @@ class CitationResolver:
         parsed_list : list[ParsedCitation]
             List of parsed citations
 
-        Returns
+        Returns:
         -------
         list[CitationEntry]
             List of resolved entries
         """
-        tasks = [
-            self.resolve_citation(parsed, index)
-            for index, parsed in enumerate(parsed_list)
-        ]
+        tasks = [self.resolve_citation(parsed, index) for index, parsed in enumerate(parsed_list)]
         return await asyncio.gather(*tasks)
 
 
@@ -183,7 +196,7 @@ def extract_identifiers(text: str) -> dict[str, str]:
     text : str
         Citation text
 
-    Returns
+    Returns:
     -------
     dict[str, str]
         Dictionary of identifier type to value
@@ -218,7 +231,7 @@ def extract_identifiers(text: str) -> dict[str, str]:
 
 
 async def export_bibtex(
-    parsed_citations: list["ParsedCitation"],
+    parsed_citations: list[ParsedCitation],
     output_path: str | None = None,
 ) -> str:
     """Export citations to BibTeX format.
@@ -230,7 +243,7 @@ async def export_bibtex(
     output_path : str | None
         Optional path to write BibTeX file
 
-    Returns
+    Returns:
     -------
     str
         BibTeX formatted string
@@ -244,6 +257,7 @@ async def export_bibtex(
 
     if output_path:
         from pathlib import Path
+
         Path(output_path).write_text(bibtex, encoding="utf-8")
         logger.info(f"Wrote BibTeX to {output_path}")
 

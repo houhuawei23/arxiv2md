@@ -8,11 +8,11 @@ from pathlib import Path
 from arxiv2md_beta.output.structured_export import (
     build_graph,
     normalize_structured_mode,
-    write_structured_bundle,
     write_minimal_structured,
+    write_structured_bundle,
 )
 from arxiv2md_beta.schemas.sections import SectionNode
-from arxiv2md_beta.schemas.structured import PaperDocumentJson, PaperMetaJson, SCHEMA_VERSION
+from arxiv2md_beta.schemas.structured import SCHEMA_VERSION, PaperDocumentJson, PaperMetaJson
 
 
 def test_normalize_structured_mode() -> None:

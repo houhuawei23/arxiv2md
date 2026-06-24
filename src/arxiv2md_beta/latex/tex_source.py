@@ -12,9 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
+import aiofiles
 import httpx
 from loguru import logger
 
+from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -110,9 +112,7 @@ async def fetch_and_extract_tex_source(
     try:
         await _download_tex_source(tex_url, tex_source_path)
     except RuntimeError as e:
-        raise TexSourceNotFoundError(
-            f"Failed to download TeX source for {arxiv_id}: {e}"
-        ) from e
+        raise TexSourceNotFoundError(f"Failed to download TeX source for {arxiv_id}: {e}") from e
 
     # Extract archive
     logger.info(f"Extracting TeX source to {extracted_dir}")
@@ -184,10 +184,9 @@ def extract_local_archive(
         extracted_dir = output_dir
 
     # Check cache: use archive file mtime for TTL (same reason as arXiv TeX cache)
-    if use_cache and extracted_dir.exists() and _mtime_within_ttl(archive_path):
-        if _has_tex_files(extracted_dir):
-            logger.info(f"Using cached extraction for {archive_path.name}")
-            return _extract_info_from_dir(extracted_dir)
+    if use_cache and extracted_dir.exists() and _mtime_within_ttl(archive_path) and _has_tex_files(extracted_dir):
+        logger.info(f"Using cached extraction for {archive_path.name}")
+        return _extract_info_from_dir(extracted_dir)
 
     logger.info(f"Extracting local archive: {archive_path}")
 
@@ -229,16 +228,14 @@ def _extract_zip_archive(archive_path: Path, output_dir: Path) -> None:
         If extraction fails
     """
     try:
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+        with zipfile.ZipFile(archive_path, "r") as zip_ref:
             # Check for potential zip bomb / path traversal
             for member in zip_ref.namelist():
                 member_path = output_dir / member
                 try:
                     member_path.relative_to(output_dir.resolve())
-                except ValueError:
-                    raise ArchiveExtractionError(
-                        f"Archive contains suspicious path: {member}"
-                    )
+                except ValueError as e:
+                    raise ArchiveExtractionError(f"Archive contains suspicious path: {member}") from e
 
             zip_ref.extractall(output_dir)
         logger.info(f"Extracted ZIP archive to {output_dir}")
@@ -279,10 +276,8 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
                     member_path = output_dir / member.name
                     try:
                         member_path.relative_to(output_dir.resolve())
-                    except ValueError:
-                        raise ArchiveExtractionError(
-                            f"Archive contains suspicious path: {member.name}"
-                        )
+                    except ValueError as e:
+                        raise ArchiveExtractionError(f"Archive contains suspicious path: {member.name}") from e
                 tar.extractall(output_dir)
         logger.info(f"Extracted tar archive to {output_dir}")
     except tarfile.TarError as e:
@@ -297,41 +292,39 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
     h = s.http
     retry_status = set(h.retry_status_codes)
     timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
-    headers = {"User-Agent": h.user_agent}
     last_exc: Exception | None = None
 
+    client = get_http_client()
     for attempt in range(h.fetch_max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-                async with client.stream("GET", url) as response:
-                    if response.status_code == 404:
-                        raise RuntimeError(
-                            f"TeX source not found at {url}. "
-                            "This paper may not have TeX source available."
-                        )
+            async with client.stream("GET", url, timeout=timeout) as response:
+                if response.status_code == 404:
+                    raise RuntimeError(f"TeX source not found at {url}. This paper may not have TeX source available.")
 
-                    if response.status_code in retry_status:
-                        last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
-                    else:
-                        response.raise_for_status()
+                if response.status_code in retry_status:
+                    last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
+                else:
+                    response.raise_for_status()
 
-                        # Get content length for progress bar
-                        total_size = int(response.headers.get("content-length", 0))
+                    # Get content length for progress bar
+                    total_size = int(response.headers.get("content-length", 0))
 
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        disable_tqdm = s.images.disable_tqdm
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    disable_tqdm = s.images.disable_tqdm
 
-                        async with async_byte_download_progress(
+                    async with (
+                        async_byte_download_progress(
                             "Downloading TeX source",
                             total_size if total_size > 0 else None,
                             disable=disable_tqdm,
-                        ) as advance:
-                            with open(output_path, "wb") as f:
-                                async for chunk in response.aiter_bytes():
-                                    f.write(chunk)
-                                    advance(len(chunk))
+                        ) as advance,
+                        aiofiles.open(output_path, "wb") as f,
+                    ):
+                        async for chunk in response.aiter_bytes():
+                            await f.write(chunk)
+                            advance(len(chunk))
 
-                        return
+                    return
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
 
@@ -344,7 +337,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> None:
     """Extract tar.gz or gz archive."""
-    if archive_path.suffix == ".gz" and not archive_path.suffixes[-2:] == [".tar", ".gz"]:
+    if archive_path.suffix == ".gz" and archive_path.suffixes[-2:] != [".tar", ".gz"]:
         # Single gzipped file
         with gzip.open(archive_path, "rb") as f_in:
             output_file = output_dir / archive_path.stem
@@ -382,7 +375,7 @@ def _extract_info_from_dir(extracted_dir: Path) -> TexSourceInfo:
 
 
 def _find_main_tex_file(extracted_dir: Path) -> Path | None:
-    """Find the main LaTeX file (root document with \\documentclass).
+    r"""Find the main LaTeX file (root document with \\documentclass).
 
     Looks for:
     1. Files named main.tex, paper.tex, article.tex
@@ -429,10 +422,8 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     return max(tex_files, key=lambda p: p.stat().st_size)
 
 
-def _expand_tex_includes(
-    tex_file: Path, base_dir: Path, visited: set[Path] | None = None
-) -> str:
-    """Expand \\input and \\include in document order for image extraction."""
+def _expand_tex_includes(tex_file: Path, base_dir: Path, visited: set[Path] | None = None) -> str:
+    r"""Expand \\input and \\include in document order for image extraction."""
     if visited is None:
         visited = set()
     if tex_file in visited:
@@ -445,7 +436,7 @@ def _expand_tex_includes(
 
     def replace_include(match: re.Match[str]) -> str:
         start = content.rfind("\n", 0, match.start()) + 1
-        if content[start:match.start()].strip().startswith("%"):
+        if content[start : match.start()].strip().startswith("%"):
             return match.group(0)
         name = match.group(1).strip()
         stem = name[:-4] if name.endswith(".tex") else name
@@ -461,7 +452,7 @@ def _expand_tex_includes(
 
 
 def expand_tex_source_for_parsing(tex_source_info: TexSourceInfo) -> str:
-    """Expand ``\\input`` / ``\\include`` from the main ``.tex`` for author/affiliation parsing."""
+    r"""Expand ``\\input`` / ``\\include`` from the main ``.tex`` for author/affiliation parsing."""
     if not tex_source_info.main_tex_file:
         return ""
     return _expand_tex_includes(tex_source_info.main_tex_file, tex_source_info.extracted_dir)
@@ -486,7 +477,7 @@ def _find_matching_brace_end(text: str, open_brace_idx: int) -> int | None:
 
 
 def _strip_title_blocks_for_image_extraction(text: str) -> str:
-    """Remove ``\\icmltitle{...}`` and ``\\title{...}`` blocks from TeX for image ordering.
+    r"""Remove ``\\icmltitle{...}`` and ``\\title{...}`` blocks from TeX for image ordering.
 
     ICML and similar templates often put a logo via ``\\includegraphics`` inside
     ``\\icmltitle{...}``. ar5iv HTML does not emit that graphic as ``Figure~1``; it
@@ -538,7 +529,7 @@ def _strip_title_blocks_for_image_extraction(text: str) -> str:
 
 
 def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
-    """Remove ``\\affiliation[...]{...}`` blocks so institution logos are not raster indices.
+    r"""Remove ``\\affiliation[...]{...}`` blocks so institution logos are not raster indices.
 
     Templates such as *fairmeta* / NeurIPS-style put ``\\includegraphics`` inside
     ``\\affiliation`` lines. Those images are not numbered figures in ar5iv HTML; body
@@ -582,10 +573,8 @@ def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
     return "".join(out)
 
 
-def _parse_images_from_tex(
-    tex_file: Path, base_dir: Path, all_images: list[Path]
-) -> dict[str, Path]:
-    """Parse image references from LaTeX file in document order.
+def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path]) -> dict[str, Path]:
+    r"""Parse image references from LaTeX file in document order.
 
     Expands \\input/\\include recursively so images in included files are found.
     Returns ordered mapping (label -> path) matching HTML figure order (x1, x2, ...).
@@ -597,13 +586,9 @@ def _parse_images_from_tex(
     expanded = _expand_tex_includes(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
     expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
-    includegraphics_pattern = re.compile(
-        r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}"
-    )
+    includegraphics_pattern = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
     # overpic environment: \begin{overpic}[options]{path}
-    overpic_pattern = re.compile(
-        r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}"
-    )
+    overpic_pattern = re.compile(r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}")
     image_map: dict[str, Path] = {}
     seen_paths: set[Path] = set()
     counter = 0
@@ -611,7 +596,7 @@ def _parse_images_from_tex(
     def _process_match(match: re.Match[str]) -> None:
         nonlocal counter
         line_start = expanded.rfind("\n", 0, match.start()) + 1
-        if expanded[line_start:match.start()].strip().startswith("%"):
+        if expanded[line_start : match.start()].strip().startswith("%"):
             return
         image_path_str = match.group(1).strip()
         image_path = _resolve_image_path(image_path_str, base_dir, all_images)
@@ -629,9 +614,7 @@ def _parse_images_from_tex(
     return image_map
 
 
-def _resolve_image_path(
-    image_path_str: str, base_dir: Path, all_images: list[Path]
-) -> Path | None:
+def _resolve_image_path(image_path_str: str, base_dir: Path, all_images: list[Path]) -> Path | None:
     """Resolve image path from LaTeX reference to actual file."""
     # Remove common LaTeX path prefixes
     image_path_str = image_path_str.strip()

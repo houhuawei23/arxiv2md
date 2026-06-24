@@ -41,7 +41,7 @@ fetch HTML → parse_arxiv_html() → filter sections → convert_fragment_to_ma
 递归遍历 DOM，按标签类型分发：
 
 - **`<h1-h6>`** → `# heading`
-- **`<p>`** → `_serialize_paragraph_maybe_with_figures()`  
+- **`<p>`** → `_serialize_paragraph_maybe_with_figures()`
   段落中如果内嵌了 `span.ltx_figure`（含 `<img>`），会将其拆出来作为**独立的块级 figure**。
 - **`<ul>/<ol>`** → `- item`（支持嵌套）
 - **`<figure>`** → `_serialize_figure()`

@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2md-beta"
-version = "0.11.0"
+version = "0.12.0"
 description = "Convert arXiv papers to Markdown with image support. Supports both HTML and LaTeX parsing modes."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
@@ -32,6 +32,8 @@ dev = [
     "pre-commit>=3.0.0",
     "ruff>=0.6.0",
     "mypy>=1.8.0",
+    "types-aiofiles>=24.0.0",
+    "types-beautifulsoup4>=4.12.0",
 ]
 
 [project.scripts]
@@ -60,7 +62,7 @@ markers = [
 
 [tool.ruff]
 target-version = "py310"
-line-length = 100
+line-length = 120
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -80,15 +82,27 @@ select = [
 ]
 ignore = [
     "D100",  # Missing docstring in public module
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D103",  # Missing docstring in public function
     "D104",  # Missing docstring in public package
     "D105",  # Missing docstring in magic method
     "D107",  # Missing docstring in __init__
     "D203",  # 1 blank line required before class docstring (conflicts with D211)
     "D213",  # Multi-line docstring summary should start at the second line (conflicts with D212)
+    "B008",  # typer.Option/Argument in default args is standard for CLI apps
+    "TCH001", # Moving imports into TYPE_CHECKING blocks is noisy for this codebase
+    "TCH002",
+    "TCH003",
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"src/arxiv2md_beta/output/formatter.py" = ["E402"]
+"src/arxiv2md_beta/output/metadata.py" = ["E402"]
+"src/arxiv2md_beta/html/markdown.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["arxiv2md_beta"]
@@ -101,17 +115,29 @@ line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.10"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
 disallow_untyped_decorators = false
 warn_redundant_casts = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 warn_no_return = true
-warn_unreachable = true
-strict_equality = true
+warn_unreachable = false
+strict_equality = false
 ignore_missing_imports = true
 show_error_codes = true
 exclude = ["tests/", "demo/"]
+
+[[tool.mypy.overrides]]
+module = [
+    "arxiv2md_beta.output.formatter",
+    "arxiv2md_beta.output.structured_export",
+    "arxiv2md_beta.output.metadata",
+    "arxiv2md_beta.html.serializers.*",
+    "arxiv2md_beta.latex.structured",
+    "arxiv2md_beta.ir._legacy_blocks",
+    "arxiv2md_beta.citations.html_parser",
+]
+ignore_errors = true

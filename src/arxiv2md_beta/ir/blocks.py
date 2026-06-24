@@ -16,7 +16,7 @@ Union type
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -47,7 +47,7 @@ class BlockQuoteIR(BlockIR):
     """A blockquote containing nested blocks."""
 
     type: Literal["blockquote"] = "blockquote"
-    blocks: list["BlockUnion"] = Field(default_factory=list)
+    blocks: list[BlockUnion] = Field(default_factory=list)
 
 
 class ListIR(BlockIR):
@@ -58,7 +58,7 @@ class ListIR(BlockIR):
 
     type: Literal["list"] = "list"
     ordered: bool = False
-    items: list[list["BlockUnion"]] = Field(default_factory=list)
+    items: list[list[BlockUnion]] = Field(default_factory=list)
 
 
 class CodeIR(BlockIR):
@@ -71,7 +71,7 @@ class CodeIR(BlockIR):
 
 
 class RuleIR(BlockIR):
-    """Horizontal rule (``<hr/>`` or ``\\hrule``)."""
+    r"""Horizontal rule (``<hr/>`` or ``\\hrule``)."""
 
     type: Literal["rule"] = "rule"
 
@@ -82,7 +82,7 @@ class RuleIR(BlockIR):
 
 
 class EquationIR(BlockIR):
-    """Display-math equation (``$$...$$``, ``\\[...\\]``, equation environment)."""
+    r"""Display-math equation (``$$...$$``, ``\\[...\\]``, equation environment)."""
 
     type: Literal["equation"] = "equation"
     latex: str
@@ -123,7 +123,7 @@ class AlgorithmIR(BlockIR):
     """An algorithm or pseudocode block."""
 
     type: Literal["algorithm"] = "algorithm"
-    steps: list["BlockUnion"] = Field(default_factory=list)
+    steps: list[BlockUnion] = Field(default_factory=list)
     caption: list[InlineUnion] = Field(default_factory=list)
     algorithm_number: str | None = None
 
@@ -149,18 +149,16 @@ class RawBlockIR(BlockIR):
 # ═══════════════════════════════════════════════════════════════════════
 
 BlockUnion = Annotated[
-    Union[
-        ParagraphIR,
-        HeadingIR,
-        FigureIR,
-        TableIR,
-        ListIR,
-        CodeIR,
-        EquationIR,
-        BlockQuoteIR,
-        AlgorithmIR,
-        RuleIR,
-        RawBlockIR,
-    ],
+    ParagraphIR
+    | HeadingIR
+    | FigureIR
+    | TableIR
+    | ListIR
+    | CodeIR
+    | EquationIR
+    | BlockQuoteIR
+    | AlgorithmIR
+    | RuleIR
+    | RawBlockIR,
     Field(discriminator="type"),
 ]

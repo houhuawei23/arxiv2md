@@ -17,9 +17,7 @@ def test_resolved_cache_absolute_uses_path(monkeypatch: pytest.MonkeyPatch, tmp_
     assert s.resolved_cache_path() == target.resolve()
 
 
-def test_resolved_cache_relative_under_xdg_not_cwd(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_resolved_cache_relative_under_xdg_not_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     xdg = tmp_path / "xdg_cache"
     xdg.mkdir()
     monkeypatch.setenv("XDG_CACHE_HOME", str(xdg))
