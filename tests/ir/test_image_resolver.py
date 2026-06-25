@@ -76,6 +76,22 @@ class TestImageResolver:
         resolver.resolve("x.png", figure_index=1)
         assert 1 in resolver._used_indices
 
+    def test_multi_image_figure_consecutive_indices(self) -> None:
+        """A figure with multiple images consumes consecutive 0-based indices."""
+        resolver = ImageResolver(
+            index_map={
+                0: Path("/local/fig0.png"),
+                1: Path("/local/fig1.png"),
+                2: Path("/local/fig2.png"),
+                3: Path("/local/fig3.png"),
+                4: Path("/local/fig4.png"),
+            }
+        )
+        # Figure 3 (1-based) contains three subfigures.
+        assert resolver.resolve("x3.png", figure_index=3) == "/local/fig2.png"
+        assert resolver.resolve("x4.png", figure_index=3) == "/local/fig3.png"
+        assert resolver.resolve("x5.png", figure_index=3) == "/local/fig4.png"
+
     def test_str_values_accepted(self) -> None:
         """Resolver should accept str values (not just Path)."""
         resolver = ImageResolver(

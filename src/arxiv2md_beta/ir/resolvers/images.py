@@ -86,19 +86,29 @@ class ImageResolver:
         return None
 
     def _try_index(self, figure_index: int | None) -> Path | None:
-        """Match by 1-based figure index (HTML *index_map*)."""
+        """Match by figure index (HTML *index_map*).
+
+        *index_map* is 0-based (the convention used by image processing), while
+        *figure_index* is 1-based (the HTML figure counter). A single HTML
+        figure may contain several subfigures, so once the base index for a
+        figure is consumed we continue with the next unused consecutive index.
+        """
         if figure_index is None:
             return None
 
-        # 1-based lookup
+        # Prefer 0-based lookup: figure N maps to base index N-1.
+        base = figure_index - 1
+        if base in self._index_map:
+            for idx in range(base, max(self._index_map.keys()) + 1):
+                if idx in self._index_map and idx not in self._used_indices:
+                    self._used_indices.add(idx)
+                    return self._index_map[idx]
+            return None
+
+        # Backward-compatible 1-based lookup.
         if figure_index in self._index_map and figure_index not in self._used_indices:
             self._used_indices.add(figure_index)
             return self._index_map[figure_index]
-
-        # 0-based fallback
-        if figure_index - 1 in self._index_map and (figure_index - 1) not in self._used_indices:
-            self._used_indices.add(figure_index - 1)
-            return self._index_map[figure_index - 1]
 
         return None
 
