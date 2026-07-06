@@ -18,6 +18,7 @@ def apply_convert_cli_settings(
     structured_output: str,
     no_progress: bool,
     include_anchors: bool = False,
+    linked_citations: bool = False,
     naming_scheme: str | None = None,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
@@ -60,6 +61,7 @@ def apply_convert_cli_settings(
             source=source_v,
             section_filter_mode=mode,
             include_anchors=include_anchors,
+            linked_citations=linked_citations,
             naming_scheme=naming_scheme,
         ),
     )
@@ -95,6 +97,7 @@ def make_convert_params(
     use_legacy: bool = False,
     naming_scheme: str = "classic",
     download_pdf: bool = True,
+    linked_citations: bool = False,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -119,4 +122,5 @@ def make_convert_params(
         use_legacy=use_legacy,
         naming_scheme=naming_scheme,
         download_pdf=download_pdf,
+        linked_citations=linked_citations,
     )

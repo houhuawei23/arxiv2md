@@ -32,6 +32,9 @@ class MarkdownEmitter(IREmitter):
 
     format_name = "markdown"
 
+    def __init__(self, *, linked_citations: bool = False) -> None:
+        self.linked_citations = linked_citations
+
     def emit(self, doc: DocumentIR) -> str:
         parts: list[str] = []
 
@@ -134,7 +137,11 @@ class MarkdownEmitter(IREmitter):
             return f"{d}{self._emit_inlines(inline.inlines)}{c}"
         elif t == "link":
             text = self._emit_inlines(inline.inlines)
-            if inline.kind == "citation" and inline.target_id or inline.kind == "internal" and inline.target_id:
+            if inline.kind == "citation" and inline.target_id:
+                if self.linked_citations:
+                    return f"[{text}](#{inline.target_id})"
+                return f"[{text}]"
+            if inline.kind == "internal" and inline.target_id:
                 return f"[{text}](#{inline.target_id})"
             elif inline.url:
                 return f"[{text}]({inline.url})"

@@ -209,6 +209,11 @@ def convert_cmd(
         "--include-anchors",
         help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
     ),
+    linked_citations: bool = typer.Option(
+        False,
+        "--linked-citations",
+        help="Render inline citations as linked [N](#ref-N) instead of plain [N].",
+    ),
     naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
@@ -234,6 +239,7 @@ def convert_cmd(
         structured_output=structured_output,
         no_progress=no_progress,
         include_anchors=include_anchors,
+        linked_citations=linked_citations,
         naming_scheme=naming_scheme,
     )
     params = make_convert_params(
@@ -257,6 +263,7 @@ def convert_cmd(
         use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
+        linked_citations=linked_citations,
     )
     try:
         run_convert_sync(params)
@@ -385,6 +392,11 @@ def batch_cmd(
         "--include-anchors",
         help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
     ),
+    linked_citations: bool = typer.Option(
+        False,
+        "--linked-citations",
+        help="Render inline citations as linked [N](#ref-N) instead of plain [N].",
+    ),
     naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
@@ -410,6 +422,7 @@ def batch_cmd(
         structured_output=structured_output,
         no_progress=no_progress,
         include_anchors=include_anchors,
+        linked_citations=linked_citations,
         naming_scheme=naming_scheme,
     )
     template = make_convert_params(
@@ -433,6 +446,7 @@ def batch_cmd(
         use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
+        linked_citations=linked_citations,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

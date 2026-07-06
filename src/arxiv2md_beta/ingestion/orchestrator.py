@@ -383,7 +383,7 @@ class IngestionOrchestrator:
 
     def _emit_markdown(self) -> None:
         assert self._doc is not None
-        emitter = MarkdownEmitter()
+        emitter = MarkdownEmitter(linked_citations=self.params.linked_citations)
         main_irs, ref_irs, app_irs = _split_ir_sections(
             self._doc.sections,
             self._ingestion_cfg.reference_section_titles,

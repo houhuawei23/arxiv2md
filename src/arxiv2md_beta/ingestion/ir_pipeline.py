@@ -123,7 +123,10 @@ def document_to_ingestion_result(
     include_toc : bool
         Whether to generate a table of contents section in the output.
     """
-    emitter = MarkdownEmitter()
+    from arxiv2md_beta.settings import get_settings
+
+    linked_citations = get_settings().output.linked_citations
+    emitter = MarkdownEmitter(linked_citations=linked_citations)
     content = emitter.emit(doc)
 
     # Build summary

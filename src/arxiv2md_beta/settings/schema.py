@@ -134,6 +134,10 @@ class OutputSection(BaseModel):
         default=False,
         description='If True, keep <a id="..."></a> anchor tags in generated Markdown.',
     )
+    linked_citations: bool = Field(
+        default=False,
+        description="If True, render inline citations as linked [N](#ref-N); " "otherwise render them as plain [N].",
+    )
 
 
 class AppSettings(BaseModel):

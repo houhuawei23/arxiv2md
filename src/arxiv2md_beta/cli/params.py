@@ -30,6 +30,7 @@ class ConvertParams:
     use_legacy: bool = False
     naming_scheme: str = "classic"
     download_pdf: bool = True
+    linked_citations: bool = False
 
 
 @dataclass(frozen=True)
