@@ -9,6 +9,7 @@ import pytest
 
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.cli.runner import run_batch_flow
+from arxiv2md_beta.cli.runner.base import merge_convert_params
 
 
 def _template() -> ConvertParams:
@@ -30,6 +31,50 @@ def _template() -> ConvertParams:
         structured_output="none",
         emit_graph_csv=False,
     )
+
+
+def test_merge_convert_params_preserves_all_fields() -> None:
+    """Regression: batch must carry every ConvertParams field, not a hand-picked subset.
+
+    Previously ``merge_convert_params`` hand-listed 16 of 21 non-input fields and
+    silently dropped ``no_cache``/``naming_scheme``/``download_pdf``/
+    ``linked_citations``/``use_legacy``, so ``batch --no-cache`` used the cache,
+    ``--linked-citations`` produced plain ``[N]``, etc.
+    """
+    template = ConvertParams(
+        input_text="",
+        parser="html",
+        output=None,
+        source="Arxiv",
+        short=None,
+        no_images=True,
+        remove_refs=True,
+        remove_toc=False,
+        remove_inline_citations=True,
+        section_filter_mode="exclude",
+        sections="References",
+        section=["Abstract"],
+        include_tree=True,
+        emit_result_json=True,
+        structured_output="full",
+        emit_graph_csv=True,
+        no_cache=True,
+        use_legacy=True,
+        naming_scheme="paper-pipeline",
+        download_pdf=False,
+        linked_citations=True,
+    )
+
+    merged = merge_convert_params(template, input_text="2501.11120")
+
+    # Every non-input field must equal the template's value.
+    for field_name in template.__dataclass_fields__:
+        if field_name == "input_text":
+            assert getattr(merged, field_name) == "2501.11120"
+            continue
+        assert getattr(merged, field_name) == getattr(template, field_name), (
+            f"merge_convert_params dropped field {field_name!r}"
+        )
 
 
 @pytest.mark.asyncio
