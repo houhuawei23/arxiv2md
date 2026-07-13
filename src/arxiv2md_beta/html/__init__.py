@@ -1,7 +1,11 @@
-"""HTML parsing and HTML fragment to Markdown conversion."""
+"""HTML parsing (arXiv HTML → ParsedArxivHtml) and section filtering.
 
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
+The legacy HTML→Markdown fragment converter (html/markdown.py) was removed;
+all HTML→Markdown conversion now goes through the IR pipeline
+(HTMLBuilder → MarkdownEmitter).
+"""
+
 from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 
-__all__ = ["convert_fragment_to_markdown", "filter_sections", "parse_arxiv_html"]
+__all__ = ["filter_sections", "parse_arxiv_html"]

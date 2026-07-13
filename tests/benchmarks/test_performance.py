@@ -8,40 +8,7 @@ from __future__ import annotations
 import pytest
 
 from arxiv2md_beta.cache.result_cache import CacheKey
-from arxiv2md_beta.html.markdown import convert_fragment_to_markdown, convert_html_to_markdown
 from arxiv2md_beta.query.parser import parse_arxiv_input
-
-
-class TestMarkdownConversionBenchmarks:
-    """Benchmarks for Markdown conversion performance."""
-
-    def test_benchmark_simple_html(self, benchmark):
-        """Benchmark simple HTML to Markdown conversion."""
-        html = "<p>Hello <strong>world</strong></p>"
-        result = benchmark(convert_fragment_to_markdown, html)
-        assert "Hello" in result
-
-    def test_benchmark_complex_document(self, benchmark):
-        """Benchmark complex document conversion."""
-        html = """
-        <article class="ltx_document">
-            <h1 class="ltx_title_document">Title</h1>
-            <div class="ltx_abstract">
-                <p>Abstract paragraph with <em>emphasis</em>.</p>
-            </div>
-            <section>
-                <h2>Section 1</h2>
-                <p>Paragraph with <strong>bold</strong> and <a href="http://test.com">link</a>.</p>
-                <ul>
-                    <li>Item 1</li>
-                    <li>Item 2</li>
-                    <li>Item 3</li>
-                </ul>
-            </section>
-        </article>
-        """
-        result = benchmark(convert_html_to_markdown, html)
-        assert "Title" in result
 
 
 class TestQueryParserBenchmarks:

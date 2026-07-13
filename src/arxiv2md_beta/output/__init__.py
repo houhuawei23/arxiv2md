@@ -1,6 +1,10 @@
-"""Output paths, Markdown formatting, metadata sidecars."""
+"""Output paths, Markdown utilities, metadata sidecars.
 
-from arxiv2md_beta.output.formatter import format_paper
+The legacy format_paper (output/formatter.py) was removed; Markdown formatting
+lives in output/markdown_utils.py and all conversion goes through the IR
+pipeline (MarkdownEmitter).
+"""
+
 from arxiv2md_beta.output.layout import (
     build_output_basename,
     create_paper_output_dir,
@@ -15,7 +19,6 @@ __all__ = [
     "create_paper_output_dir",
     "determine_images_dir",
     "determine_output_dir",
-    "format_paper",
     "sanitize_title_for_filesystem",
     "save_paper_metadata",
 ]

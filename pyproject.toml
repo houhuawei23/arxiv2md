@@ -100,9 +100,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"src/arxiv2md_beta/output/formatter.py" = ["E402"]
 "src/arxiv2md_beta/output/metadata.py" = ["E402"]
-"src/arxiv2md_beta/html/markdown.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["arxiv2md_beta"]
@@ -132,7 +130,6 @@ exclude = ["tests/", "demo/"]
 
 [[tool.mypy.overrides]]
 module = [
-    "arxiv2md_beta.output.formatter",
     "arxiv2md_beta.output.metadata",
     "arxiv2md_beta.citations.html_parser",
 ]
