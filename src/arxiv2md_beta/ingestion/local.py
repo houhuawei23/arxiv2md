@@ -6,20 +6,21 @@ import asyncio
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
 from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.images.processor import process_images_async
-from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
+from arxiv2md_beta.ir.document import DocumentIR
+from arxiv2md_beta.latex.parser import ParserNotAvailableError
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
     TexSourceInfo,
     extract_local_archive,
 )
 from arxiv2md_beta.output.formatter import format_paper
-from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery, SectionNode
+from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
 
 
 class LocalIngestionError(IngestionError):
@@ -143,17 +144,16 @@ async def _ingest_latex_archive(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, Any]]:
-    """Process a LaTeX-based local archive."""
+    """Process a LaTeX-based local archive via the IR pipeline."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
 
-    # Parse LaTeX to extract metadata before creating output dir
+    # Pre-extract metadata from raw TeX (best-effort, for output-dir naming).
     assert tex_source_info.main_tex_file is not None, "main_tex_file is required for local LaTeX archive"
     try:
-        # Try to get title from LaTeX content first
-        tex_content = tex_source_info.main_tex_file.read_text(encoding="utf-8", errors="ignore")
-        title = _extract_title_from_tex(tex_content)
-        authors = _extract_authors_from_tex(tex_content)
-        abstract = _extract_abstract_from_tex(tex_content)
+        tex_content_raw = tex_source_info.main_tex_file.read_text(encoding="utf-8", errors="ignore")
+        title = _extract_title_from_tex(tex_content_raw) or query.title
+        authors = _extract_authors_from_tex(tex_content_raw) or query.authors
+        abstract = _extract_abstract_from_tex(tex_content_raw)
     except (OSError, UnicodeDecodeError) as e:
         logger.warning(f"Failed to extract metadata from LaTeX: {e}")
         title = query.title
@@ -181,59 +181,102 @@ async def _ingest_latex_archive(
         for idx, (label, source_path) in enumerate(tex_source_info.image_files.items()):
             if idx in processed_images.image_map:
                 latex_image_map[label] = processed_images.image_map[idx]
-                # Also map by filename
                 latex_image_map[source_path.name] = processed_images.image_map[idx]
-                # Map by path relative to base_dir
                 try:
                     rel_path = source_path.relative_to(tex_source_info.extracted_dir)
                     latex_image_map[str(rel_path)] = processed_images.image_map[idx]
                 except ValueError:
                     pass
 
-    # Parse LaTeX to Markdown (offload blocking pandoc call to thread pool)
-    try:
-        parsed_latex = await asyncio.to_thread(
-            parse_latex_to_markdown,
-            tex_source_info.main_tex_file,
-            tex_source_info.extracted_dir,
-            latex_image_map,
+    arxiv_id = query.archive_path.stem
+
+    # Build IR via LaTeXBuilder (offload blocking pandoc to thread pool).
+    def _build_ir() -> DocumentIR:
+        from arxiv2md_beta.ir import (
+            AnchorPass,
+            FigureReorderPass,
+            LaTeXBuilder,
+            NumberingPass,
+            PassPipeline,
         )
+        from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.latex.parser import _resolve_latex_includes
+
+        main_tex = tex_source_info.main_tex_file
+        assert main_tex is not None
+        tex_content = _resolve_latex_includes(main_tex, tex_source_info.extracted_dir)
+        doc = LaTeXBuilder(image_resolver=ImageResolver(path_map=latex_image_map)).build(
+            tex_content,
+            arxiv_id=arxiv_id,
+            title=title,
+            authors=list(authors) if authors else None,
+            abstract=abstract,
+            base_dir=tex_source_info.extracted_dir,
+        )
+        pp = PassPipeline()
+        pp.add(NumberingPass())
+        pp.add(FigureReorderPass())
+        pp.add(AnchorPass())
+        pp.run(doc)
+        return doc
+
+    try:
+        doc = await asyncio.to_thread(_build_ir)
     except ParserNotAvailableError:
         raise
     except Exception as e:
         raise LocalIngestionError(f"Failed to parse LaTeX: {e}") from e
 
-    # Use parsed metadata if not already extracted
-    if not title and parsed_latex.title:
-        title = parsed_latex.title
-    if not authors and parsed_latex.authors:
-        authors = parsed_latex.authors
-    if not abstract and parsed_latex.abstract:
-        abstract = parsed_latex.abstract
+    # Emit markdown with reference/appendix split (mirrors IR orchestrator).
+    from arxiv2md_beta.ir import MarkdownEmitter, split_ir_sections
+    from arxiv2md_beta.output.markdown_utils import (
+        count_sections,
+        create_sections_tree,
+        format_markdown_output,
+        format_token_count,
+    )
+    from arxiv2md_beta.settings import get_settings
 
-    # Create a simple section structure from the markdown
-    # For LaTeX mode, we create a single section with the full content
-    sections_list = [
-        SectionNode(
-            title=title or "Document",
-            level=1,
-            anchor=None,
-            html=None,
-            markdown=parsed_latex.markdown,
-            children=[],
-        )
-    ]
+    emitter = MarkdownEmitter()
+    main_irs, ref_irs, app_irs = split_ir_sections(
+        doc.sections, get_settings().ingestion.reference_section_titles
+    )
+    original_sections = doc.sections
+    doc.sections = main_irs
+    content = format_markdown_output(emitter.emit(doc))
+    doc.sections = ref_irs
+    ref_raw = emitter.emit(doc) if ref_irs else ""
+    content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
+    doc.sections = app_irs
+    app_raw = emitter.emit(doc) if app_irs else ""
+    content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
+    doc.sections = original_sections
 
-    # Format output
-    result = format_paper(
-        arxiv_id=query.archive_path.stem,  # Use archive name as ID
-        version=None,
-        title=title,
-        authors=authors,
-        abstract=abstract,
-        sections=sections_list,
-        include_toc=False,  # LaTeX mode doesn't use TOC
-        include_abstract_in_tree=abstract is not None,
+    m = doc.metadata
+    result_title = m.title or title or "Unknown"
+    author_names = [a.name for a in m.authors] or (list(authors) if authors else [])
+    summary_lines: list[str] = []
+    if result_title:
+        summary_lines.append(f"# Title: {result_title}")
+    summary_lines.append(f"- ArXiv: {arxiv_id}")
+    if author_names:
+        summary_lines.append(f"- Authors: {', '.join(author_names)}")
+    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
+    tree_lines = ["Sections:"]
+    if m.abstract_text:
+        tree_lines.append("Abstract")
+    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
+    sections_tree = "\n".join(tree_lines)
+    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
+    token_estimate = format_token_count(sections_tree + "\n" + token_body)
+    if token_estimate:
+        summary_lines.append(f"- Estimated tokens: {token_estimate}")
+    result = IngestionResult(
+        summary="\n".join(summary_lines),
+        sections_tree=sections_tree,
+        content=content,
+        content_references=content_references,
+        content_appendix=content_appendix,
     )
 
     # Save paper metadata to paper.yml
@@ -241,9 +284,9 @@ async def _ingest_latex_archive(
         from arxiv2md_beta.output.metadata import save_paper_metadata
 
         metadata_dict = {
-            "title": title,
-            "authors": authors,
-            "abstract": abstract,
+            "title": result_title,
+            "authors": author_names,
+            "abstract": m.abstract_text,
             "submission_date": query.submission_date,
             "source": source,
             "archive_path": str(query.archive_path),
@@ -254,42 +297,27 @@ async def _ingest_latex_archive(
 
     structured_export: dict[str, Any] = {}
     try:
-        from arxiv2md_beta.output.structured_export import (
-            normalize_structured_mode,
-            write_minimal_structured,
-        )
+        from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter, normalize_structured_mode
 
         sm = normalize_structured_mode(structured_output)
         if sm != "none":
-            stem_map = processed_images.stem_to_image_path if processed_images else None
-            img_map = processed_images.image_map if processed_images else None
-            structured_export = write_minimal_structured(
-                paper_output_dir=paper_output_dir,
-                mode=sm,
-                emit_graph_csv=emit_graph_csv,
-                arxiv_id=query.archive_path.stem,
-                arxiv_version=None,
-                title=title,
-                authors=list(authors) if authors else [],
-                submission_date=query.submission_date,
-                parser="local",
-                sections=sections_list,
-                abstract_md=abstract,
-                stem_to_image_path=stem_map,
-                image_map=img_map,
+            structured_export = JsonEmitter(mode=sm).write_bundle(
+                doc,
+                paper_output_dir,
                 images_subdir=images_dir_name,
+                emit_graph_csv=emit_graph_csv,
             )
     except Exception as e:
         logger.warning(f"Structured JSON export failed: {e}")
 
     metadata = {
-        "title": title or "Unknown",
-        "authors": authors,
-        "abstract": abstract,
+        "title": result_title,
+        "authors": author_names,
+        "abstract": m.abstract_text,
         "submission_date": query.submission_date,
         "paper_output_dir": paper_output_dir,
         "archive_path": str(query.archive_path),
-        "arxiv_id": query.archive_path.stem,
+        "arxiv_id": arxiv_id,
         "structured_export": structured_export,
     }
 
