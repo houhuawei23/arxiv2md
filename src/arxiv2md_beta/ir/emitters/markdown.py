@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from arxiv2md_beta.exceptions import EmitterError
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
     EquationIR,
@@ -118,7 +119,7 @@ class MarkdownEmitter(IREmitter):
             return "---"
         elif t == "raw_block":
             return block.content
-        return ""
+        raise EmitterError(f"Unhandled IR block type: {t!r}")
 
     # ── Inlines ────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ class MarkdownEmitter(IREmitter):
             return "\n"
         elif t == "raw_inline":
             return inline.content
-        return ""
+        raise EmitterError(f"Unhandled IR inline type: {t!r}")
 
     # ── Complex block renderers ────────────────────────────────────────
 

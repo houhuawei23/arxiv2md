@@ -8,11 +8,14 @@ from arxiv2md_beta.ir.document import DocumentIR
 
 
 class IRPass(ABC):
-    """A pure(ish) transform: :class:`DocumentIR` → :class:`DocumentIR`.
+    """A transform: :class:`DocumentIR` → :class:`DocumentIR`.
 
-    Each pass should document whether it mutates the input or returns a
-    (deep) copy.  The default pipeline pattern is to work on copies so
-    passes remain composable and debuggable.
+    Passes mutate the document **in place** and return the same object. They
+    are not pure — running the same pass twice on one document (e.g.
+    NumberingPass) would double-apply its effect. The pipeline runs each pass
+    exactly once per document, so this is safe in practice; callers that need
+    to preserve the pre-transform document must ``copy.deepcopy`` it before
+    running the pipeline.
     """
 
     name: str = ""

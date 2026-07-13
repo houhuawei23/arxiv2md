@@ -295,3 +295,62 @@ class TestVisitorDispatch:
         v = DefaultOnly()
         v.visit(p)
         assert v.hit is True
+
+
+def test_child_specs_cover_all_container_types():
+    """Regression: _CHILD_SPECS must list every IR node type that nests children.
+
+    A new container node added without registering here would have its children
+    silently skipped by walk() — silent data loss for any walk-based transform
+    or collector.
+    """
+    from arxiv2md_beta.ir import blocks as blocks_mod
+    from arxiv2md_beta.ir import inlines as inlines_mod
+    from arxiv2md_beta.ir.document import DocumentIR, SectionIR
+    from arxiv2md_beta.ir.visitor import _CHILD_SPECS
+
+    # Container inline types (carry list[InlineUnion]).
+    inline_containers = {
+        cls
+        for name, cls in vars(inlines_mod).items()
+        if isinstance(cls, type)
+        and issubclass(cls, inlines_mod.InlineIR)
+        and hasattr(cls, "model_fields")
+        and any(
+            "InlineUnion" in str(getattr(cls.model_fields[f], "annotation", ""))
+            for f in cls.model_fields
+        )
+    }
+    # Container block types (carry list[BlockUnion] / list[list[BlockUnion]] / list[InlineUnion]).
+    block_containers = {
+        cls
+        for name, cls in vars(blocks_mod).items()
+        if isinstance(cls, type)
+        and issubclass(cls, blocks_mod.BlockIR)
+        and hasattr(cls, "model_fields")
+        and any(
+            "BlockUnion" in str(getattr(cls.model_fields[f], "annotation", ""))
+            or "InlineUnion" in str(getattr(cls.model_fields[f], "annotation", ""))
+            for f in cls.model_fields
+        )
+    }
+
+    for cls in inline_containers | block_containers:
+        # Instantiate with defaults to read .type, then check registration.
+        try:
+            instance = cls()  # type: ignore[call-arg]
+        except Exception:
+            # Some classes require args (e.g. EquationIR.latex); skip those —
+            # they are leaf content nodes without default-constructible children.
+            continue
+        type_literal = getattr(instance, "type", None)
+        if type_literal is None:
+            continue
+        assert type_literal in _CHILD_SPECS, (
+            f"Container IR type {cls.__name__} (type={type_literal!r}) is missing from "
+            f"_CHILD_SPECS — walk() will silently skip its children."
+        )
+
+    # Document and Section are the structural containers.
+    assert "document" in _CHILD_SPECS
+    assert "section" in _CHILD_SPECS

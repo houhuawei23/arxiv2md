@@ -108,7 +108,8 @@ class PlainTextEmitter(IREmitter):
             return "---"
         else:
             # RawBlockIR and any future block types fall back to content.
-            return block.content
+            # getattr avoids AttributeError on future types without .content.
+            return getattr(block, "content", "")
 
     def _emit_inlines(self, inlines: list[InlineUnion]) -> str:
         parts: list[str] = []
@@ -139,4 +140,5 @@ class PlainTextEmitter(IREmitter):
             return "\n"
         else:
             # RawInlineIR and any future inline types fall back to content.
-            return il.content
+            # getattr avoids AttributeError on future types without .content.
+            return getattr(il, "content", "")

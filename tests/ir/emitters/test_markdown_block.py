@@ -289,3 +289,35 @@ class TestDocumentEmission:
         doc = DocumentIR(metadata=PaperMetadata(arxiv_id="test"))
         result = emitter.emit(doc)
         assert result == "" or result is not None
+
+
+def test_markdown_emitter_raises_on_unknown_block_type():
+    """Regression: an unhandled IR block type must raise, not silently drop.
+
+    Previously _emit_block returned "" for unknown types, causing silent data
+    loss if a new BlockUnion member was added without an emitter branch.
+    """
+    from types import SimpleNamespace
+
+    import pytest
+
+    from arxiv2md_beta.exceptions import EmitterError
+    from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+
+    bogus = SimpleNamespace(type="totally_unknown_block")
+    with pytest.raises(EmitterError):
+        MarkdownEmitter()._emit_block(bogus)
+
+
+def test_markdown_emitter_raises_on_unknown_inline_type():
+    """Regression: an unhandled IR inline type must raise, not silently drop."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from arxiv2md_beta.exceptions import EmitterError
+    from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+
+    bogus = SimpleNamespace(type="totally_unknown_inline")
+    with pytest.raises(EmitterError):
+        MarkdownEmitter()._emit_inline(bogus)
