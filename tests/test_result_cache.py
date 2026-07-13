@@ -221,3 +221,39 @@ class TestResultCache:
         )
 
         assert key1.to_hash() == key2.to_hash()
+
+    def test_cache_key_distinguishes_output_shaping_flags(self):
+        """Regression A15: output-shaping flags must alter the cache hash.
+
+        Previously structured_output/emit_graph_csv/naming_scheme/
+        linked_citations/download_pdf/include_tree/emit_result_json were absent
+        from CacheKey, so runs differing only in those flags collided.
+        """
+        from arxiv2md_beta.cache.result_cache import CacheKey
+
+        base_kwargs = dict(
+            arxiv_id="2501.12345",
+            version="v1",
+            parser="html",
+            remove_refs=True,
+            remove_toc=False,
+            remove_inline_citations=False,
+            section_filter_mode="exclude",
+            sections=("Abstract",),
+            no_images=False,
+        )
+        base_hash = CacheKey(**base_kwargs).to_hash()
+
+        for field, value in [
+            ("structured_output", "full"),
+            ("emit_graph_csv", True),
+            ("naming_scheme", "paper-pipeline"),
+            ("linked_citations", True),
+            ("download_pdf", False),
+            ("include_tree", True),
+            ("emit_result_json", True),
+        ]:
+            variant = CacheKey(**{**base_kwargs, field: value})
+            assert variant.to_hash() != base_hash, (
+                f"CacheKey hash did not change when {field}={value!r} (field missing from key)"
+            )

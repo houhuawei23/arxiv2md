@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,7 +24,14 @@ logger = get_logger()
 
 @dataclass(frozen=True)
 class CacheKey:
-    """Cache key components."""
+    """Cache key components.
+
+    Every field that influences the conversion OUTPUT must appear here so two
+    runs differing only in those flags do not share a cache entry. Previously
+    ``structured_output``/``emit_graph_csv``/``naming_scheme``/
+    ``linked_citations``/``download_pdf``/``include_tree``/``emit_result_json``
+    were missing, so e.g. ``--linked-citations`` and plain ``[N]`` shared a key.
+    """
 
     arxiv_id: str
     version: str | None
@@ -35,21 +42,22 @@ class CacheKey:
     section_filter_mode: str
     sections: tuple[str, ...]
     no_images: bool
+    # Output-shaping flags (defaults match ConvertParams defaults).
+    structured_output: str = "none"
+    emit_graph_csv: bool = False
+    naming_scheme: str = "classic"
+    linked_citations: bool = False
+    download_pdf: bool = True
+    include_tree: bool = False
+    emit_result_json: bool = False
 
     def to_hash(self) -> str:
-        """Generate a deterministic hash for this cache key."""
-        # Use JSON for consistent serialization
-        data = {
-            "arxiv_id": self.arxiv_id,
-            "version": self.version,
-            "parser": self.parser,
-            "remove_refs": self.remove_refs,
-            "remove_toc": self.remove_toc,
-            "remove_inline_citations": self.remove_inline_citations,
-            "section_filter_mode": self.section_filter_mode,
-            "sections": list(self.sections),
-            "no_images": self.no_images,
-        }
+        """Generate a deterministic hash for this cache key.
+
+        Uses :func:`dataclasses.asdict` so every field above participates — no
+        hand-maintained dict to drift out of sync when fields are added.
+        """
+        data = asdict(self)
         json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(json_str.encode("utf-8")).hexdigest()[:32]
 
