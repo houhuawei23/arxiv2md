@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from loguru import logger
@@ -44,4 +45,6 @@ async def extract_arxiv_images(
     tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_tex_cache)
     if not tex_source_info.main_tex_file:
         logger.warning("No main .tex file found; processing image files discovered in the extract.")
-    return process_images(tex_source_info, output_dir, images_subdir)
+    # process_images runs pdf2image (ghostscript subprocess) and Pillow — CPU/subprocess
+    # bound. Offload so the event loop (and tqdm) are not blocked.
+    return await asyncio.to_thread(process_images, tex_source_info, output_dir, images_subdir)
