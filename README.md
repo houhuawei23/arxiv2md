@@ -113,7 +113,6 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--emit-result-json` | 打印一行 `ARXIV2MD_RESULT_JSON=...`（含 `paper_output_dir`） | False |
 | `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` (schema v2.0, 全类型 IR 块结构) | `none` |
 | `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
-| `--legacy` | 使用旧版管线代替默认的 IR 管线 | False |
 | `--download-pdf` / `--skip-pdf-download` | 是否在输出目录下载 arXiv PDF | True |
 
 ### 命令行参数（`batch`）

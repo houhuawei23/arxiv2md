@@ -1,166 +1,109 @@
-arxiv2md-beta 目前采用**双管道（Dual Pipeline）**架构，支持 **HTML 模式**（默认）和 **LaTeX 模式**两种转换路径。两者的核心区别是：HTML 模式走「自定义 BeautifulSoup 序列化器」，LaTeX 模式走「Pandoc + 大量后处理」。
+# arxiv2md-beta 数据流程
 
-以下是完整的转换逻辑和方法：
+> 状态反映 v0.13 开发分支（IR 迁移进行中）。HTML 模式已迁移到 IR 三层架构；LaTeX 与本地模式仍走 legacy 管道，计划在后续阶段迁移。
 
----
+## 输入模式与管道路由
 
-## 一、HTML 模式（arxiv HTML → Markdown）
+`cli/runner/convert.py::run_convert_flow` 按输入类型路由到四条路径之一：
 
-数据流：
+| 输入模式 | 入口 | 管道 |
+|---|---|---|
+| 远程 arXiv HTML（默认 `convert <id>`） | `IngestionOrchestrator` | **IR** |
+| 远程 arXiv LaTeX（`convert <id> --parser latex`） | `ingestion/latex.py::ingest_paper_latex` | **Legacy**（pandoc + `format_paper`） |
+| 本地 HTML 文件（`convert path.html`） | `ingestion/local_html.py::ingest_local_html` | **Legacy**（`convert_fragment_to_markdown` + `format_paper`） |
+| 本地归档（`convert paper.tar.gz`） | `ingestion/local.py::ingest_local_archive` | **Legacy**（pandoc/本地 + `format_paper`） |
 
-```
-fetch HTML → parse_arxiv_html() → filter sections → convert_fragment_to_markdown() → format_paper()
-```
+公共 API `ingestion.ingest_paper()` 把 LaTeX 请求委托给 `ingest_paper_latex`，HTML 委托给 `IngestionOrchestrator`。
 
-### 1. 获取与解析 HTML
+## 一、IR 管道（HTML 默认路径）
 
-- `fetch_arxiv_html()` 先用 `httpx` 抓取 arxiv.org HTML，失败则自动回退到 `ar5iv.labs.arxiv.org`。
-- `parse_arxiv_html()`（`html/parser.py`）用 **BeautifulSoup** 提取结构化信息：
-  - **Title**：从 `h1.ltx_title` 等选择器提取，过滤 `[cs/0309048]` 和 `Contents` 后缀。
-  - **Authors**：从 `div.ltx_authors` 提取，会过滤邮箱、纯数字脚注、贡献声明等噪音。
-  - **Abstract**：同时提取纯文本和 `abstract_html`（inner HTML，用于处理摘要里的图片）。
-  - **Front Matter**：提取摘要和第一个 `section` 之间的 HTML（如标题块图片）。
-  - **Sections**：按 `h1-h6` 切分，构建嵌套的 `SectionNode` 树。
-  - **Date**：从 meta tags 或页面时间元素提取 `YYYYMMDD`。
-
-### 2. HTML → Markdown 序列化（`html/markdown.py`）
-
-核心入口：
-
-- `convert_html_to_markdown()`：处理完整文档（标题/作者/摘要/目录）。
-- `convert_fragment_to_markdown()`：处理每个 section 和 abstract 的 HTML 片段。
-
-#### 预处理
-
-- `_strip_unwanted_elements()`：移除 `script/style/nav/footer/TOC`。
-- `convert_all_mathml_to_latex()`：将 `<math>` 标签中 `annotation(encoding="application/x-tex")` 的内容提取为 `$latex$`。
-- `fix_tabular_tables()`：清理 LaTeXML 生成的表格上的冗余属性。
-
-#### 块级序列化 `_serialize_block()`
-
-递归遍历 DOM，按标签类型分发：
-
-- **`<h1-h6>`** → `# heading`
-- **`<p>`** → `_serialize_paragraph_maybe_with_figures()`
-  段落中如果内嵌了 `span.ltx_figure`（含 `<img>`），会将其拆出来作为**独立的块级 figure**。
-- **`<ul>/<ol>`** → `- item`（支持嵌套）
-- **`<figure>`** → `_serialize_figure()`
-  - 区分「图片 figure」和「表格/算法 figure」。
-  - **多面板图片**：收集 caption 之前的所有 `<img>`，2~N 张时输出 HTML `<div align="center">` + 等宽 `<img>` 并排显示。
-  - **单图**：标准 Markdown `![alt](path)`。
-  - **图片映射**：通过 `image_map`（按 `\includegraphics` 顺序的索引）和 `image_stem_map`（按文件名 stem 匹配），将 HTML 里的 `<img src="...">` 映射到本地处理后的图片。
-- **`<table>` / `span.ltx_tabular`** → `_serialize_table()`，输出 Markdown pipe table。
-- **`<div class="ltx_listing">`** → 代码块。优先读取 base64 内嵌的原始代码，否则逐行拼接 `ltx_listingline`。
-- **`<blockquote>`** → `> text`
-
-#### 行内序列化 `_serialize_inline()`
-
-- `<em>` → `*text*`；`<strong>` → `**text**`
-- `<a>` 智能处理：
-  - 引用链接（`#bib.bib7`）→ `[7](#ref-7)`（或根据 `--remove-inline-citations` 直接移除）
-  - 内部链接（`arxiv.org/html/...#S1.F1`）→ 映射为本地锚点 `[...](#figure-1)`
-  - 普通外链 → `[text](href)`
-- `<sup>` → `^text`；`<math>` → `$latex$`
-- 空白压缩：多个空白/换行折叠为单个空格。
-
-### 3. 图片处理
-
-即使走 HTML 模式，也会下载 **TeX Source**：
-
-- `fetch_and_extract_tex_source()` 下载并解压源码包。
-- `process_images()` 提取其中的 `PNG/JPG/PDF/EPS` 等，PDF 自动转为 PNG。
-- 生成 `image_map` 和 `image_stem_map`，供序列化器匹配 HTML 中的图片。
-
-### 4. 最终格式化（`output/formatter.py`）
-
-`format_paper()` 将章节树拼成最终 Markdown：
-
-- YAML frontmatter
-- 目录（可选）
-- 摘要 + 各 section 递归拼接
-- **后处理**：`reorder_figures_to_first_reference()` 会把每个图片块移动到**首次引用它的段落之后**。
-
----
-
-## 二、LaTeX 模式（TeX Source → Markdown）
-
-数据流：
+`ingestion/orchestrator.py::IngestionOrchestrator.run()` 编排：
 
 ```
-fetch TeX source → resolve includes → pypandoc convert → post-process → section extraction → format_paper()
+parse_query
+  → 并行 fetch HTML + API metadata (TaskGroup-safe; HTML 解析 offload 到线程)
+  → filter_sections
+  → setup_output_dir
+  → fetch TeX source + process_images_async (进程池 PDF→PNG)
+  → build_ir          (HTMLBuilder: ParsedArxivHtml → DocumentIR)        [to_thread]
+  → enrich_metadata   (API + HTML + TeX 机构信息合并)                    [to_thread]
+  → run_transforms    (PassPipeline)                                     [to_thread]
+  → normalize_abstract                                                     [to_thread]
+  → emit_markdown     (MarkdownEmitter)                                  [to_thread]
+  → build_result
+  → save_paper_yml    (offloaded disk write)
+  → structured_export (JsonEmitter, 可选)
+  → build_metadata
 ```
 
-### 1. 获取与预处理
+CPU 密集步骤通过 `asyncio.to_thread` 卸载，事件循环在 batch 模式下可推进其它论文。
 
-- `fetch_and_extract_tex_source()` 下载 `.tar.gz` 并解压。
-- `_resolve_latex_includes()`（`latex/parser.py`）递归内联所有 `\input{}`、`\include{}`。
-- `\lstinputlisting{}` 会被直接替换为 "`\n文件内容\n`"。
-- `_fix_orphan_ends()`：移除没有对应 `\begin` 的孤立 `\end{env}`。
+### IR 三层架构（`ir/`）
 
-### 2. 元数据提取
+1. **Builder**（`ir/builders/html.py::HTMLBuilder`）：消费 `ParsedArxivHtml`，产出 `DocumentIR`。封装所有 BeautifulSoup 逻辑，IR 层不接触 HTML。
+2. **Transform**（`ir/transforms/`）：`PassPipeline` 顺序执行（顺序敏感）：
+   `SectionFilterPass` → `NumberingPass` → `FigureReorderPass` → `AnchorPass`
+   - Pass **就地变异** `DocumentIR`（非纯函数；同一文档重跑会重复编号）。
+   - `AnchorPass` 处理 `doc.abstract` + `front_matter` + `sections`。
+   - `FigureReorderPass` 正则 `Fig(?:ure)?\.?\s*(\d+)`，覆盖 "Figure 3" / "Fig. 3" / "Fig 3"。
+3. **Emitter**（`ir/emitters/`）：
+   - `MarkdownEmitter`：`DocumentIR` → GitHub-flavored Markdown。覆盖全部 11 个 BlockUnion + 9 个 InlineUnion 成员；**未知类型 raise `EmitterError`**（不静默丢弃）。
+   - `JsonEmitter`：`paper.{meta,document,assets,bib,graph}.json`。
+   - `PlainTextEmitter`：token 计数 / 搜索用。
 
-在交给 Pandoc 之前先提取：
+### IR 数据模型
 
-- **Title / Authors**：优先用 **TexSoup** 做嵌套大括号解析，失败回退到基于大括号计数的手工 regex。
-- **Abstract**：正则匹配 `\begin{abstract}...\end{abstract}`，并做简单的 LaTeX 命令清理。
+Pydantic v2 discriminated union（`Annotated[A|B|..., Field(discriminator="type")]`），`extra="forbid"`。
+- `ir/document.py`：`DocumentIR` / `SectionIR` / `PaperMetadata` / `AuthorIR`
+- `ir/blocks.py`：`BlockUnion`（11 成员）
+- `ir/inlines.py`：`InlineUnion`（9 成员）
+- `ir/assets.py`：`AssetUnion`
 
-### 3. Pandoc 核心转换
+### 图片解析
 
-```python
-pypandoc.convert_text(
-    full_tex_content, "md", format="latex", extra_args=["--wrap=none"]
-)
+- `images/processor.py::process_images_async`：TeX 源 → `ProcessedImages`（PDF→PNG、EPS→PNG、栅格拷贝、裁白边）。进程池 + 信号量限流。
+- `ir/resolvers/images.py::ImageResolver`：IR 构建时的纯路径查找器，把 `<img src>` 映射到本地路径。多策略回退：exact → stem → index → path_map。`iter_assets()` 暴露资产清单。
+
+### Markdown 后处理
+
+IR 路径的 Markdown 经过 `output/markdown_utils.py::format_markdown_output`（锚点换行、表格标题、display-math 简化、bullet 去重、空行压缩）+ `output/markdown_postprocess.py::clean_markdown_output`（剥 `<a id>`、清数学 LaTeX）。数学简化在 `simplify_display_math`（同模块）。
+
+> 注：后处理仍是多遍（emitter 内 `_post_process` → `format_markdown_output` → `clean_markdown_output`）。收敛为单遍是后续优化项，需 golden-snapshot 校验。
+
+## 二、Legacy 管道（LaTeX + 本地模式）
+
+### LaTeX（`ingestion/latex.py`）
+
+```
+fetch_arxiv_metadata → fetch_and_extract_tex_source → process_images_async
+  → parse_latex_to_markdown (pypandoc + _postprocess_markdown_enhanced, offloaded to_thread)
+  → filter_sections → format_paper
 ```
 
-### 4. Markdown 后处理（`_postprocess_markdown()`）
+`latex/parser.py`（1989 行）封装 pandoc 调用 + 大量后处理（修公式标签、表格、图片、引用、移除 pandoc div）。元数据用 TexSoup 优先、regex 回退。`ParserNotAvailableError`（`ParseError` 子类）在 pandoc 缺失时抛出。
 
-Pandoc 输出需要大量修正，按顺序执行：
+### 本地 HTML（`ingestion/local_html.py`）
 
-| 后处理函数                               | 作用                                                                                                         |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `_fix_equation_labels()`                 | 将 `\label{eq:xxx}` 包裹的公式转换为 `<a id="eq:xxx"></a>` + `$$...$$`                                       |
-| `_fix_tables()`                          | 将 Pandoc 的 `::: mytabular` 自定义块转换为标准 Markdown pipe table                                          |
-| `_fix_figures()`                         | 将 `<figure id="fig:xxx">` 块转换为 `<a id="fig:xxx"></a>` + `![](./images/xxx.png)` + `> Figure N: caption` |
-| `_fix_markdown_images_with_attributes()` | 处理 Pandoc 属性语法 `![caption](path){#fig:xxx width="..."}`                                                |
-| `_fix_references()`                      | 简化引用格式，如 `[\[eq:tok\]](#eq:tok){reference-type="ref+label"}` → `[公式 eq:tok](#eq:tok)`              |
-| `_remove_pandoc_divs()`                  | 移除 `::: center` 等 Pandoc div 包装                                                                         |
-| `_replace_image_references()`            | 将图片路径统一替换为本地处理后的 `./images/xxx.png`                                                          |
+`parse_local_html` 自带解析器（与 `html/parser.py::parse_arxiv_html` 分离），走 `convert_fragment_to_markdown` + `format_paper`。**未走 IR**。
 
-### 5. 章节结构化
+### 本地归档（`ingestion/local.py`）
 
-`_extract_sections_from_latex()`：
+`extract_local_archive` 解压，按内容分派到 LaTeX 子流程或 HTML 子流程。
 
-- 从原始 LaTeX 中解析 `\section`、`\subsection`、`\subsubsection` 位置和层级。
-- 将 Pandoc 生成的 Markdown 按标题切分，与 LaTeX 中的章节一一对应。
-- 构建 `SectionNode` 树。
+## 三、共享输出层
 
-### 6. 格式化输出
+- `output/markdown_utils.py`：`format_markdown_output` / `format_token_count` / `create_sections_tree` / `count_sections` / `simplify_display_math`。IR 与 legacy 共用，leaf 模块（仅依赖 schemas + settings + re + tiktoken）。
+- `output/formatter.py::format_paper`：legacy 管道用，拼 summary + tree + content，含 `reorder_figures_to_first_reference`。
+- `output/layout.py`：输出目录命名（classic / paper-pipeline）。
+- `output/metadata.py` + `metadata_tex.py`：`paper.yml` 写入 + TeX 机构信息富化。
+- `output/structured_export.py` + `ir/_legacy_blocks.py`：legacy 结构化导出（LaTeX/local 用）；IR 路径用 `JsonEmitter`。两套并存，待统一。
 
-同样调用 `format_paper()`，也会经过 `reorder_figures_to_first_reference()` 的图片重排后处理。
+## 四、网络层
 
----
+- `network/http.py`：共享 `httpx.AsyncClient` 单例。`get_http_client()` 跨 event loop 重建；`close_http_client()` / `run_async(coro)` 在 runner 顶层优雅关闭连接池。
+- 重试退避：arXiv HTML、PDF、TeX source、arXiv API、Crossref、OpenAlex、abs-HTML 均走 `fetch_max_retries` + 指数退避（`retry_status_codes`）。
+- 代理：从 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量读取。
 
-## 三、两种模式的关键对比
+## 五、配置
 
-| 维度         | HTML 模式                                                | LaTeX 模式                        |
-| ------------ | -------------------------------------------------------- | --------------------------------- |
-| **核心引擎** | BeautifulSoup + 自定义序列化器                           | pypandoc (系统 Pandoc)            |
-| **数学公式** | MathML → 从 annotation 提取 LaTeX                        | 原生 LaTeX，保留 `$$` 块          |
-| **表格**     | 直接解析 HTML `<table>` 或 `span.ltx_tabular`            | Pandoc mytabular → pipe table     |
-| **图片映射** | 按 HTML `<img src>` 的 basename/stem 匹配 TeX 提取的图片 | 按 LaTeX 的 `\label`/路径直接映射 |
-| **代码块**   | `div.ltx_listing` 逐行或 base64 提取                     | `\lstinputlisting` 内联替换       |
-| **后处理量** | 较小（在序列化时即时处理）                               | 较大（修正 Pandoc 输出格式）      |
-| **可靠性**   | 对 ar5iv 的 HTML 结构依赖较强                            | 需要系统安装 Pandoc 和 poppler    |
-
----
-
-## 四、统一的最终后处理
-
-无论哪种模式，最终都会进入 `output/formatter.py` 的 `format_paper()`，其中包含一个统一的 Markdown 级后处理：
-
-**`reorder_figures_to_first_reference()`**
-
-- 将 Markdown 按 `\n\n` 切分为 blocks。
-- 识别连续的图片块（`<a id="figure-N"></a>` + `![...](...)` + `> Figure N: ...`）。
-- 找到每个图片首次被引用的段落（匹配 `Figure N`、`Fig. N`、`[Figure N](#...)` 等）。
-- **将图片块插入到引用段落之后**；未被引用的图片保留在原位置。
+合并优先级：**CLI > 环境变量（`ARXIV2MD_BETA__` 嵌套）> 用户 YAML（`ARXIV2MD_BETA_CONFIG_PATH` / `--config`）> 环境 profile > 默认 YAML**。`settings/loader.py` 手写 `deep_merge`（列表替换不合并）。

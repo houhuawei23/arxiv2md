@@ -62,11 +62,10 @@ arxiv2md-beta/
 │   │   ├── transforms/         # Numbering / Anchor / SectionFilter / FigureReorder Pass
 │   │   ├── resolvers/          # ImageResolver
 │   │   └── visitor.py          # IR 树 Visitor
-│   ├── html/                   # HTML 解析与 Markdown 转换（旧路径 + parser）
+│   ├── html/                   # HTML 解析与 Markdown 转换（legacy 路径 + parser）
 │   │   ├── parser.py           # BeautifulSoup 解析器
-│   │   ├── markdown.py         # 旧版 HTML→Markdown 转换器
-│   │   ├── sections.py         # section 过滤工具
-│   │   └── serializers/        # 实验性插件式序列化器
+│   │   ├── markdown.py         # 旧版 HTML→Markdown 转换器（legacy，仅本地 HTML 用）
+│   │   └── sections.py         # section 过滤工具
 │   ├── latex/                  # LaTeX 解析
 │   │   ├── parser.py           # Pandoc 包装与 Markdown 后处理
 │   │   ├── tex_source.py       # TeX 源下载与解压
@@ -74,13 +73,11 @@ arxiv2md-beta/
 │   │   └── structured.py       # LaTeX 结构化导出
 │   ├── ingestion/              # 入口编排
 │   │   ├── __init__.py         # 导出 ingest_paper
-│   │   ├── pipeline.py         # 旧公共 API（HTML 模式已委托给 IR Orchestrator）
-│   │   ├── orchestrator.py     # IR 管道编排器
-│   │   ├── ir_pipeline.py      # IR Builder / Transform / Emitter 工具函数
-│   │   ├── html.py             # 旧 HTML 流程
-│   │   ├── latex.py            # LaTeX 流程
-│   │   ├── local.py            # 本地 LaTeX 归档
-│   │   └── local_html.py       # 本地 HTML 文件
+│   │   ├── pipeline.py         # 公共 API（HTML 委托 IR Orchestrator，LaTeX 委托 ingest_paper_latex）
+│   │   ├── orchestrator.py     # IR 管道编排器（HTML 默认路径）
+│   │   ├── latex.py            # LaTeX 流程（legacy）
+│   │   ├── local.py            # 本地 LaTeX 归档（legacy）
+│   │   └── local_html.py       # 本地 HTML 文件（legacy）
 │   ├── citations/              # 引用解析（实验性，未完全接入主流程）
 │   │   ├── models.py
 │   │   ├── resolver.py
@@ -131,9 +128,10 @@ MarkdownEmitter / JsonEmitter → Markdown / JSON
 
 ### 旧路径
 
-- `ingestion/html.py`、`ingestion/latex.py`、`ingestion/local.py`、`html/markdown.py`、`output/formatter.py` 为旧版实现。
-- 公共 API `ingest_paper()` 已让 HTML 模式委托给 `IngestionOrchestrator`，LaTeX/本地归档仍走旧路径。
-- 长期目标：完成 IR 迁移后删除旧路径代码。
+- `ingestion/latex.py`、`ingestion/local.py`、`ingestion/local_html.py`、`html/markdown.py`、`output/formatter.py`、`output/structured_export.py`、`ir/_legacy_blocks.py` 为旧版实现（LaTeX 与本地模式仍使用）。
+- 公共 API `ingest_paper()` 让 HTML 模式委托给 `IngestionOrchestrator`，LaTeX 委托给 `ingest_paper_latex`。
+- 已删除：`ingestion/html.py`、`ingestion/ir_pipeline.py`、`html/serializers/`、`--legacy` CLI flag。
+- 长期目标：LaTeX/本地迁移到 IR 后删除剩余旧路径代码。详见 `docs/architecture.md`「已知技术债」。
 
 ## 构建和安装
 
