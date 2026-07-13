@@ -24,6 +24,7 @@ from arxiv2md_beta.ir import (
     NumberingPass,
     PassPipeline,
     SectionFilterPass,
+    split_ir_sections,
 )
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
@@ -387,7 +388,7 @@ class IngestionOrchestrator:
     def _emit_markdown(self) -> None:
         assert self._doc is not None
         emitter = MarkdownEmitter(linked_citations=self.params.linked_citations)
-        main_irs, ref_irs, app_irs = _split_ir_sections(
+        main_irs, ref_irs, app_irs = split_ir_sections(
             self._doc.sections,
             self._ingestion_cfg.reference_section_titles,
         )
@@ -535,36 +536,6 @@ class IngestionOrchestrator:
 
 
 # ── Helper functions (moved from convert.py) ─────────────────────────
-
-
-def _split_ir_sections(
-    sections: list,
-    reference_titles: list[str],
-) -> tuple[list, list, list]:
-    """Split IR sections into (main, references, appendix) for sidecar output."""
-    ref_set = {t.strip().lower() for t in reference_titles if t and t.strip()}
-    if not ref_set:
-        return list(sections), [], []
-
-    first_ref_idx: int | None = None
-    first_app_idx: int | None = None
-    for i, sec in enumerate(sections):
-        n = (sec.title or "").strip().lower()
-        if first_ref_idx is None and n in ref_set:
-            first_ref_idx = i
-        if first_app_idx is None and n.startswith("appendix"):
-            first_app_idx = i
-
-    if first_ref_idx is not None:
-        return (
-            sections[:first_ref_idx],
-            [sections[first_ref_idx]],
-            sections[first_ref_idx + 1 :],
-        )
-    if first_app_idx is not None:
-        return sections[:first_app_idx], [], sections[first_app_idx:]
-
-    return list(sections), [], []
 
 
 def _strip_abstract_heading(doc: DocumentIR) -> None:

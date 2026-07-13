@@ -6,6 +6,43 @@ from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms.base import IRPass
 
 
+def split_ir_sections(
+    sections: list[SectionIR],
+    reference_titles: list[str],
+) -> tuple[list[SectionIR], list[SectionIR], list[SectionIR]]:
+    """Split IR sections into ``(main, references, appendix)`` for sidecar output.
+
+    The first section whose title matches a reference-section title (e.g.
+    ``References``, ``Bibliography``) starts the references group; the first
+    section whose title starts with ``appendix`` starts the appendix group.
+    If a references section exists, it is its own group and everything after it
+    is treated as appendix. Returns copies/shares suitable for separate emission.
+    """
+    ref_set = {t.strip().lower() for t in reference_titles if t and t.strip()}
+    if not ref_set:
+        return list(sections), [], []
+
+    first_ref_idx: int | None = None
+    first_app_idx: int | None = None
+    for i, sec in enumerate(sections):
+        n = (sec.title or "").strip().lower()
+        if first_ref_idx is None and n in ref_set:
+            first_ref_idx = i
+        if first_app_idx is None and n.startswith("appendix"):
+            first_app_idx = i
+
+    if first_ref_idx is not None:
+        return (
+            sections[:first_ref_idx],
+            [sections[first_ref_idx]],
+            sections[first_ref_idx + 1 :],
+        )
+    if first_app_idx is not None:
+        return sections[:first_app_idx], [], sections[first_app_idx:]
+
+    return list(sections), [], []
+
+
 class SectionFilterPass(IRPass):
     """Filter sections by title or struct_id.
 
