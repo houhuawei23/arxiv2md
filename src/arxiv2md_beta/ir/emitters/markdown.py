@@ -137,6 +137,9 @@ class MarkdownEmitter(IREmitter):
             return f"{d}{self._emit_inlines(inline.inlines)}{c}"
         elif t == "link":
             text = self._emit_inlines(inline.inlines)
+            if inline.kind == "footnote":
+                # Markdown footnote reference: [^N] where N is the marker text.
+                return f"[^{text}]"
             if inline.kind == "citation" and inline.target_id:
                 if self.linked_citations:
                     return f"[{text}](#{inline.target_id})"

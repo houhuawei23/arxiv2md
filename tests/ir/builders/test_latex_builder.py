@@ -290,8 +290,9 @@ Hello world\footnote{This is a footnote.}.
         # The markdown output should contain the footnote marker
         emitter = MarkdownEmitter()
         md = emitter.emit(doc)
-        # Should have footnote marker like [^1] or superscript 1
-        assert "1" in md
+        # Regression A13: footnote marker must render as [^N] via a semantic
+        # LinkIR(kind="footnote"), not a baked-in TextIR.
+        assert "[^1]" in md
 
     def test_citation_converted_to_markers(self):
         r"""\cite{...} is converted to superscript citation markers."""
@@ -306,3 +307,29 @@ As shown previously \cite{smith2020,jones2021}.
         md = emitter.emit(doc)
         # Should contain citation markers
         assert "smith2020" in md or "1" in md
+
+class TestLaTeXBuilderRegressions:
+    """Regression tests for IR-builder fixes (A12/A14)."""
+
+    def test_smallcaps_renders_as_plain_text_not_italic(self):
+        r"""\textsc{...} must not be mislabelled as italic (*...*)."""
+        tex = r"\documentclass{article}\begin{document}\textsc{SmallCapsWord}\end{document}"
+        doc = LaTeXBuilder().build(tex, arxiv_id="t")
+        md = MarkdownEmitter().emit(doc)
+        assert "SmallCapsWord" in md
+        # Regression A12: previously emitted as *SmallCapsWord* (italic).
+        assert "*SmallCapsWord*" not in md
+
+    def test_unknown_pandoc_block_emits_comment_not_json(self):
+        """Regression A14: unknown Pandoc block must emit a comment marker,
+        not json.dumps(blk) which leaked raw JSON into the Markdown."""
+        builder = LaTeXBuilder()
+        raw = builder._block_from_pandoc({"t": "TotallyUnknownBlock"}, "sec", 0)
+        assert raw is not None
+        assert raw.type == "raw_block"
+        assert raw.format == "markdown"
+        assert raw.content.startswith("<!--")
+        assert "TotallyUnknownBlock" in raw.content
+        # No JSON garbage from json.dumps(blk).
+        assert "{" not in raw.content
+        assert '"' not in raw.content

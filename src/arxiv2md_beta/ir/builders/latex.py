@@ -350,9 +350,18 @@ class LaTeXBuilder(IRBuilder):
                             fn_ir_blocks.extend(fb_ir)
                         else:
                             fn_ir_blocks.append(fb_ir)
-                # Marker paragraph: [^N]
+                # Footnote reference marker. Use a semantic LinkIR(kind="footnote")
+                # so the MarkdownEmitter renders [^N] and other emitters can choose
+                # their own representation. Previously [^N] was baked into a TextIR,
+                # leaking Markdown syntax into the IR.
                 marker = ParagraphIR(
-                    inlines=[TextIR(text=f"[^{fn_num}]")],
+                    inlines=[
+                        LinkIR(
+                            kind="footnote",
+                            target_id=f"fn-{fn_num}",
+                            inlines=[TextIR(text=str(fn_num))],
+                        )
+                    ],
                     source=_SHARED_SOURCE,
                     section_id=section_id,
                     order_index=order,
@@ -491,10 +500,13 @@ class LaTeXBuilder(IRBuilder):
         elif t == "Null":
             return None
         else:
-            # Unknown block type: preserve as RawBlock
+            # Unknown block type: emit a Markdown comment marker instead of
+            # json.dumps(blk), which previously leaked raw JSON into the
+            # rendered Markdown. The comment keeps the block visible for
+            # debugging without corrupting the document.
             return RawBlockIR(
-                format="latex",
-                content=json.dumps(blk),
+                format="markdown",
+                content=f"<!-- unhandled pandoc block: {t} -->",
                 source=_SHARED_SOURCE,
                 section_id=section_id,
                 order_index=order,
@@ -549,7 +561,10 @@ class LaTeXBuilder(IRBuilder):
             return SubscriptIR(inlines=inner)
         elif t == "SmallCaps":
             inner = self._inlines_from_pandoc(c if isinstance(c, list) else [])
-            return EmphasisIR(style="italic", inlines=inner)
+            # SmallCaps has no Markdown equivalent; carry it as a neutral
+            # emphasis style (emitter renders it as plain text). Previously
+            # mislabelled as italic, corrupting the semantics.
+            return EmphasisIR(style="smallcaps", inlines=inner)
         elif t == "Code":
             c_list = c if isinstance(c, list) else [["", [], []], ""]
             text = str(c_list[1]) if len(c_list) > 1 else ""

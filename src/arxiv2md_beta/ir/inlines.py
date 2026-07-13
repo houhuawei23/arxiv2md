@@ -76,10 +76,14 @@ class RawInlineIR(InlineIR):
 
 
 class EmphasisIR(InlineIR):
-    """Styled text span: italic, bold, code, underline, strikethrough."""
+    """Styled text span: italic, bold, code, underline, strikethrough, smallcaps.
+
+    ``smallcaps`` has no native Markdown delimiter and is emitted as plain text
+    by the MarkdownEmitter (delimiters default to empty).
+    """
 
     type: Literal["emphasis"] = "emphasis"
-    style: Literal["italic", "bold", "code", "underline", "strikethrough"] = "italic"
+    style: Literal["italic", "bold", "code", "underline", "strikethrough", "smallcaps"] = "italic"
     inlines: list[InlineUnion] = Field(default_factory=list)
 
 
