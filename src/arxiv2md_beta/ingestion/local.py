@@ -19,7 +19,6 @@ from arxiv2md_beta.latex.tex_source import (
     TexSourceInfo,
     extract_local_archive,
 )
-from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
 
 
@@ -340,10 +339,8 @@ async def _ingest_html_archive(
     structured_output: str = "none",
     emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, Any]]:
-    """Process an HTML-based local archive."""
-    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
+    """Process an HTML-based local archive via the IR pipeline."""
     from arxiv2md_beta.html.parser import parse_arxiv_html
-    from arxiv2md_beta.html.sections import filter_sections
     from arxiv2md_beta.output.layout import create_paper_output_dir
 
     # Find main HTML file (look for index.html, abstract.html, or largest file)
@@ -358,7 +355,6 @@ async def _ingest_html_archive(
     # Use provided metadata if parsed is missing
     title = parsed.title or query.title or main_html_file.stem
     authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
-    abstract = parsed.abstract
 
     # Create paper-specific output directory
     paper_output_dir = create_paper_output_dir(
@@ -372,57 +368,108 @@ async def _ingest_html_archive(
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process images if enabled
+    # Copy images from extracted archive to output directory
     if not no_images:
-        # Copy images from extracted archive to output directory
         _copy_local_images(extracted_dir, images_dir)
 
-    # Filter sections
-    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
-    if remove_refs:
-        reference_titles = ("references", "bibliography")
-        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=reference_titles)
+    # Build an image resolver from the copied files: map each image's name and
+    # stem to its path relative to paper_output_dir (e.g. "images/foo.png").
+    image_stem_map: dict[str, Path] = {}
+    for img in images_dir.iterdir():
+        if img.is_file():
+            rel = Path(images_dir_name) / img.name
+            image_stem_map[img.name] = rel
+            image_stem_map[img.stem] = rel
 
-    # Check if abstract should be included
-    selected_lower = [s.lower() for s in sections]
-    if section_filter_mode == "exclude":
-        include_abstract = "abstract" not in selected_lower
-    else:
-        include_abstract = not sections or "abstract" in selected_lower
+    arxiv_id = query.archive_path.stem
 
-    # Populate markdown for sections
-    figure_counter: list[int] = [0]
-    abstract_md: str | None = None
-    if include_abstract:
-        if parsed.abstract_html:
-            abstract_md = convert_fragment_to_markdown(
-                parsed.abstract_html,
-                remove_inline_citations=remove_inline_citations,
-                figure_counter=figure_counter,
-                images_dir=images_dir,
-            )
-        elif abstract:
-            abstract_md = abstract
-
-    for section in filtered_sections:
-        _populate_section_markdown(
-            section,
-            remove_inline_citations=remove_inline_citations,
-            figure_counter=figure_counter,
-            images_dir=images_dir,
+    # Build IR via HTMLBuilder (consumes the same ParsedArxivHtml as the remote
+    # HTML orchestrator).
+    def _build_ir() -> DocumentIR:
+        from arxiv2md_beta.ir import (
+            AnchorPass,
+            FigureReorderPass,
+            HTMLBuilder,
+            NumberingPass,
+            PassPipeline,
+            SectionFilterPass,
         )
+        from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.settings import get_settings
 
-    # Format output
-    result = format_paper(
-        arxiv_id=query.archive_path.stem,
-        version=None,
-        title=title,
-        authors=authors,
-        abstract=abstract_md if include_abstract else None,
-        sections=filtered_sections,
-        include_toc=not remove_toc,
-        include_abstract_in_tree=abstract is not None,
-        split_for_reference=True,
+        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(
+            parsed, arxiv_id=arxiv_id
+        )
+        pp = PassPipeline()
+        pp.add(SectionFilterPass(mode=section_filter_mode, selected=sections))
+        if remove_refs:
+            pp.add(
+                SectionFilterPass(
+                    mode="exclude",
+                    selected=get_settings().ingestion.reference_section_titles,
+                )
+            )
+        pp.add(NumberingPass())
+        pp.add(FigureReorderPass())
+        pp.add(AnchorPass())
+        pp.run(doc)
+        return doc
+
+    try:
+        doc = await asyncio.to_thread(_build_ir)
+    except Exception as e:
+        raise LocalIngestionError(f"Failed to build IR: {e}") from e
+
+    # Emit markdown with reference/appendix split (mirrors IR orchestrator).
+    from arxiv2md_beta.ir import MarkdownEmitter, split_ir_sections
+    from arxiv2md_beta.output.markdown_utils import (
+        count_sections,
+        create_sections_tree,
+        format_markdown_output,
+        format_token_count,
+    )
+    from arxiv2md_beta.settings import get_settings
+
+    emitter = MarkdownEmitter()
+    main_irs, ref_irs, app_irs = split_ir_sections(
+        doc.sections, get_settings().ingestion.reference_section_titles
+    )
+    original_sections = doc.sections
+    doc.sections = main_irs
+    content = format_markdown_output(emitter.emit(doc))
+    doc.sections = ref_irs
+    ref_raw = emitter.emit(doc) if ref_irs else ""
+    content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
+    doc.sections = app_irs
+    app_raw = emitter.emit(doc) if app_irs else ""
+    content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
+    doc.sections = original_sections
+
+    m = doc.metadata
+    result_title = m.title or title
+    author_names = [a.name for a in m.authors] or (list(authors) if authors else [])
+    summary_lines: list[str] = []
+    if result_title:
+        summary_lines.append(f"# Title: {result_title}")
+    summary_lines.append(f"- ArXiv: {arxiv_id}")
+    if author_names:
+        summary_lines.append(f"- Authors: {', '.join(author_names)}")
+    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
+    tree_lines = ["Sections:"]
+    if m.abstract_text:
+        tree_lines.append("Abstract")
+    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
+    sections_tree = "\n".join(tree_lines)
+    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
+    token_estimate = format_token_count(sections_tree + "\n" + token_body)
+    if token_estimate:
+        summary_lines.append(f"- Estimated tokens: {token_estimate}")
+    result = IngestionResult(
+        summary="\n".join(summary_lines),
+        sections_tree=sections_tree,
+        content=content,
+        content_references=content_references,
+        content_appendix=content_appendix,
     )
 
     # Save metadata
@@ -430,9 +477,9 @@ async def _ingest_html_archive(
         from arxiv2md_beta.output.metadata import save_paper_metadata
 
         metadata_dict = {
-            "title": title,
-            "authors": authors,
-            "abstract": abstract,
+            "title": result_title,
+            "authors": author_names,
+            "abstract": m.abstract_text,
             "submission_date": query.submission_date,
             "source": source,
             "archive_path": str(query.archive_path),
@@ -443,77 +490,31 @@ async def _ingest_html_archive(
 
     structured_export: dict[str, Any] = {}
     try:
-        from arxiv2md_beta.output.structured_export import (
-            normalize_structured_mode,
-            write_structured_bundle,
-        )
+        from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter, normalize_structured_mode
 
         sm = normalize_structured_mode(structured_output)
         if sm != "none":
-            structured_export = write_structured_bundle(
-                paper_output_dir=paper_output_dir,
-                mode=sm,
-                emit_graph_csv=emit_graph_csv,
-                arxiv_id=query.archive_path.stem,
-                arxiv_version=None,
-                title=title,
-                authors=list(authors or []),
-                submission_date=query.submission_date,
-                html_url=None,
-                ar5iv_url=None,
-                parser="local",
-                sections=filtered_sections,
-                abstract_md=abstract_md if include_abstract else None,
-                abstract_html=parsed.abstract_html,
-                front_matter_html=parsed.front_matter_html,
-                include_abstract_parts=include_abstract,
-                image_map=None,
-                stem_to_image_path=None,
+            structured_export = JsonEmitter(mode=sm).write_bundle(
+                doc,
+                paper_output_dir,
                 images_subdir=images_dir_name,
+                emit_graph_csv=emit_graph_csv,
             )
     except Exception as e:
         logger.warning(f"Structured JSON export failed: {e}")
 
     metadata = {
-        "title": title,
-        "authors": authors,
-        "abstract": abstract,
+        "title": result_title,
+        "authors": author_names,
+        "abstract": m.abstract_text,
         "submission_date": query.submission_date,
         "paper_output_dir": paper_output_dir,
         "archive_path": str(query.archive_path),
-        "arxiv_id": query.archive_path.stem,
+        "arxiv_id": arxiv_id,
         "structured_export": structured_export,
     }
 
     return result, metadata
-
-
-def _populate_section_markdown(
-    section,
-    *,
-    remove_inline_citations: bool = False,
-    figure_counter: list[int] | None = None,
-    images_dir: Path | None = None,
-) -> None:
-    """Populate markdown for section and children."""
-    from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
-
-    if figure_counter is None:
-        figure_counter = [0]
-    if section.html:
-        section.markdown = convert_fragment_to_markdown(
-            section.html,
-            remove_inline_citations=remove_inline_citations,
-            figure_counter=figure_counter,
-            images_dir=images_dir,
-        )
-    for child in section.children:
-        _populate_section_markdown(
-            child,
-            remove_inline_citations=remove_inline_citations,
-            figure_counter=figure_counter,
-            images_dir=images_dir,
-        )
 
 
 def _find_main_html_file(extracted_dir: Path, html_files: list[Path]) -> Path:
