@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
@@ -124,19 +126,38 @@ def _merge_openalex_into_authors(
 
 
 async def fetch_abs_html(base_id: str) -> str | None:
-    """GET ``https://arxiv.org/abs/{base_id}`` (canonical abs page)."""
+    """GET ``https://arxiv.org/abs/{base_id}`` (canonical abs page).
+
+    Retries transient failures (5xx / 429 / network errors) with exponential
+    backoff, matching the other fetchers. Previously single-shot with a bare
+    ``except Exception`` that swallowed programming errors as network failures.
+    """
     s = get_settings()
     h = s.http
     url = f"https://arxiv.org/abs/{base_id}"
     headers = {"User-Agent": h.user_agent}
-    try:
-        client = get_http_client()
-        r = await client.get(url, headers=headers)
-        r.raise_for_status()
-        return r.text
-    except Exception as e:
-        logger.debug(f"abs HTML fetch failed for {base_id}: {e}")
-        return None
+    timeout = httpx.Timeout(h.fetch_timeout_s)
+    client = get_http_client()
+    last_exc: Exception | None = None
+    for attempt in range(h.fetch_max_retries + 1):
+        try:
+            r = await client.get(url, headers=headers, timeout=timeout)
+            if r.status_code == 404:
+                return None
+            if r.status_code in h.retry_status_codes:
+                last_exc = httpx.HTTPStatusError(
+                    f"HTTP {r.status_code} from abs page", request=r.request, response=r
+                )
+            else:
+                r.raise_for_status()
+                return r.text
+        except (httpx.HTTPStatusError, httpx.RequestError, OSError) as e:
+            last_exc = e
+        if attempt < h.fetch_max_retries:
+            await asyncio.sleep(h.fetch_backoff_s * (2**attempt))
+
+    logger.debug(f"abs HTML fetch exhausted retries for {base_id}: {last_exc}")
+    return None
 
 
 def _apply_abs_hints_to_authors(

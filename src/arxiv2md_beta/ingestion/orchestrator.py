@@ -101,11 +101,13 @@ class IngestionOrchestrator:
         self._filter_sections()
         self._setup_output_dir()
         await self._fetch_tex_and_images()
-        self._build_ir()
-        self._enrich_metadata()
-        self._run_transforms()
-        self._normalize_abstract()
-        self._emit_markdown()
+        # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
+        # offloaded so the event loop can advance other papers in batch mode.
+        await asyncio.to_thread(self._build_ir)
+        await asyncio.to_thread(self._enrich_metadata)
+        await asyncio.to_thread(self._run_transforms)
+        await asyncio.to_thread(self._normalize_abstract)
+        await asyncio.to_thread(self._emit_markdown)
         result = self._build_result()
         await self._save_paper_yml()
         structured_export = await self._structured_export()
@@ -155,7 +157,7 @@ class IngestionOrchestrator:
                 await html_task
             raise
         await html_task
-        self._parse_html()
+        await asyncio.to_thread(self._parse_html)
 
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
         if not self._display_author_names and self._parsed is not None:
@@ -486,7 +488,7 @@ class IngestionOrchestrator:
                     ]
             paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
             merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
-            save_paper_metadata(paper_meta, self._paper_output_dir)
+            await asyncio.to_thread(save_paper_metadata, paper_meta, self._paper_output_dir)
         except (OSError, ValueError, TypeError) as e:
             logger.warning(f"Failed to save paper.yml: {e}")
 
