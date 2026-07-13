@@ -160,6 +160,7 @@ async def _ingest_paper_latex_impl(
             NumberingPass,
             PassPipeline,
             SectionFilterPass,
+            SectionNumberingPass,
         )
         from arxiv2md_beta.ir.resolvers import ImageResolver
         from arxiv2md_beta.latex.parser import _resolve_latex_includes
@@ -190,6 +191,7 @@ async def _ingest_paper_latex_impl(
                 )
             )
         pp.add(NumberingPass())
+        pp.add(SectionNumberingPass())
         pp.add(FigureReorderPass())
         pp.add(AnchorPass())
         pp.run(doc)
@@ -212,19 +214,20 @@ async def _ingest_paper_latex_impl(
     )
 
     emitter = MarkdownEmitter()
-    main_irs, ref_irs, app_irs = split_ir_sections(
-        doc.sections, get_settings().ingestion.reference_section_titles
-    )
+    main_irs, ref_irs, app_irs = split_ir_sections(doc.sections, get_settings().ingestion.reference_section_titles)
     original_sections = doc.sections
+    original_abstract = doc.abstract
     doc.sections = main_irs
     content = format_markdown_output(emitter.emit(doc))
     doc.sections = ref_irs
+    doc.abstract = []  # suppress abstract in sidecars
     ref_raw = emitter.emit(doc) if ref_irs else ""
     content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
     doc.sections = app_irs
     app_raw = emitter.emit(doc) if app_irs else ""
     content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
     doc.sections = original_sections
+    doc.abstract = original_abstract
 
     # Build IngestionResult summary + tree from IR sections (duck-typed: SectionIR
     # exposes .title/.children just like SectionNode).

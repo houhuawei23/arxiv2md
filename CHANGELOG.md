@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-13
+
+### LaTeX IR Builder — 引用、编号、侧边栏对齐
+
+LaTeXBuilder（Pandoc JSON AST IR Builder）在远程 arXiv LaTeX 路径（`--parser latex`）上实现与 HTML 路径（ar5iv）一致的输出质量。本次修改完成了 Phase 5（LaTeX 迁移到 IR）的收尾工作，修复了 6 个真实论文 1706.03762（Attention Is All You Need）测试中发现的准确性问题。
+
+### Added
+
+- **`SectionNumberingPass`**（`ir/transforms/numbering.py`）：LaTeX section 的分层编号（`1`, `1.1`, …）。跳过 unnumbered（`\section*{}`）和 paragraph-level（`level>=5`）标题。结果直接写入 `SectionIR.title`，使 MarkdownEmitter 输出 `## 1 Introduction` 而非 `## Introduction`。
+- **`SectionIR.unnumbered`** 字段（`ir/document.py`）：标记 starred LaTeX sections，供 `SectionNumberingPass` 和 `split_ir_sections` 使用。
+
+### Fixed
+
+- **引用解析**：`\cite{key}` 和 `\citep{key}` 现在解析为引用编号（如 `[[13]]`），通过从 `\bibitem{key}` 顺序提取的 `_cite_key_to_num` 映射实现。多引用渲染为 `[[35], [2], [5]]`，与 ar5iv HTML 格式一致。
+- **标题层级**：Pandoc AST 层级偏移 +1（`\section=1` → IR level=2），现与 ar5iv（`\section` → `h2`）对齐。
+- **References 格式**：thebibliography Div 现在渲染为带 `- ` 前缀的无序列表，而非纯段落。参考文献部分标记为 `unnumbered`，避免 `## 8 References` 被主编号方案计数。
+- **Sidecar 分割**：`split_ir_sections` 现在在匹配参考文献/附录标题之前，会去除标题中的编号前缀（如 `"8 "`），使分割逻辑与 `SectionNumberingPass` 兼容。
+- **杂散 bibitem 标签**：pandoc 生成的 bibitem 标签段落（如 `10`，来自 `\bibitem[10]{key}`）会被过滤，不会在参考文献列表中渲染为杂散条目。
+- **杂散 `\cite` RawInline**：未被 pandoc 解析为 Cite 节点的原始 LaTeX 引用命令（如图注中）现在会被丢弃，而非泄漏到输出中。
+- **无扩展名图片**：`_resolve_image_src` 现在通过探测 `base_dir` 中的常见扩展名（`.png`、`.jpg` 等），为没有扩展名的 LaTeX `\includegraphics` 路径执行回退。
+- **插图前块丢弃**：在第一个 section 标题之前积累的块（权限声明、maketitle 产物）会被丢弃，避免产生空的 `## ` 标题。
+- **无标题文档**：没有 section 标题的极简文档（如 `\begin{document} Hello. \end{document}`）会获得一个包罗万象的无名 section，而非静默丢弃所有内容。
+- **Sidecar 中的摘要重复**：在发出 References/Appendix sidecar 之前临时清除 `doc.abstract`，防止摘要在每个 sidecar 文件中重复出现。
+
+### Changed
+
+- **LaTeXBuilder**：`_build_sections` 完全重写——基于栈的层次结构替换为扁平列表 + `_build_section_hierarchy` 后处理。参考文献提取从 `doc.bibliography` 移除；参考文献现在作为普通 `SectionIR` 包含在 `doc.sections` 中。
+- **_hooks.py**：导出列表包含 `SectionNumberingPass`。
+- **Ingestion pipeline**：`SectionNumberingPass` 在 LaTeX 路径中添加到 `PassPipeline`（位于 `NumberingPass` 之后，`FigureReorderPass` 之前）。
+
 ## [0.12.0] - 2026-06-24
 
 ### Performance

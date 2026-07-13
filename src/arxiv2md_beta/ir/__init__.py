@@ -83,6 +83,7 @@ from arxiv2md_beta.ir.transforms import (  # noqa: F401
     NumberingPass,
     PassPipeline,
     SectionFilterPass,
+    SectionNumberingPass,
     split_ir_sections,
 )
 from arxiv2md_beta.ir.visitor import (  # noqa: F401
@@ -149,6 +150,7 @@ __all__ = [
     "AnchorPass",
     "SectionFilterPass",
     "FigureReorderPass",
+    "SectionNumberingPass",
     "split_ir_sections",
     # Visitor
     "IRVisitor",

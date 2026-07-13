@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import deque
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -95,6 +96,12 @@ class LaTeXBuilder(IRBuilder):
         # Footnote state — flushed at block boundaries
         self._pending_footnotes: deque[tuple[int, list[dict]]] = deque()
         self._footnote_counter: int = 0
+        # base_dir for extension probing when an image src is extensionless
+        # (LaTeX ``\includegraphics`` allows omitting the extension).
+        self._base_dir: Path | None = None
+        # citation key → 1-based reference number, built from ``\bibitem{}``
+        # order in the source. Populated in ``build()``.
+        self._cite_key_to_num: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -125,6 +132,14 @@ class LaTeXBuilder(IRBuilder):
         abstract_text: str | None = kwargs.get("abstract")
 
         tex_content = cast("str", source)
+        base_dir = kwargs.get("base_dir")
+        self._base_dir = Path(base_dir) if base_dir else None
+
+        # Build citation key → reference-number map from ``\bibitem{key}`` order.
+        # The bibliography environment lists entries in reference order, so the
+        # Nth ``\bibitem`` is reference [N]. Used by the Cite handler to render
+        # ``\cite{key}`` as ``[N]`` instead of leaking the raw key.
+        self._cite_key_to_num = self._extract_bibitem_numbers(tex_content)
 
         # Convert LaTeX → Pandoc JSON AST
         try:
@@ -157,34 +172,13 @@ class LaTeXBuilder(IRBuilder):
         if not abstract_text:
             abstract_text = self._meta_to_text(meta.get("abstract"))
 
-        # Split blocks into abstract, body, bibliography
+        # Build sections from all blocks. The bibliography (a Pandoc Div with
+        # class ``thebibliography``) is turned into a "References" section by
+        # ``_build_sections`` so ``split_ir_sections`` can route it to the
+        # References.md sidecar — matching the HTML builder contract (where
+        # references stay in ``doc.sections`` rather than ``doc.bibliography``).
         abstract_blocks: list[BlockUnion] = []
-        body_blocks: list[dict] = list(blocks)
-        bib_blocks: list[BlockUnion] = []
-
-        # Simple heuristic: if there's a Header containing "References" or
-        # "Bibliography", split there.
-        bib_start_idx: int | None = None
-        for i, blk in enumerate(blocks):
-            if blk.get("t") == "Header":
-                h_inlines = self._inlines_from_pandoc(blk.get("c", [None, [], []])[2])
-                title_text = self._inlines_to_plain_text(h_inlines).lower().strip()
-                if title_text in (
-                    "references",
-                    "bibliography",
-                    "reference",
-                    "literature cited",
-                    "works cited",
-                ):
-                    bib_start_idx = i
-                    break
-
-        if bib_start_idx is not None:
-            body_blocks = list(blocks[:bib_start_idx])
-            bib_blocks = self._blocks_from_pandoc(blocks[bib_start_idx:], section_id="bib")
-
-        # Build sections from body blocks
-        sections = self._build_sections(body_blocks)
+        sections = self._build_sections(blocks)
 
         # Pandoc places \begin{abstract} content in meta.abstract (a string),
         # not in the block stream, so abstract_blocks stays empty. Synthesize a
@@ -204,7 +198,6 @@ class LaTeXBuilder(IRBuilder):
             ),
             abstract=abstract_blocks,
             sections=sections,
-            bibliography=bib_blocks,
         )
 
     # ------------------------------------------------------------------
@@ -255,23 +248,31 @@ class LaTeXBuilder(IRBuilder):
     # ------------------------------------------------------------------
 
     def _build_sections(self, blocks: list[dict]) -> list[SectionIR]:
-        """Split a flat list of Pandoc blocks into a :class:`SectionIR` tree."""
+        """Split a flat list of Pandoc blocks into a flat list of SectionIR.
+
+        Parent-child hierarchy is built separately by _build_section_hierarchy.
+        Sections are appended in document order; the bibliography Div
+        (thebibliography) is materialized as a top-level References section so
+        split_ir_sections can route it to the sidecar.
+        """
         sections: list[SectionIR] = []
-        stack: list[dict] = []  # stack of (level, SectionIR)
 
         current_blocks: list[dict] = []
-        current_level: int | None = None
-        current_header: tuple[int, str, str] | None = None  # level, title, anchor
+        current_header: tuple[int, str, str, bool] | None = None  # level, title, anchor, unnumbered
 
         def _flush_section() -> SectionIR | None:
             nonlocal current_blocks, current_header
-            if current_header is None and not current_blocks:
+            if current_header is None:
+                # No heading seen yet: skip — pre-header blocks such as
+                # permission notices and maketitle artifacts belong to
+                # front matter, not to a real section.
                 return None
-            level, title, anchor = current_header or (1, "", "")
+            level, title, anchor, unnumbered = current_header
             sec = SectionIR(
                 title=title or "",
                 level=level,
                 anchor=anchor if anchor else None,
+                unnumbered=unnumbered,
                 blocks=self._blocks_from_pandoc(current_blocks, section_id=""),
             )
             current_blocks = []
@@ -282,43 +283,109 @@ class LaTeXBuilder(IRBuilder):
             t = blk.get("t")
             if t == "Header":
                 c = blk.get("c", [1, ["", [], []], []])
-                level = c[0] if isinstance(c, list) and len(c) > 0 else 1
-                anchor = _pandoc_attrs_id(c[1]) if len(c) > 1 else ""
+                raw_level = c[0] if isinstance(c, list) and len(c) > 0 else 1
+                level = max(1, min(6, raw_level + 1))
+                attrs = c[1] if isinstance(c, list) and len(c) > 1 else ["", [], []]
+                anchor = _pandoc_attrs_id(attrs)
+                classes = _pandoc_attrs_classes(attrs)
                 inlines = self._inlines_from_pandoc(c[2]) if len(c) > 2 else []
                 title = self._inlines_to_plain_text(inlines)
+                unnumbered = "unnumbered" in classes
 
-                # Flush previous section
                 sec = _flush_section()
                 if sec:
-                    # Pop stack until we find a parent
-                    while stack and (current_level is None or stack[-1][0] >= current_level):
-                        stack.pop()
-                    if stack:
-                        stack[-1][1].children.append(sec)
-                    else:
-                        sections.append(sec)
+                    sections.append(sec)
+                else:
+                    # First heading: discard any pre-header blocks
+                    # (permission notices, maketitle artifacts).
+                    current_blocks = []
 
-                current_header = (level, title, anchor)
-                current_level = level
+                current_header = (level, title, anchor, unnumbered)
+            elif self._is_thebibliography_div(blk):
+                c_list = blk.get("c", [["", [], []], []])
+                inner = c_list[1] if isinstance(c_list, list) and len(c_list) > 1 else []
+                inner_blocks = inner if isinstance(inner, list) else []
+
+                # Build a bullet list from bibliography entries so the
+                # MarkdownEmitter renders ``- Author. Title. …`` instead of
+                # plain paragraphs — matching ar5iv HTML output.
+                # Pandoc sometimes emits a leading bibitem-label Para (e.g.
+                # ``10`` for ``\\bibitem[10]{key}``); skip those so the list
+                # doesn't start with a stray ``- 10``.
+                ref_items: list[list[BlockUnion]] = []
+                for ref_blk in inner_blocks:
+                    ref_ir = self._block_from_pandoc(ref_blk, section_id="", order=0)
+                    if ref_ir is None:
+                        continue
+                    # Skip empty paragraphs and bibitem label paragraphs
+                    # (text is only a number like "10").
+                    if isinstance(ref_ir, ParagraphIR):
+                        plain = self._inlines_to_plain_text(ref_ir.inlines).strip()
+                        if not plain or re.match(r"^\d+\s*$", plain):
+                            continue
+                    if isinstance(ref_ir, list):
+                        non_empty = [
+                            b
+                            for b in ref_ir
+                            if not (
+                                isinstance(b, ParagraphIR)
+                                and (
+                                    not b.inlines
+                                    or re.match(r"^\d+\s*$", self._inlines_to_plain_text(b.inlines).strip())
+                                )
+                            )
+                        ]
+                        if non_empty:
+                            ref_items.append(non_empty)
+                    else:
+                        ref_items.append([ref_ir])
+                ref_list = ListIR(
+                    ordered=False,
+                    items=ref_items,
+                    source=_SHARED_SOURCE,
+                    section_id="",
+                    order_index=0,
+                )
+
+                # Flush any pending section before creating References.
+                # This handles the common case where a section (e.g.
+                # Acknowledgements) appears between the last body heading
+                # and the bibliography.
+                sec = _flush_section()
+                if sec:
+                    sections.append(sec)
+
+                # Always create a "References" section with the bibliography
+                # list, regardless of whether a header preceded the Div.
+                sections.append(
+                    SectionIR(
+                        title="References",
+                        level=2,
+                        unnumbered=True,
+                        blocks=[ref_list],
+                    )
+                )
+                current_header = None
+                current_blocks = []
             else:
                 current_blocks.append(blk)
 
-        # Flush final section
         sec = _flush_section()
         if sec:
-            while stack:
-                stack.pop()
-            if stack:
-                stack[-1][1].children.append(sec)
-            else:
-                sections.append(sec)
+            sections.append(sec)
 
-        # If there are no sections but we have blocks, wrap in a default section
+        # When the document has no section headings, wrap orphan blocks
+        # (e.g. a minimal ``\begin{document} Hello. \end{document}``) into
+        # a single unnamed section so they are not silently dropped.
         if not sections and current_blocks:
-            # Shouldn't happen, but handle
-            pass
+            sections.append(
+                SectionIR(
+                    title="",
+                    level=1,
+                    blocks=self._blocks_from_pandoc(current_blocks, section_id=""),
+                )
+            )
 
-        # Build hierarchy from level information
         sections = self._build_section_hierarchy(sections)
         return sections
 
@@ -338,6 +405,57 @@ class LaTeXBuilder(IRBuilder):
             stack.append(sec)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Bibliography / citation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_bibitem_numbers(tex_content: str) -> dict[str, int]:
+        r"""Parse ``\\bibitem{key}`` commands and return a key to 1-based-number map.
+
+        The bibliography lists entries in citation-number order, so the
+        *N*-th ``\\bibitem`` in the source is reference [*N*].
+        """
+        pattern = re.compile(r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}")
+        mapping: dict[str, int] = {}
+        for idx, m in enumerate(pattern.finditer(tex_content), start=1):
+            key = m.group(1)
+            if key not in mapping:
+                mapping[key] = idx
+        return mapping
+
+    @staticmethod
+    def _is_thebibliography_div(blk: dict) -> bool:
+        """Return True if *blk* is a Pandoc Div with class ``thebibliography``."""
+        if blk.get("t") != "Div":
+            return False
+        c = blk.get("c", [])
+        if not isinstance(c, list) or len(c) == 0:
+            return False
+        attrs = c[0]
+        if isinstance(attrs, list) and len(attrs) > 1:
+            classes = attrs[1]
+            if isinstance(classes, list) and "thebibliography" in classes:
+                return True
+        return False
+
+    @staticmethod
+    def _is_reference_title(title: str) -> bool:
+        """Return True if *title* looks like a References / Bibliography heading."""
+        normalized = title.strip().lower().rstrip(".")
+        ref_titles = {"references", "bibliography", "reference", "works cited", "literature"}
+        return normalized in ref_titles
+
+    @staticmethod
+    def _is_raw_cite_command(content: str) -> bool:
+        """Return True if *content* is a raw LaTeX cite-like command."""
+        return bool(
+            re.match(
+                r"\\(cite|citet|citep|citetext|citealp|citealt|citep\*|citenum|citeyear|citeauthor|nocite)\*?\{",
+                content.strip(),
+            )
+        )
 
     def _blocks_from_pandoc(self, blocks: list[dict], section_id: str = "") -> list[BlockUnion]:
         """Convert a list of Pandoc block dicts to IR blocks."""
@@ -600,10 +718,15 @@ class LaTeXBuilder(IRBuilder):
             return MathIR(latex=latex, display=display)
         elif t == "RawInline":
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"
-            content = str(c[1]) if isinstance(c, list) and len(c) > 1 else ""
+            raw_content = str(c[1]) if isinstance(c, list) and len(c) > 1 else ""
+            # Drop stray \cite{...} / \citep{...} commands that pandoc
+            # didn't parse as Cite nodes (e.g. inside captions). Otherwise they
+            # leak raw LaTeX into the rendered output.
+            if fmt in ("latex", "tex") and self._is_raw_cite_command(raw_content):
+                return None
             return RawInlineIR(
                 format=cast("Literal['html', 'latex', 'markdown']", fmt if fmt in ("html", "latex") else "latex"),
-                content=content,
+                content=raw_content,
             )
         elif t == "Link":
             c_list = c if isinstance(c, list) else [["", [], []], [], ["", ""]]
@@ -655,24 +778,35 @@ class LaTeXBuilder(IRBuilder):
             c_list = c if isinstance(c, list) else [[], []]
             inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             citations = c_list[0] if len(c_list) > 0 else []
-            # Extract citation IDs and build superscript markers
-            citation_ids: list[str] = []
+            # Resolve citationId keys to reference numbers via the bibitem map.
+            ref_nums: list[str] = []
             if isinstance(citations, list):
                 for cit in citations:
                     if isinstance(cit, dict):
-                        cid = cit.get("citationId", "")
-                        if cid:
-                            citation_ids.append(str(cid))
-            if inner:
-                # Preserve surrounding text, append citation markers
-                if citation_ids:
-                    markers = "[" + ", ".join(citation_ids) + "]"
-                    return inner + [SuperscriptIR(inlines=[TextIR(text=markers)])]
-                return inner
-            if citation_ids:
-                markers = "[" + ", ".join(citation_ids) + "]"
-                return SuperscriptIR(inlines=[TextIR(text=markers)])
-            return None
+                        cid = str(cit.get("citationId", ""))
+                        if cid and cid in self._cite_key_to_num:
+                            ref_nums.append(str(self._cite_key_to_num[cid]))
+                        elif cid:
+                            ref_nums.append(cid)  # fallback: keep key
+            if ref_nums:
+                # Build inlines with individual [N] markers, one per ref.
+                # MarkdownEmitter wraps LinkIR(kind="citation") as [{inlines}]
+                # when target_id is set, producing [[35], [2], [5]] to match
+                # ar5iv HTML format.
+                marker_inlines: list[InlineUnion] = []
+                for idx, num in enumerate(ref_nums):
+                    if idx > 0:
+                        marker_inlines.append(TextIR(text=", "))
+                    marker_inlines.append(TextIR(text=f"[{num}]"))
+                cite_link = LinkIR(
+                    kind="citation",
+                    target_id=",".join(ref_nums),
+                    inlines=marker_inlines,
+                )
+                if inner:
+                    return inner + [cite_link]
+                return cite_link
+            return inner if inner else None
         elif t == "Note":
             # Footnote: Pandoc Note contains [Blocks]
             note_blocks = c if isinstance(c, list) else []
@@ -840,9 +974,7 @@ class LaTeXBuilder(IRBuilder):
                     for b in blocks:
                         if isinstance(b, dict) and b.get("t") in ("Plain", "Para"):
                             cell_inlines.extend(
-                                self._inlines_from_pandoc(
-                                    b.get("c", []) if isinstance(b.get("c"), list) else []
-                                )
+                                self._inlines_from_pandoc(b.get("c", []) if isinstance(b.get("c"), list) else [])
                             )
                 cells.append(cell_inlines)
         return cells if cells else None
@@ -852,8 +984,22 @@ class LaTeXBuilder(IRBuilder):
     # ------------------------------------------------------------------
 
     def _resolve_image_src(self, src: str) -> str:
-        """Resolve a LaTeX image path to a local processed image path."""
-        return self._image_resolver.resolve(src)
+        r"""Resolve a LaTeX image path to a local processed image path.
+
+        When the resolver returns *src* unchanged (no match in the image map)
+        and *src* has no extension, probe the *base_dir* for a file matching
+        the stem.  LaTeX ``\\includegraphics`` omits the extension by convention.
+        """
+        resolved = self._image_resolver.resolve(src)
+        if resolved != src:
+            return resolved
+        # No match: try extension probing when src has no suffix.
+        if "." not in src.rsplit("/", 1)[-1] and self._base_dir:
+            for ext in (".png", ".jpg", ".jpeg", ".pdf", ".svg", ".eps"):
+                candidate = self._base_dir / f"{src}{ext}"
+                if candidate.is_file():
+                    return str(candidate)
+        return src
 
     # ------------------------------------------------------------------
     # Utility

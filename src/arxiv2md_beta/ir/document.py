@@ -31,6 +31,10 @@ class SectionIR(IRNode):
     level: int = Field(ge=1, le=6)
     anchor: str | None = None
     struct_id: str | None = None  # e.g. "sec_0", "sec_0_1"
+    # True for starred LaTeX sections (``\section*{}``) and other unnumbered
+    # headings; the SectionNumberingPass skips them. HTML sections never set it
+    # (ar5iv bakes the number into the title text instead).
+    unnumbered: bool = False
     blocks: list[BlockUnion] = Field(default_factory=list)
     children: list[SectionIR] = Field(default_factory=list)
 

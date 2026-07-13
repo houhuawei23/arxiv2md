@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+import re
+
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms.base import IRPass
+
+# Matches a section-number prefix added by SectionNumberingPass, e.g.
+# ``"8 "``, ``"3.1 "``, ``"A "``.  Used by ``split_ir_sections`` to
+# recover the original title for reference / appendix detection.
+_NUMBER_PREFIX_RE = re.compile(r"^[\d.]+\s+")
+
+
+def _title_without_number(title: str) -> str:
+    """Return *title* with a section-number prefix stripped, if present."""
+    return _NUMBER_PREFIX_RE.sub("", title.strip()).strip()
 
 
 def split_ir_sections(
@@ -12,11 +24,12 @@ def split_ir_sections(
 ) -> tuple[list[SectionIR], list[SectionIR], list[SectionIR]]:
     """Split IR sections into ``(main, references, appendix)`` for sidecar output.
 
-    The first section whose title matches a reference-section title (e.g.
+    The first section whose title (after stripping any numbering prefix like
+    ``"8 "`` or ``"A "``) matches a reference-section title (e.g.
     ``References``, ``Bibliography``) starts the references group; the first
-    section whose title starts with ``appendix`` starts the appendix group.
-    If a references section exists, it is its own group and everything after it
-    is treated as appendix. Returns copies/shares suitable for separate emission.
+    section whose stripped title starts with ``appendix`` starts the appendix
+    group.  If a references section exists, it is its own group and everything
+    after it is treated as appendix.
     """
     ref_set = {t.strip().lower() for t in reference_titles if t and t.strip()}
     if not ref_set:
@@ -25,7 +38,7 @@ def split_ir_sections(
     first_ref_idx: int | None = None
     first_app_idx: int | None = None
     for i, sec in enumerate(sections):
-        n = (sec.title or "").strip().lower()
+        n = _title_without_number(sec.title or "").lower()
         if first_ref_idx is None and n in ref_set:
             first_ref_idx = i
         if first_app_idx is None and n.startswith("appendix"):
