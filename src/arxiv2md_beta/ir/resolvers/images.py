@@ -6,6 +6,7 @@ Supports multi-strategy fallback:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,18 @@ class ImageResolver:
         result = str(resolved) if resolved else src
         self._cache[src] = result
         return result
+
+    def iter_assets(self) -> Iterator[tuple[str | int, Path]]:
+        """Yield ``(key, path)`` for every resolved asset.
+
+        Keys are the ``str`` stems from the stem map (yielded first) and the
+        ``int`` indices from the index map (yielded in ascending order). Exposes
+        the resolver's asset inventory so callers do not reach into the private
+        ``_stem_map`` / ``_index_map`` attributes.
+        """
+        yield from self._stem_map.items()
+        for idx in sorted(self._index_map):
+            yield idx, self._index_map[idx]
 
     # ── Internal strategies ────────────────────────────────────────────
 

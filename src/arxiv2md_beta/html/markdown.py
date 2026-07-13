@@ -27,12 +27,6 @@ _MATRIX_RE = re.compile(
     r"matrix\s*\(\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*\)",
     re.I,
 )
-_RAISEBOX_RE = re.compile(
-    r"\\raisebox\{[^}]+\}\{\\hbox to 0\.0\s*pt\{\\hss\\vbox to 0\.0\s*pt\{\\hbox\{\$([^$]*)\$\}\\vss\}\}\}",
-    re.DOTALL,
-)
-_TRAIL_EQN_RE = re.compile(r"\$\s*\((\d+)\)\s*$")
-_UNESCAPED_DOLLAR_RE = re.compile(r"(?<!\\)\$")
 _LATEX_COMMENT_RE = re.compile(r"(?<!\\)%")
 _LATEX_UNDERSCORE_RE = re.compile(r"\\([_^])")
 _LATEX_BRACKET_RE = re.compile(r"\\(?=[\[\]])")
@@ -55,24 +49,10 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def _simplify_display_math(content: str) -> str:
-    r"""Simplify display math for markdown compatibility: remove $ and complex layout that break parsing.
+    """Legacy shim; implementation moved to :mod:`arxiv2md_beta.output.markdown_utils`."""
+    from arxiv2md_beta.output.markdown_utils import simplify_display_math
 
-    ar5iv annotations can contain $ (e.g. \\hbox{$...$}) and \\raisebox/hbox/vbox that cause:
-    - Markdown parsers to treat inner $ as inline math delimiters
-    - KaTeX/MathJax to fail on complex layout
-    We simplify by removing $ and replacing complex layout with semantic content.
-    """
-    # 1. Simplify \raisebox{\hbox to 0.0pt{\hss\vbox to 0.0pt{\hbox{$X$}\vss}}} -> X
-    #    ar5iv converts \ensuremath to \hbox{$...$}; in display math we don't need the $
-    #    Allow \s* for line breaks (HTML annotation may have "0.0%\npt")
-    content = _RAISEBOX_RE.sub(r"\1", content)
-    # 2. Remove trailing $ before equation number: "$ (1)" -> "(1)"
-    content = _TRAIL_EQN_RE.sub(r"(\1)", content)
-    # 3. Replace $} with } (fix \hbox{...$} without breaking brace structure)
-    content = content.replace("$}", "}")
-    # 4. Remove all remaining unescaped $ (they break markdown $$ block parsing)
-    content = _UNESCAPED_DOLLAR_RE.sub("", content)
-    return content
+    return simplify_display_math(content)
 
 
 def _sanitize_display_math(content: str) -> str:

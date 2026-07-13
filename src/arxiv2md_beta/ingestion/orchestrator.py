@@ -38,13 +38,13 @@ from arxiv2md_beta.network.arxiv_api import (
     fill_arxiv_metadata_defaults,
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
-from arxiv2md_beta.output.formatter import (
-    _create_sections_tree,
-    _format_markdown_output,
-    _format_token_count,
-    count_sections,
-)
 from arxiv2md_beta.output.layout import create_paper_output_dir
+from arxiv2md_beta.output.markdown_utils import (
+    count_sections,
+    create_sections_tree,
+    format_markdown_output,
+    format_token_count,
+)
 from arxiv2md_beta.output.metadata import save_paper_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult
@@ -282,28 +282,20 @@ class IngestionOrchestrator:
         from arxiv2md_beta.ir.assets import ImageAsset, SvgAsset
 
         seen_paths: set[str] = set()
-        # Stem map assets
-        for stem, path in self._image_resolver._stem_map.items():
+        for key, path in self._image_resolver.iter_assets():
             try:
                 rel = str(path.relative_to(self._paper_output_dir))
             except ValueError:
                 rel = path.as_posix()
-            if rel not in seen_paths:
-                seen_paths.add(rel)
-                ext = path.suffix.lower()
-                asset_cls = SvgAsset if ext == ".svg" else ImageAsset
-                self._doc.assets.append(asset_cls(path=rel, tex_stem=stem))
-        # Index map assets
-        for idx, path in sorted(self._image_resolver._index_map.items()):
-            try:
-                rel = str(path.relative_to(self._paper_output_dir))
-            except ValueError:
-                rel = path.as_posix()
-            if rel not in seen_paths:
-                seen_paths.add(rel)
-                ext = path.suffix.lower()
-                asset_cls = SvgAsset if ext == ".svg" else ImageAsset
-                self._doc.assets.append(asset_cls(path=rel, figure_index=idx))
+            if rel in seen_paths:
+                continue
+            seen_paths.add(rel)
+            ext = path.suffix.lower()
+            asset_cls = SvgAsset if ext == ".svg" else ImageAsset
+            if isinstance(key, int):
+                self._doc.assets.append(asset_cls(path=rel, figure_index=key))
+            else:
+                self._doc.assets.append(asset_cls(path=rel, tex_stem=key))
 
     # ── Step 8: Enrich metadata ────────────────────────────────────────
 
@@ -403,18 +395,18 @@ class IngestionOrchestrator:
 
         # Main content
         self._doc.sections = main_irs
-        self._content = _format_markdown_output(emitter.emit(self._doc))
+        self._content = format_markdown_output(emitter.emit(self._doc))
 
         # References sidecar (no abstract)
         self._doc.abstract = []
         self._doc.sections = ref_irs
         ref_raw = emitter.emit(self._doc) if ref_irs else ""
-        self._content_references = _format_markdown_output(ref_raw) if ref_raw.strip() else None
+        self._content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
 
         # Appendix sidecar (no abstract)
         self._doc.sections = app_irs
         app_raw = emitter.emit(self._doc) if app_irs else ""
-        self._content_appendix = _format_markdown_output(app_raw) if app_raw.strip() else None
+        self._content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
 
         # Restore
         self._doc.sections = original_sections
@@ -446,7 +438,7 @@ class IngestionOrchestrator:
                     summary_lines.append(f"  - {name}")
         summary_lines.append(f"- Sections: {count_sections(self._filtered_sections)}")
         token_body = "\n".join(x for x in (self._content, self._content_references, self._content_appendix or "") if x)
-        token_estimate = _format_token_count(_create_sections_tree(self._filtered_sections) + "\n" + token_body)
+        token_estimate = format_token_count(create_sections_tree(self._filtered_sections) + "\n" + token_body)
         if token_estimate:
             summary_lines.append(f"- Estimated tokens: {token_estimate}")
         summary = "\n".join(summary_lines)
@@ -455,7 +447,7 @@ class IngestionOrchestrator:
         tree_lines = ["Sections:"]
         if self._include_abstract and self._parsed.abstract:
             tree_lines.append("Abstract")
-        tree_lines.append(_create_sections_tree(self._filtered_sections))
+        tree_lines.append(create_sections_tree(self._filtered_sections))
         sections_tree = "\n".join(tree_lines)
 
         return IngestionResult(
