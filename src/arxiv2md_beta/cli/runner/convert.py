@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from arxiv2md_beta.cli.helpers import collect_sections
@@ -45,7 +44,9 @@ async def run_convert_flow(params: ConvertParams) -> Path:
 
 def run_convert_sync(params: ConvertParams) -> None:
     """Run convert flow in a fresh event loop (Typer entry)."""
-    asyncio.run(run_convert_flow(params))
+    from arxiv2md_beta.network.http import run_async
+
+    run_async(run_convert_flow(params))
 
 
 async def _process_arxiv_paper(params: ConvertParams) -> Path:

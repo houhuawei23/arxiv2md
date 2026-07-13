@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
+from typing import TypeVar
 
 import httpx
 
 from arxiv2md_beta.settings import get_settings
 
 _client: httpx.AsyncClient | None = None
+# Event loop the shared client was created on. If a later caller runs on a
+# different loop (e.g. a second asyncio.run in the same process, or a test),
+# we rebuild so the client is never bound to a dead loop.
+_client_loop: asyncio.AbstractEventLoop | None = None
+
+T = TypeVar("T")
 
 
 def _build_client(timeout_s: float | None = None) -> httpx.AsyncClient:
@@ -39,13 +47,51 @@ def _build_client(timeout_s: float | None = None) -> httpx.AsyncClient:
 def get_http_client() -> httpx.AsyncClient:
     """Return the module-level shared AsyncClient, creating it if needed.
 
-    The caller should not close this client directly; use ``async_http_client``
-    for scoped management or let the module lifecycle handle cleanup.
+    Rebuilds when the client is closed or was created on a different event loop
+    (so re-entering ``asyncio.run`` in the same process does not raise
+    "RuntimeError: ... attached to a different loop").
     """
-    global _client
-    if _client is None or _client.is_closed:
+    global _client, _client_loop
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+    stale = _client_loop is not None and _client_loop is not current_loop
+    if _client is None or _client.is_closed or stale:
         _client = _build_client()
+        _client_loop = current_loop
     return _client
+
+
+async def close_http_client() -> None:
+    """Gracefully close the shared AsyncClient if open. Safe to call repeatedly.
+
+    Runners should call this at the end of their async flow (via
+    :func:`run_async`) so connections are released and the next ``asyncio.run``
+    starts from a clean state.
+    """
+    global _client, _client_loop
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+    _client_loop = None
+
+
+async def _await_then_close(coro: Awaitable[T]) -> T:
+    try:
+        return await coro
+    finally:
+        await close_http_client()
+
+
+def run_async(coro: Awaitable[T]) -> T:
+    """Run *coro* in a fresh event loop, closing the shared HTTP client after.
+
+    Wraps ``asyncio.run`` so the shared client's connection pool is gracefully
+    shut down on the same loop that created it, instead of leaking until the
+    process exits.
+    """
+    return asyncio.run(_await_then_close(coro))
 
 
 @asynccontextmanager

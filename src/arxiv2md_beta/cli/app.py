@@ -616,8 +616,6 @@ def bibtex_cmd(
     ),
 ) -> None:
     """Extract bibliography and export as BibTeX."""
-    import asyncio
-
     from arxiv2md_beta.citations import (
         export_bibtex,
         parse_citations_from_html,
@@ -677,7 +675,9 @@ def bibtex_cmd(
             typer.echo(bibtex)
 
     try:
-        asyncio.run(_run())
+        from arxiv2md_beta.network.http import run_async
+
+        run_async(_run())
     except BaseException as exc:
         if isinstance(exc, typer.Exit | KeyboardInterrupt):
             raise

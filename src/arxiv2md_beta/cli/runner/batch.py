@@ -26,7 +26,9 @@ def run_batch_sync(
     delay_seconds: float,
 ) -> list[tuple[str, str | None, str | None]]:
     """Run batch convert in a fresh event loop."""
-    return asyncio.run(
+    from arxiv2md_beta.network.http import run_async
+
+    return run_async(
         run_batch_flow(
             lines,
             params_template=params_template,

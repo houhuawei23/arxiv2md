@@ -242,3 +242,42 @@ class TestCacheHelpers:
 
         # Should not be fresh if file doesn't exist
         assert _is_cache_fresh(tmp_path / "nonexistent.html") is False
+
+
+def test_close_http_client_resets_singleton():
+    """close_http_client must aclose the shared client and reset the singleton."""
+    import asyncio
+
+    from arxiv2md_beta.network import http as httpmod
+
+    async def _check():
+        c1 = httpmod.get_http_client()
+        assert not c1.is_closed
+        await httpmod.close_http_client()
+        # After close, get_http_client must build a fresh client.
+        c2 = httpmod.get_http_client()
+        assert c2 is not c1
+        assert not c2.is_closed
+        await httpmod.close_http_client()
+
+    asyncio.run(_check())
+
+
+def test_get_http_client_rebuilds_across_loops():
+    """Regression: a second asyncio.run must not reuse a client bound to a dead loop."""
+    import asyncio
+
+    from arxiv2md_beta.network import http as httpmod
+
+    async def _grab():
+        return httpmod.get_http_client()
+
+    c1 = asyncio.run(_grab())
+    # c1 is now bound to a closed loop. A second asyncio.run must rebuild.
+    c2 = asyncio.run(_grab())
+    assert c2 is not c1, "shared HTTP client was not rebuilt across event loops"
+
+    async def _cleanup():
+        await httpmod.close_http_client()
+
+    asyncio.run(_cleanup())

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from arxiv2md_beta.cli.params import ImagesParams
 from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.images.extract import extract_arxiv_images
@@ -50,4 +48,6 @@ async def run_images_flow(params: ImagesParams) -> None:
 
 def run_images_sync(params: ImagesParams) -> None:
     """Run images-only flow in a fresh event loop (Typer entry)."""
-    asyncio.run(run_images_flow(params))
+    from arxiv2md_beta.network.http import run_async
+
+    run_async(run_images_flow(params))

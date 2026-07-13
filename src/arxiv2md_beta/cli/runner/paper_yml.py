@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from arxiv2md_beta.cli.params import PaperYmlParams
@@ -65,4 +64,6 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
 
 def run_paper_yml_sync(params: PaperYmlParams) -> Path:
     """Run paper-yml flow in a fresh event loop."""
-    return asyncio.run(run_paper_yml_flow(params))
+    from arxiv2md_beta.network.http import run_async
+
+    return run_async(run_paper_yml_flow(params))
