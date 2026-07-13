@@ -333,3 +333,39 @@ class TestLaTeXBuilderRegressions:
         # No JSON garbage from json.dumps(blk).
         assert "{" not in raw.content
         assert '"' not in raw.content
+
+
+class TestLaTeXBuilderContentCoverage:
+    """Regression: IR LaTeX path must not silently drop abstract or table content.
+
+    Previously LaTeXBuilder put the abstract only in metadata.abstract_text
+    (a string the MarkdownEmitter never reads) and failed to extract booktabs
+    table cells (pandoc emits Row/Cell/TableBody as bare lists, not {t,c}
+    dicts), so both vanished from IR output. Verified via a local legacy-vs-IR
+    content-diff on tests/fixtures/sample_paper.tex.
+    """
+
+    def test_abstract_emitted_in_ir_markdown(self):
+        from pathlib import Path
+
+        from arxiv2md_beta.ir import LaTeXBuilder, MarkdownEmitter
+
+        tex = (Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "sample_paper.tex").read_text()
+        doc = LaTeXBuilder().build(tex, arxiv_id="s")
+        md = MarkdownEmitter().emit(doc)
+        assert "## Abstract" in md
+        assert "sample abstract for testing" in md
+
+    def test_table_cells_emitted_in_ir_markdown(self):
+        from pathlib import Path
+
+        from arxiv2md_beta.ir import LaTeXBuilder, MarkdownEmitter
+
+        tex = (Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "sample_paper.tex").read_text()
+        doc = LaTeXBuilder().build(tex, arxiv_id="s")
+        md = MarkdownEmitter().emit(doc)
+        # Header + body cells must appear as a pipe table, not be dropped.
+        assert "Method" in md and "Accuracy" in md
+        assert "0.95" in md and "0.92" in md
+        assert "|" in md  # pipe table rendered
+        assert "Comparison of methods" in md  # caption

@@ -47,6 +47,22 @@ def _pandoc_attrs_id(attrs: list[Any]) -> str:
     return ""
 
 
+def _pandoc_node_c(node: Any) -> list[Any]:
+    """Return the content list of a Pandoc node, format-agnostic.
+
+    Pandoc JSON comes in two flavors: ``{"t": "...", "c": [...]}`` (typed dict)
+    and a bare list ``[...]`` (compact form emitted by some pandoc versions for
+    Table internals). Return ``c`` for dicts and the list itself for lists, so
+    callers can index positionally without branching on format.
+    """
+    if isinstance(node, dict):
+        c = node.get("c")
+        return c if isinstance(c, list) else []
+    if isinstance(node, list):
+        return node
+    return []
+
+
 def _pandoc_attrs_classes(attrs: list[Any]) -> list[str]:
     """Extract CSS classes from Pandoc Attr."""
     if isinstance(attrs, list) and len(attrs) > 1 and isinstance(attrs[1], list):
@@ -169,6 +185,13 @@ class LaTeXBuilder(IRBuilder):
 
         # Build sections from body blocks
         sections = self._build_sections(body_blocks)
+
+        # Pandoc places \begin{abstract} content in meta.abstract (a string),
+        # not in the block stream, so abstract_blocks stays empty. Synthesize a
+        # paragraph so the MarkdownEmitter (which walks doc.abstract) emits it —
+        # otherwise the abstract is silently dropped from IR output.
+        if not abstract_blocks and abstract_text:
+            abstract_blocks = [ParagraphIR(inlines=[TextIR(text=abstract_text)])]
 
         author_irs = [AuthorIR(name=a) for a in authors]
         return DocumentIR(
@@ -742,32 +765,41 @@ class LaTeXBuilder(IRBuilder):
                             self._inlines_from_pandoc(cb.get("c", []) if isinstance(cb.get("c"), list) else [])
                         )
 
-        # Head: [head_attr, [head_rows]]
+        # Body: list of table bodies, each has [body_attr, row_count, colspecs, [rows]]
+        # Pandoc emits TableBody either as {"t":"TableBody","c":[...]} (older) or as
+        # a bare list [...] (newer compact JSON) — handle both.
+        rows: list[list[list[InlineUnion]]] = []
+
+        # Head: [head_attr, [head_rows]] (dict or bare-list form).
+        # TableIR.headers is a SINGLE row of cells (list[list[InlineUnion]]);
+        # the first head row becomes headers, any extra head rows fold into rows.
         headers: list[list[InlineUnion]] = []
-        head_rows: list = []
-        if isinstance(head, list) and len(head) >= 2 and isinstance(head[1], list):
-            head_rows = head[1]
+        head_c = _pandoc_node_c(head)
+        head_rows = head_c[1] if len(head_c) >= 2 and isinstance(head_c[1], list) else []
         for row_data in head_rows:
             row_cells = self._extract_table_row_cells(row_data)
-            if row_cells:
-                headers.append(row_cells)  # type: ignore[arg-type]
+            if not row_cells:
+                continue
+            if not headers:
+                headers = row_cells
+            else:
+                rows.append(row_cells)
 
-        # Body: list of table bodies, each has [body_attr, row_count, colspecs, [rows]]
-        rows: list[list[list[InlineUnion]]] = []
         if isinstance(body, list):
             for body_part in body:
-                if isinstance(body_part, dict) and body_part.get("t") == "TableBody":
-                    body_c = body_part.get("c", [])
-                    body_rows = body_c[3] if isinstance(body_c, list) and len(body_c) >= 4 else []
-                    if isinstance(body_rows, list):
-                        for row_data in body_rows:
-                            row_cells = self._extract_table_row_cells(row_data)
-                            if row_cells:
-                                rows.append(row_cells)
+                body_c = _pandoc_node_c(body_part)
+                body_rows = body_c[3] if len(body_c) >= 4 else []
+                if isinstance(body_rows, list):
+                    for row_data in body_rows:
+                        row_cells = self._extract_table_row_cells(row_data)
+                        if row_cells:
+                            rows.append(row_cells)
 
         # Foot: similar to head
-        if isinstance(foot, list) and len(foot) >= 2 and isinstance(foot[1], list):
-            for row_data in foot[1]:
+        # Foot: [foot_attr, [foot_rows]] (dict or bare-list form)
+        foot_c = _pandoc_node_c(foot)
+        if len(foot_c) >= 2 and isinstance(foot_c[1], list):
+            for row_data in foot_c[1]:
                 row_cells = self._extract_table_row_cells(row_data)
                 if row_cells:
                     rows.append(row_cells)
@@ -789,30 +821,31 @@ class LaTeXBuilder(IRBuilder):
         )
 
     def _extract_table_row_cells(self, row_data: Any) -> list[list[InlineUnion]] | None:
-        """Extract cell inlines from a Pandoc Row."""
-        if isinstance(row_data, dict) and row_data.get("t") == "Row":
-            row_c = row_data.get("c", [])
-            # Row: [attr, [cells...]]
-            cells_data = row_c[1] if isinstance(row_c, list) and len(row_c) >= 2 else []
-            cells: list[list[InlineUnion]] = []
-            if isinstance(cells_data, list):
-                for cell in cells_data:
-                    if isinstance(cell, dict) and cell.get("t") == "Cell":
-                        # Cell: [attr, alignment, rowspan, colspan, [blocks]]
-                        cell_c = cell.get("c", [])
-                        blocks = cell_c[4] if isinstance(cell_c, list) and len(cell_c) >= 5 else []
-                        cell_inlines: list[InlineUnion] = []
-                        if isinstance(blocks, list):
-                            for b in blocks:
-                                if isinstance(b, dict) and b.get("t") in ("Plain", "Para"):
-                                    cell_inlines.extend(
-                                        self._inlines_from_pandoc(
-                                            b.get("c", []) if isinstance(b.get("c"), list) else []
-                                        )
-                                    )
-                        cells.append(cell_inlines)
-            return cells if cells else None
-        return None
+        """Extract cell inlines from a Pandoc Row.
+
+        Handles both formats: ``{"t":"Row","c":[attr, [cells]]}`` (older) and a
+        bare list ``[attr, [cells]]`` (newer compact JSON).
+        """
+        row_c = _pandoc_node_c(row_data)
+        # Row: [attr, [cells...]]
+        cells_data = row_c[1] if len(row_c) >= 2 else []
+        cells: list[list[InlineUnion]] = []
+        if isinstance(cells_data, list):
+            for cell in cells_data:
+                cell_c = _pandoc_node_c(cell)
+                # Cell: [attr, alignment, rowspan, colspan, [blocks]]
+                blocks = cell_c[4] if len(cell_c) >= 5 else []
+                cell_inlines: list[InlineUnion] = []
+                if isinstance(blocks, list):
+                    for b in blocks:
+                        if isinstance(b, dict) and b.get("t") in ("Plain", "Para"):
+                            cell_inlines.extend(
+                                self._inlines_from_pandoc(
+                                    b.get("c", []) if isinstance(b.get("c"), list) else []
+                                )
+                            )
+                cells.append(cell_inlines)
+        return cells if cells else None
 
     # ------------------------------------------------------------------
     # Image path resolution
