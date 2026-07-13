@@ -164,8 +164,10 @@ async def _ingest_paper_latex_impl(
         from arxiv2md_beta.ir.resolvers import ImageResolver
         from arxiv2md_beta.latex.parser import _resolve_latex_includes
 
+        main_tex = tex_source_info.main_tex_file
+        assert main_tex is not None  # checked above; narrow for type-checker
         tex_content = _resolve_latex_includes(
-            tex_source_info.main_tex_file,
+            main_tex,
             tex_source_info.extracted_dir,
         )
         resolver = ImageResolver(path_map=latex_image_map)
@@ -237,11 +239,11 @@ async def _ingest_paper_latex_impl(
         summary_lines.append(f"- Version: {version}")
     if author_names:
         summary_lines.append(f"- Authors: {', '.join(author_names)}")
-    summary_lines.append(f"- Sections: {count_sections(doc.sections)}")
+    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
     tree_lines = ["Sections:"]
     if m.abstract_text:
         tree_lines.append("Abstract")
-    tree_lines.append(create_sections_tree(doc.sections))
+    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
     sections_tree = "\n".join(tree_lines)
     token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
     token_estimate = format_token_count(sections_tree + "\n" + token_body)
