@@ -119,3 +119,71 @@ class TestFigureReorderPass:
         assert types[0] == "paragraph"  # citing paragraph
         assert types[1] in ("figure",)  # moved figure
         assert types[2] in ("figure",)  # moved figure
+
+    def test_abbreviated_fig_citation_matches(self):
+        """Regression: ``Fig. 1`` and ``Fig 1`` must match, not only ``Figure 1``."""
+        for citation in ("See Fig. 1 for details.", "As shown in Fig 1,"):
+            doc = DocumentIR(
+                metadata=PaperMetadata(arxiv_id="test"),
+                sections=[
+                    SectionIR(
+                        title="Test",
+                        level=1,
+                        blocks=[
+                            ParagraphIR(inlines=[TextIR(text=citation)]),
+                            ParagraphIR(inlines=[TextIR(text="Filler.")]),
+                            FigureIR(
+                                figure_id="figure-1",
+                                images=[ImageRefIR(src="./fig1.png")],
+                                caption=[TextIR(text="Figure 1")],
+                            ),
+                        ],
+                    ),
+                ],
+            )
+            FigureReorderPass().run(doc)
+            blocks = doc.sections[0].blocks
+            assert [b.type for b in blocks] == ["paragraph", "figure", "paragraph"], (
+                f"Fig.-style citation did not trigger reorder: {citation!r}"
+            )
+
+    def test_citation_inside_math_is_seen(self):
+        """Regression: citations embedded in MathIR.latex must be visible to matching.
+
+        Layout: [paragraph(cite), filler, figure]. If the math citation is seen,
+        the figure moves to right after the paragraph → [paragraph, figure, filler].
+        If unseen (old hasattr behavior that skipped MathIR), no move occurs and the
+        figure stays at the end. This distinguishes the two.
+        """
+        from arxiv2md_beta.ir import MathIR
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="test"),
+            sections=[
+                SectionIR(
+                    title="Test",
+                    level=1,
+                    blocks=[
+                        ParagraphIR(inlines=[MathIR(latex=r"\ref{Figure 3}")]),
+                        ParagraphIR(inlines=[TextIR(text="filler")]),
+                        FigureIR(figure_id="figure-3", images=[ImageRefIR(src="./f3.png")]),
+                    ],
+                ),
+            ],
+        )
+        FigureReorderPass().run(doc)
+        blocks = doc.sections[0].blocks
+        assert [b.type for b in blocks] == ["paragraph", "figure", "paragraph"]
+
+    def test_citation_in_abstract_reorders(self):
+        """Abstract citations should reorder abstract blocks (abstract IS processed)."""
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="test"),
+            abstract=[
+                ParagraphIR(inlines=[TextIR(text="See Figure 5.")]),
+                FigureIR(figure_id="figure-5", images=[ImageRefIR(src="./f5.png")]),
+            ],
+            sections=[],
+        )
+        FigureReorderPass().run(doc)
+        assert [b.type for b in doc.abstract] == ["paragraph", "figure"]

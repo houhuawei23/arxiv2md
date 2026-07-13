@@ -17,6 +17,13 @@ class AnchorPass(IRPass):
     description = "Ensure every section and numbered block has an anchor."
 
     def run(self, doc: DocumentIR) -> DocumentIR:
+        # Anchor abstract and front-matter blocks too, not just sections —
+        # previously these were skipped while NumberingPass processed them,
+        # so abstract figures/equations ended up with no anchor.
+        for block in doc.abstract:
+            self._anchor_block(block)
+        for block in doc.front_matter:
+            self._anchor_block(block)
         for section in doc.sections:
             self._anchor_section(section)
         return doc
