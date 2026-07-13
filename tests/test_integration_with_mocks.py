@@ -113,3 +113,67 @@ class TestHtmlFetching:
                     version=None,
                     use_cache=False,
                 )
+
+
+@pytest.mark.asyncio
+async def test_latex_ir_migration_flow_on_fixture(tmp_path):
+    """Verify the migrated LaTeX IR flow (LaTeXBuilder→PassPipeline→emit+split→JsonEmitter)
+    produces a complete IngestionResult on a local TeX fixture, without network.
+
+    Regression for the Phase 5 LaTeX→IR migration: the legacy parse_latex_to_markdown
+    + format_paper + write_structured_bundle_for_latex chain was replaced by the
+    unified IR pipeline. This asserts the new path emits abstract + table + figure
+    and writes structured JSON.
+    """
+    from pathlib import Path
+
+    from arxiv2md_beta.ir import (
+        AnchorPass,
+        FigureReorderPass,
+        LaTeXBuilder,
+        MarkdownEmitter,
+        NumberingPass,
+        PassPipeline,
+        SectionFilterPass,
+        split_ir_sections,
+    )
+    from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter
+    from arxiv2md_beta.ir.resolvers import ImageResolver
+    from arxiv2md_beta.latex.parser import _resolve_latex_includes
+    from arxiv2md_beta.output.markdown_utils import format_markdown_output
+    from arxiv2md_beta.settings import get_settings
+
+    tex_path = Path(__file__).resolve().parent / "fixtures" / "sample_paper.tex"
+    main_tex = tex_path
+    base_dir = tex_path.parent
+    tex_content = _resolve_latex_includes(main_tex, base_dir)
+
+    doc = LaTeXBuilder(image_resolver=ImageResolver()).build(
+        tex_content, arxiv_id="sample", title="A Sample Paper for Testing"
+    )
+    pp = PassPipeline()
+    pp.add(SectionFilterPass(mode="exclude", selected=[]))
+    pp.add(NumberingPass())
+    pp.add(FigureReorderPass())
+    pp.add(AnchorPass())
+    pp.run(doc)
+
+    emitter = MarkdownEmitter()
+    main_irs, ref_irs, app_irs = split_ir_sections(
+        doc.sections, get_settings().ingestion.reference_section_titles
+    )
+    doc.sections = main_irs
+    content = format_markdown_output(emitter.emit(doc))
+
+    # Content coverage (the gaps that previously broke the IR LaTeX path).
+    assert "## Abstract" in content
+    assert "sample abstract for testing" in content
+    assert "Method" in content and "0.95" in content  # table cells
+    assert "figure1.png" in content  # figure
+
+    # Structured export via JsonEmitter (replaces write_structured_bundle_for_latex).
+    bundle = JsonEmitter(mode="full").write_bundle(
+        doc, tmp_path, images_subdir="images", emit_graph_csv=False
+    )
+    assert "paper.meta.json" in bundle.get("paths", {})
+    assert (tmp_path / "paper.meta.json").is_file()

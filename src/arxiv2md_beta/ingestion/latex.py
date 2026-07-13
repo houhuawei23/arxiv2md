@@ -9,17 +9,13 @@ from typing import Any, cast
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ParseError
-from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
-from arxiv2md_beta.latex.parser import (
-    ParserNotAvailableError,
-    parse_latex_to_markdown,
-)
+from arxiv2md_beta.ir.document import DocumentIR
+from arxiv2md_beta.latex.parser import ParserNotAvailableError
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, fetch_arxiv_metadata
-from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
-from arxiv2md_beta.schemas import IngestionResult, SectionNode
+from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.timing import async_timed_operation
 
@@ -149,63 +145,114 @@ async def _ingest_paper_latex_impl(
                 except ValueError:
                     pass
 
-    # Parse LaTeX to Markdown (offload blocking pandoc call to thread pool)
-    try:
-        parsed_latex = await asyncio.to_thread(
-            parse_latex_to_markdown,
+    # Build IR from LaTeX via Pandoc AST (offload blocking pandoc call to thread).
+    # Replaces the legacy parse_latex_to_markdown + format_paper + latex/structured
+    # chain with the unified IR pipeline (LaTeXBuilder → PassPipeline → MarkdownEmitter
+    # + JsonEmitter), matching the HTML IR orchestrator.
+    display_author_names = author_display_names_from_metadata(api_metadata)
+    abstract_text = cast("str | None", api_metadata.get("summary"))
+
+    def _build_latex_ir() -> DocumentIR:
+        from arxiv2md_beta.ir import (
+            AnchorPass,
+            FigureReorderPass,
+            LaTeXBuilder,
+            NumberingPass,
+            PassPipeline,
+            SectionFilterPass,
+        )
+        from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.latex.parser import _resolve_latex_includes
+
+        tex_content = _resolve_latex_includes(
             tex_source_info.main_tex_file,
             tex_source_info.extracted_dir,
-            latex_image_map,
         )
+        resolver = ImageResolver(path_map=latex_image_map)
+        doc = LaTeXBuilder(image_resolver=resolver).build(
+            tex_content,
+            arxiv_id=arxiv_id,
+            title=title,
+            authors=display_author_names or None,
+            abstract=abstract_text,
+            base_dir=tex_source_info.extracted_dir,
+        )
+        # Section filtering (replaces legacy filter_sections on SectionNode).
+        pp = PassPipeline()
+        pp.add(SectionFilterPass(mode=section_filter_mode, selected=sections or []))
+        if remove_refs:
+            pp.add(
+                SectionFilterPass(
+                    mode="exclude",
+                    selected=get_settings().ingestion.reference_section_titles,
+                )
+            )
+        pp.add(NumberingPass())
+        pp.add(FigureReorderPass())
+        pp.add(AnchorPass())
+        pp.run(doc)
+        return doc
+
+    try:
+        doc = await asyncio.to_thread(_build_latex_ir)
     except ParserNotAvailableError:
         raise
     except Exception as e:
         raise ParseError(f"Failed to parse LaTeX: {e}") from e
 
-    # Get sections from parsed LaTeX (new structured parsing)
-    parsed_sections = parsed_latex.sections or []
-    if not parsed_sections:
-        # Fallback: create a single section with the full content
-        parsed_sections = [
-            SectionNode(
-                title=parsed_latex.title or fallback_title,
-                level=1,
-                anchor=None,
-                html=None,
-                markdown=parsed_latex.markdown,
-                children=[],
-            )
-        ]
-
-    # Apply section filtering
-    sections_to_use = filter_sections(
-        parsed_sections,
-        mode=section_filter_mode,
-        selected=sections or [],
+    # Emit markdown with reference/appendix split (mirrors IR orchestrator).
+    from arxiv2md_beta.ir import MarkdownEmitter, split_ir_sections
+    from arxiv2md_beta.output.markdown_utils import (
+        count_sections,
+        create_sections_tree,
+        format_markdown_output,
+        format_token_count,
     )
 
-    # Remove refs if requested
-    if remove_refs:
-        ing = get_settings().ingestion
-        sections_to_use = filter_sections(
-            sections_to_use,
-            mode="exclude",
-            selected=ing.reference_section_titles,
-        )
+    emitter = MarkdownEmitter()
+    main_irs, ref_irs, app_irs = split_ir_sections(
+        doc.sections, get_settings().ingestion.reference_section_titles
+    )
+    original_sections = doc.sections
+    doc.sections = main_irs
+    content = format_markdown_output(emitter.emit(doc))
+    doc.sections = ref_irs
+    ref_raw = emitter.emit(doc) if ref_irs else ""
+    content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
+    doc.sections = app_irs
+    app_raw = emitter.emit(doc) if app_irs else ""
+    content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
+    doc.sections = original_sections
 
-    display_author_names = author_display_names_from_metadata(api_metadata) or list(parsed_latex.authors or [])
-
-    # Format output with file splitting and TOC support
-    result = format_paper(
-        arxiv_id=arxiv_id,
-        version=version,
-        title=parsed_latex.title,
-        authors=display_author_names,
-        abstract=parsed_latex.abstract,
-        sections=sections_to_use,
-        include_toc=not remove_toc,  # Enable TOC generation
-        include_abstract_in_tree=parsed_latex.abstract is not None,
-        split_for_reference=True,  # Enable file splitting
+    # Build IngestionResult summary + tree from IR sections (duck-typed: SectionIR
+    # exposes .title/.children just like SectionNode).
+    m = doc.metadata
+    result_title = m.title or title
+    author_names = [a.name for a in m.authors] or display_author_names
+    summary_lines: list[str] = []
+    if result_title:
+        summary_lines.append(f"# Title: {result_title}")
+    summary_lines.append(f"- ArXiv: {arxiv_id}")
+    if version:
+        summary_lines.append(f"- Version: {version}")
+    if author_names:
+        summary_lines.append(f"- Authors: {', '.join(author_names)}")
+    summary_lines.append(f"- Sections: {count_sections(doc.sections)}")
+    tree_lines = ["Sections:"]
+    if m.abstract_text:
+        tree_lines.append("Abstract")
+    tree_lines.append(create_sections_tree(doc.sections))
+    sections_tree = "\n".join(tree_lines)
+    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
+    token_estimate = format_token_count(sections_tree + "\n" + token_body)
+    if token_estimate:
+        summary_lines.append(f"- Estimated tokens: {token_estimate}")
+    result = IngestionResult(
+        summary="\n".join(summary_lines),
+        sections_tree=sections_tree,
+        content=content,
+        content_references=content_references,
+        content_appendix=content_appendix,
     )
 
     # Save paper metadata to paper.yml
@@ -219,49 +266,23 @@ async def _ingest_paper_latex_impl(
 
     structured_export: dict[str, object] = {}
     try:
-        from arxiv2md_beta.latex.structured import (  # type: ignore[attr-defined]
-            extract_abstract_blocks,
-            extract_blocks_from_sections,
-            write_structured_bundle_for_latex,
-        )
-        from arxiv2md_beta.output.structured_export import (
-            normalize_structured_mode,
-        )
+        from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter, normalize_structured_mode
 
         sm = normalize_structured_mode(structured_output)
         if sm != "none":
-            stem_map = processed_images.stem_to_image_path if processed_images else None
-            img_map = processed_images.image_map if processed_images else None
-
-            # Extract blocks from sections for richer structured output
-            body_blocks = extract_blocks_from_sections(sections_to_use)
-            abstract_blocks = extract_abstract_blocks(parsed_latex.abstract)
-
-            structured_export = write_structured_bundle_for_latex(
-                paper_output_dir=paper_output_dir,
-                mode=sm,
-                emit_graph_csv=emit_graph_csv,
-                arxiv_id=arxiv_id,
-                arxiv_version=version,
-                title=parsed_latex.title or title,
-                authors=list(parsed_latex.authors or []),
-                submission_date=submission_date,
-                parser="latex",
-                sections=sections_to_use,
-                abstract_blocks=abstract_blocks,
-                body_blocks=body_blocks,
-                abstract_md=parsed_latex.abstract,
-                stem_to_image_path=stem_map,
-                image_map=img_map,
+            structured_export = JsonEmitter(mode=sm).write_bundle(
+                doc,
+                paper_output_dir,
                 images_subdir=images_dir_name,
+                emit_graph_csv=emit_graph_csv,
             )
     except Exception as e:
         logger.warning(f"Structured JSON export failed: {e}")
 
     metadata = {
-        "title": parsed_latex.title or title,
-        "authors": parsed_latex.authors,
-        "abstract": parsed_latex.abstract,
+        "title": result_title,
+        "authors": author_names,
+        "abstract": m.abstract_text,
         "submission_date": submission_date,
         "paper_output_dir": paper_output_dir,  # Return the directory path
         "arxiv_id": arxiv_id,
