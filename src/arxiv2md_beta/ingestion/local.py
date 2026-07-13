@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.latex.tex_source import (
@@ -21,7 +22,7 @@ from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery, SectionNode
 
 
-class LocalIngestionError(Exception):
+class LocalIngestionError(IngestionError):
     """Raised when local archive ingestion fails."""
 
     pass

@@ -6,7 +6,7 @@ import pytest
 import respx
 from httpx import Response
 
-from arxiv2md_beta.exceptions import NetworkError
+from arxiv2md_beta.exceptions import NetworkError, UserInputError
 from arxiv2md_beta.network.fetch import _cache_dir_for, _is_cache_fresh, fetch_arxiv_html
 from arxiv2md_beta.network.http import _build_client, async_http_client, get_http_client
 from arxiv2md_beta.query.parser import parse_arxiv_input
@@ -178,9 +178,9 @@ class TestParseArxivInput:
         assert result.version == "v2"
 
     def test_parse_invalid_url_raises(self):
-        """Parse from invalid URL raises ValueError."""
+        """Parse from invalid URL raises UserInputError."""
         url = "http://example.com/not-arxiv"
-        with pytest.raises(ValueError):
+        with pytest.raises(UserInputError):
             parse_arxiv_input(url)
 
 

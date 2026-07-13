@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from loguru import logger
 
+from arxiv2md_beta.exceptions import ParseError
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.resolver import process_images_async
 from arxiv2md_beta.latex.parser import (
@@ -159,7 +160,7 @@ async def _ingest_paper_latex_impl(
     except ParserNotAvailableError:
         raise
     except Exception as e:
-        raise RuntimeError(f"Failed to parse LaTeX: {e}") from e
+        raise ParseError(f"Failed to parse LaTeX: {e}") from e
 
     # Get sections from parsed LaTeX (new structured parsing)
     parsed_sections = parsed_latex.sections or []

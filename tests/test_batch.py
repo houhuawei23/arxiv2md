@@ -10,6 +10,7 @@ import pytest
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.cli.runner import run_batch_flow
 from arxiv2md_beta.cli.runner.base import merge_convert_params
+from arxiv2md_beta.exceptions import UserInputError
 
 
 def _template() -> ConvertParams:
@@ -101,7 +102,7 @@ async def test_run_batch_flow_skips_comments_and_blank() -> None:
 async def test_run_batch_flow_continue_on_error_collects() -> None:
     async def side_effect(params: ConvertParams) -> Path:
         if "bad" in params.input_text:
-            raise ValueError("fail")
+            raise UserInputError("fail")
         return Path("/ok")
 
     lines = ["good1", "bad", "good2"]
@@ -126,7 +127,7 @@ async def test_run_batch_flow_fail_fast_stops() -> None:
     async def side_effect(params: ConvertParams) -> Path:
         calls.append(params.input_text)
         if params.input_text == "bad":
-            raise ValueError("fail")
+            raise UserInputError("fail")
         return Path("/ok")
 
     lines = ["good1", "bad", "good2"]

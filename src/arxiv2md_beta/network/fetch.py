@@ -88,7 +88,7 @@ async def _fetch_with_retries(url: str) -> str:
 def _ensure_html_response(response: httpx.Response) -> None:
     content_type = response.headers.get("content-type", "")
     if "text/html" not in content_type:
-        raise ValueError(f"Unexpected content-type: {content_type}")
+        raise NetworkError(f"Unexpected content-type: {content_type}")
 
 
 def _is_cache_fresh(html_path: Path) -> bool:

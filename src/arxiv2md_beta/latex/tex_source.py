@@ -16,6 +16,7 @@ import aiofiles
 import httpx
 from loguru import logger
 
+from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
@@ -30,19 +31,19 @@ class TexSourceInfo(NamedTuple):
     all_images: list[Path]  # All image files found
 
 
-class TexSourceNotFoundError(Exception):
-    """Raised when TeX source is not available."""
+class TexSourceNotFoundError(NetworkError):
+    """Raised when TeX source is not available (HTTP 404 or download exhausted)."""
 
     pass
 
 
-class ImageExtractionError(Exception):
+class ImageExtractionError(ImageProcessingError):
     """Raised when image extraction fails."""
 
     pass
 
 
-class ArchiveExtractionError(Exception):
+class ArchiveExtractionError(StorageError):
     """Raised when local archive extraction fails."""
 
     pass
@@ -305,7 +306,9 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
         try:
             async with client.stream("GET", url, timeout=timeout) as response:
                 if response.status_code == 404:
-                    raise RuntimeError(f"TeX source not found at {url}. This paper may not have TeX source available.")
+                    raise TexSourceNotFoundError(
+                        f"TeX source not found at {url}. This paper may not have TeX source available."
+                    )
 
                 if response.status_code in retry_status:
                     last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
@@ -338,7 +341,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
             backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
-    raise RuntimeError(f"Failed to download TeX source from {url}: {last_exc}")
+    raise TexSourceNotFoundError(f"Failed to download TeX source from {url}: {last_exc}")
 
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> None:

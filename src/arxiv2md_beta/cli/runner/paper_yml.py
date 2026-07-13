@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 
 from arxiv2md_beta.cli.params import PaperYmlParams
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.network.arxiv_api import fetch_arxiv_metadata
 from arxiv2md_beta.output.metadata import (
     arxiv_id_from_paper_yml_dict,
@@ -40,10 +41,10 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
 
         raw = (params.arxiv_input or "").strip()
         if not raw:
-            raise ValueError("Provide ARXIV (id or URL) or use --update PATH")
+            raise UserInputError("Provide ARXIV (id or URL) or use --update PATH")
         out = (params.output or "").strip()
         if not out:
-            raise ValueError("Provide --output /path/to/paper.yml when not using --update")
+            raise UserInputError("Provide --output /path/to/paper.yml when not using --update")
 
         query = parse_arxiv_input(raw)
         logger.info(f"paper-yml: fetching metadata for {query.arxiv_id}")

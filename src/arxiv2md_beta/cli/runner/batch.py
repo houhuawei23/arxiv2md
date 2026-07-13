@@ -64,7 +64,11 @@ async def run_batch_flow(
                 try:
                     out = await run_convert_flow(merged)
                     return (stripped, None, str(out.resolve()))
-                except (ValueError, OSError, RuntimeError, Arxiv2mdError) as exc:
+                except (Arxiv2mdError, OSError) as exc:
+                    # Arxiv2mdError covers UserInputError/NetworkError/ParseError/
+                    # BuilderError/IngestionError/etc. (previously raised as bare
+                    # ValueError/RuntimeError); OSError retained for filesystem
+                    # failures so one bad paper does not crash the batch.
                     return (stripped, str(exc), None)
 
         if continue_on_error:

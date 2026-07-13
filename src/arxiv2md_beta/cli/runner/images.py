@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from arxiv2md_beta.cli.params import ImagesParams
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.images.extract import extract_arxiv_images
 from arxiv2md_beta.output.layout import determine_output_dir
 from arxiv2md_beta.query.parser import parse_arxiv_input
@@ -21,7 +22,7 @@ async def run_images_flow(params: ImagesParams) -> None:
         s = get_settings()
         raw = params.arxiv_input.strip()
         if not raw:
-            raise ValueError("arxiv input cannot be empty")
+            raise UserInputError("arxiv input cannot be empty")
         query = parse_arxiv_input(raw)
         base_output_dir = determine_output_dir(params.output, settings=s)
         base_output_dir.mkdir(parents=True, exist_ok=True)

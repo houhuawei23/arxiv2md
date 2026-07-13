@@ -11,14 +11,15 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.settings.schema import AppSettings
 
 _SETTINGS: AppSettings | None = None
 _LAST_LOAD_KEY: tuple[Any, ...] | None = None
 
 
-class ConfigurationError(Exception):
-    """Invalid or missing configuration."""
+class ConfigurationError(UserInputError):
+    """Invalid or missing configuration (exit code 2)."""
 
     def __init__(self, message: str, *, hint: str | None = None) -> None:
         self.hint = hint

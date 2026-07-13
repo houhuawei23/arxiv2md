@@ -8,6 +8,7 @@ from typing import Final
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.schemas import ArxivQuery, LocalArchiveQuery, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
 
@@ -21,7 +22,7 @@ def parse_arxiv_input(input_text: str) -> ArxivQuery:
     """Parse a raw arXiv ID or URL into a normalized query object."""
     raw = input_text.strip()
     if not raw:
-        raise ValueError("input_text cannot be empty")
+        raise UserInputError("input_text cannot be empty")
 
     normalized_id, version = _extract_arxiv_id(raw)
     s = get_settings()
@@ -58,14 +59,14 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
 
     Raises:
     ------
-    ValueError
+    UserInputError
         If the path is not a valid archive file
     FileNotFoundError
         If the archive file does not exist
     """
     raw = input_text.strip()
     if not raw:
-        raise ValueError("input_text cannot be empty")
+        raise UserInputError("input_text cannot be empty")
 
     archive_path = Path(raw).expanduser().resolve()
 
@@ -73,12 +74,15 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
         raise FileNotFoundError(f"Archive file not found: {archive_path}")
 
     if not archive_path.is_file():
-        raise ValueError(f"Path is not a file: {archive_path}")
+        raise UserInputError(f"Path is not a file: {archive_path}")
 
     # Determine archive type from extension
     archive_type = _get_archive_type(archive_path)
     if not archive_type:
-        raise ValueError(f"Unsupported archive format: {archive_path.suffix}. Supported formats: .tar.gz, .tgz, .zip")
+        raise UserInputError(
+            f"Unsupported archive format: {archive_path.suffix}. "
+            "Supported formats: .tar.gz, .tgz, .zip"
+        )
 
     query_id = uuid4()
 
@@ -140,14 +144,14 @@ def parse_local_html(input_text: str) -> LocalHtmlQuery:
 
     Raises:
     ------
-    ValueError
+    UserInputError
         If the path is not a valid HTML file
     FileNotFoundError
         If the HTML file does not exist
     """
     raw = input_text.strip()
     if not raw:
-        raise ValueError("input_text cannot be empty")
+        raise UserInputError("input_text cannot be empty")
 
     html_path = Path(raw).expanduser().resolve()
 
@@ -155,11 +159,11 @@ def parse_local_html(input_text: str) -> LocalHtmlQuery:
         raise FileNotFoundError(f"HTML file not found: {html_path}")
 
     if not html_path.is_file():
-        raise ValueError(f"Path is not a file: {html_path}")
+        raise UserInputError(f"Path is not a file: {html_path}")
 
     # Validate it's an HTML file
     if html_path.suffix.lower() not in (".html", ".htm"):
-        raise ValueError(f"Unsupported file format: {html_path.suffix}. Supported formats: .html, .htm")
+        raise UserInputError(f"Unsupported file format: {html_path.suffix}. Supported formats: .html, .htm")
 
     query_id = uuid4()
 
@@ -270,11 +274,11 @@ def _extract_from_url(url: str) -> tuple[str, str | None]:
     parsed = urlparse(url)
     host = get_settings().urls.arxiv_host
     if parsed.netloc and host not in parsed.netloc:
-        raise ValueError(f"Unsupported host: {parsed.netloc}")
+        raise UserInputError(f"Unsupported host: {parsed.netloc}")
 
     path_parts = [part for part in parsed.path.split("/") if part]
     if not path_parts:
-        raise ValueError("Invalid arXiv URL: missing path")
+        raise UserInputError("Invalid arXiv URL: missing path")
 
     if path_parts[0] in _ARXIV_PATH_KINDS and len(path_parts) >= 2:
         kind = path_parts[0]
@@ -290,7 +294,7 @@ def _extract_from_url(url: str) -> tuple[str, str | None]:
 def _normalize_id(value: str) -> tuple[str, str | None]:
     match = _ARXIV_ID_RE.match(value)
     if not match:
-        raise ValueError(f"Unrecognized arXiv identifier: {value}")
+        raise UserInputError(f"Unrecognized arXiv identifier: {value}")
 
     base = match.group("base")
     version_digits = match.group("version")

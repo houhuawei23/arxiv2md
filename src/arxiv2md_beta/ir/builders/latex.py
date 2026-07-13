@@ -7,6 +7,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from arxiv2md_beta.exceptions import BuilderError
 from arxiv2md_beta.ir.blocks import (
     BlockQuoteIR,
     BlockUnion,
@@ -122,9 +123,9 @@ class LaTeXBuilder(IRBuilder):
         try:
             json_str = pypandoc.convert_text(tex_content, "json", format="latex", extra_args=["--wrap=none"])
         except RuntimeError as e:
-            raise RuntimeError(f"Failed to convert LaTeX to Pandoc AST: {e}") from e
+            raise BuilderError(f"Failed to convert LaTeX to Pandoc AST: {e}") from e
         except OSError as e:
-            raise RuntimeError(f"Failed to convert LaTeX (pandoc not found?): {e}") from e
+            raise BuilderError(f"Failed to convert LaTeX (pandoc not found?): {e}") from e
 
         ast = json.loads(json_str)
         blocks: list[dict] = ast.get("blocks", [])

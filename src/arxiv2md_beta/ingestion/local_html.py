@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 from loguru import logger
 
+from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.html.markdown import convert_fragment_to_markdown  # type: ignore[attr-defined]
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.output.formatter import format_paper
@@ -20,7 +21,7 @@ from arxiv2md_beta.schemas import IngestionResult, LocalHtmlQuery, SectionNode
 from arxiv2md_beta.utils.html_attrs import attr_optional, attr_str, classes
 
 
-class LocalHtmlIngestionError(Exception):
+class LocalHtmlIngestionError(IngestionError):
     """Raised when local HTML ingestion fails."""
 
     pass

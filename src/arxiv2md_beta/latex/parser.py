@@ -8,10 +8,11 @@ from typing import NamedTuple
 
 from loguru import logger
 
+from arxiv2md_beta.exceptions import ParseError
 from arxiv2md_beta.schemas import SectionNode
 
 
-class ParserNotAvailableError(Exception):
+class ParserNotAvailableError(ParseError):
     """Raised when LaTeX parser (pypandoc) is not available."""
 
     pass
@@ -116,9 +117,9 @@ def parse_latex_to_markdown(
             extra_args=["--wrap=none"],  # Don't wrap lines
         )
     except RuntimeError as e:
-        raise RuntimeError(f"Failed to convert LaTeX to Markdown: {e}") from e
+        raise ParseError(f"Failed to convert LaTeX to Markdown: {e}") from e
     except OSError as e:
-        raise RuntimeError(f"Failed to convert LaTeX to Markdown (pandoc not found?): {e}") from e
+        raise ParseError(f"Failed to convert LaTeX to Markdown (pandoc not found?): {e}") from e
 
     # Post-process markdown: fix equations, tables, figures, references, remove divs
     # Use enhanced version that also converts citations and refs to links

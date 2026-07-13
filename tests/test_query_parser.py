@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.query.parser import (
     parse_arxiv_input,
     parse_local_archive,
@@ -56,13 +57,13 @@ class TestArxivQueryParsing:
         assert result.arxiv_id == "2501.12345"
 
     def test_parse_invalid_arxiv_id(self):
-        """Parse invalid arXiv ID raises error."""
-        with pytest.raises(ValueError):
+        """Parse invalid arXiv ID raises UserInputError."""
+        with pytest.raises(UserInputError):
             parse_arxiv_input("not-an-arxiv-id")
 
     def test_parse_empty_string(self):
-        """Parse empty string raises error."""
-        with pytest.raises(ValueError):
+        """Parse empty string raises UserInputError."""
+        with pytest.raises(UserInputError):
             parse_arxiv_input("")
 
 

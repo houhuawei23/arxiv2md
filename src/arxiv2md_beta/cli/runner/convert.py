@@ -9,6 +9,7 @@ from pathlib import Path
 from arxiv2md_beta.cli.helpers import collect_sections
 from arxiv2md_beta.cli.output_finalize import finalize_convert_output
 from arxiv2md_beta.cli.params import ConvertParams
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.ingestion import ingest_paper
 from arxiv2md_beta.ingestion.local import ingest_local_archive
 from arxiv2md_beta.ingestion.local_html import ingest_local_html
@@ -31,7 +32,7 @@ async def run_convert_flow(params: ConvertParams) -> Path:
     async with async_timed_operation("run_convert_flow"):
         input_text = params.input_text.strip()
         if not input_text:
-            raise ValueError("INPUT cannot be empty")
+            raise UserInputError("INPUT cannot be empty")
         if is_local_html_path(input_text):  # Check HTML first (more specific)
             return await _process_local_html(params)
         if is_local_archive_path(input_text):
