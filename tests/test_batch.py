@@ -39,7 +39,7 @@ def test_merge_convert_params_preserves_all_fields() -> None:
 
     Previously ``merge_convert_params`` hand-listed 16 of 21 non-input fields and
     silently dropped ``no_cache``/``naming_scheme``/``download_pdf``/
-    ``linked_citations``/``use_legacy``, so ``batch --no-cache`` used the cache,
+    ``linked_citations``, so ``batch --no-cache`` used the cache,
     ``--linked-citations`` produced plain ``[N]``, etc.
     """
     template = ConvertParams(
@@ -60,7 +60,6 @@ def test_merge_convert_params_preserves_all_fields() -> None:
         structured_output="full",
         emit_graph_csv=True,
         no_cache=True,
-        use_legacy=True,
         naming_scheme="paper-pipeline",
         download_pdf=False,
         linked_citations=True,

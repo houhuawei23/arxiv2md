@@ -219,11 +219,6 @@ def convert_cmd(
         "--naming-scheme",
         help="Output naming scheme: classic (default) or paper-pipeline.",
     ),
-    use_legacy: bool = typer.Option(
-        False,
-        "--legacy",
-        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. Will be removed in v1.0.0.",
-    ),
     download_pdf: bool = typer.Option(
         True,
         "--download-pdf/--skip-pdf-download",
@@ -260,7 +255,6 @@ def convert_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
-        use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
         linked_citations=linked_citations,
@@ -402,11 +396,6 @@ def batch_cmd(
         "--naming-scheme",
         help="Output naming scheme: classic (default) or paper-pipeline.",
     ),
-    use_legacy: bool = typer.Option(
-        False,
-        "--legacy",
-        help="[DEPRECATED] Use legacy pipeline instead of the default IR pipeline. Will be removed in v1.0.0.",
-    ),
     download_pdf: bool = typer.Option(
         True,
         "--download-pdf/--skip-pdf-download",
@@ -443,7 +432,6 @@ def batch_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
-        use_legacy=use_legacy,
         naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
         linked_citations=linked_citations,

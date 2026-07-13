@@ -27,7 +27,6 @@ class ConvertParams:
     structured_output: str = "none"
     emit_graph_csv: bool = False
     no_cache: bool = False
-    use_legacy: bool = False
     naming_scheme: str = "classic"
     download_pdf: bool = True
     linked_citations: bool = False

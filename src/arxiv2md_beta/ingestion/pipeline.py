@@ -104,7 +104,6 @@ async def ingest_paper(
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
             no_cache=not use_cache,
-            use_legacy=False,
             naming_scheme="classic",
             download_pdf=False,
         )

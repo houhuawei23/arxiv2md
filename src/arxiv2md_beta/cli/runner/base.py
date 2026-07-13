@@ -12,7 +12,7 @@ def merge_convert_params(template: ConvertParams, input_text: str) -> ConvertPar
 
     Uses :func:`dataclasses.replace` so every field of ``ConvertParams`` is
     carried over — hand-listing fields previously dropped ``no_cache``,
-    ``naming_scheme``, ``download_pdf``, ``linked_citations`` and ``use_legacy``
+    ``naming_scheme``, ``download_pdf`` and ``linked_citations``
     in batch mode (silent feature loss).
     """
     return replace(template, input_text=input_text)
