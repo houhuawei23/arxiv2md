@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-07-13
+
+### Fixed
+
+- **LaTeX parser: 修复 figure* 环境中多图片丢失问题**：`_build_figure_from_pandoc` 现在通过 `_inlines_from_pandoc` 处理 figure body 中的 Para 块，正确提取嵌套在 Span 节点中的所有 Image。之前的实现只检查 Para 的直接子节点，导致 Pandoc 将多个 `{\includegraphics{...}}` 转换为 `Para → Span → Image` 结构时，只有第一个图片被提取，其余图片丢失。修复后，Appendix 中的 5 个图片（1706.03762 论文）全部正确输出。
+
 ## [0.13.0] - 2026-07-13
 
 ### LaTeX IR Builder — 引用、编号、侧边栏对齐

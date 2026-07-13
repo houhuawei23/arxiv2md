@@ -858,11 +858,11 @@ class LaTeXBuilder(IRBuilder):
         images: list[ImageRefIR] = []
         for blk in body_blocks if isinstance(body_blocks, list) else []:
             if isinstance(blk, dict) and blk.get("t") in ("Plain", "Para"):
-                for il in blk.get("c", []) if isinstance(blk.get("c"), list) else []:
-                    if isinstance(il, dict) and il.get("t") == "Image":
-                        img_ir = self._inline_from_pandoc(il)
-                        if isinstance(img_ir, ImageRefIR):
-                            images.append(img_ir)
+                # Process all inlines (handles Span-wrapped Images)
+                inlines = self._inlines_from_pandoc(blk.get("c", []) if isinstance(blk.get("c"), list) else [])
+                for inline in inlines:
+                    if isinstance(inline, ImageRefIR):
+                        images.append(inline)
 
         return FigureIR(
             images=images,
