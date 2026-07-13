@@ -9,7 +9,7 @@ from arxiv2md_beta.cli.runner.base import merge_convert_params
 from arxiv2md_beta.cli.runner.convert import run_convert_flow
 from arxiv2md_beta.exceptions import Arxiv2mdError
 from arxiv2md_beta.utils.logging_config import get_logger
-from arxiv2md_beta.utils.metrics import async_timed_operation
+from arxiv2md_beta.utils.timing import async_timed_operation
 
 if TYPE_CHECKING:
     from arxiv2md_beta.cli.params import ConvertParams

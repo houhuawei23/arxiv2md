@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.aiofiles_compat import async_read_json, async_write_json
+from arxiv2md_beta.utils.aiofiles_utils import async_read_json, async_write_json
 from arxiv2md_beta.utils.logging_config import get_logger
 
 if TYPE_CHECKING:

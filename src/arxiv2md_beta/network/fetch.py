@@ -14,7 +14,7 @@ from loguru import logger
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.aiofiles_compat import async_write_text
+from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 

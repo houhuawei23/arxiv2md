@@ -7,7 +7,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from arxiv2md_beta.images.resolver import ProcessedImages, process_images
+from arxiv2md_beta.images.processor import ProcessedImages, process_images
 from arxiv2md_beta.latex.tex_source import fetch_and_extract_tex_source
 
 

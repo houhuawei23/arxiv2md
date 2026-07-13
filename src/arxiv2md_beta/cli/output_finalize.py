@@ -16,7 +16,7 @@ from arxiv2md_beta.output.layout import build_output_basename
 from arxiv2md_beta.output.markdown_postprocess import apply_markdown_postprocessing
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.aiofiles_compat import async_write_text
+from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()

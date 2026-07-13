@@ -334,7 +334,7 @@ def _resolve_image_by_html_src(
     DOM order of figures can differ from ``\\includegraphics`` order in the TeX
     source; positional ``image_map[index]`` then pairs the wrong file with a
     caption. Keys in ``stem_map`` are TeX/source stems and output basenames (see
-    :func:`arxiv2md_beta.images.resolver.process_images`).
+    :func:`arxiv2md_beta.images.processor.process_images`).
     """
     if not src or not stem_map:
         return None

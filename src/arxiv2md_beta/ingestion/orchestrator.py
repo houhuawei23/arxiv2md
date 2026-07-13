@@ -15,7 +15,7 @@ from typing import Any
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
-from arxiv2md_beta.images.resolver import process_images_async
+from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir import (
     AnchorPass,
     FigureReorderPass,

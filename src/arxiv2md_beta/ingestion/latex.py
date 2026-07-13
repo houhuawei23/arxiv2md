@@ -10,7 +10,7 @@ from loguru import logger
 
 from arxiv2md_beta.exceptions import ParseError
 from arxiv2md_beta.html.sections import filter_sections
-from arxiv2md_beta.images.resolver import process_images_async
+from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.latex.parser import (
     ParserNotAvailableError,
     parse_latex_to_markdown,
@@ -21,7 +21,7 @@ from arxiv2md_beta.output.formatter import format_paper
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult, SectionNode
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.metrics import async_timed_operation
+from arxiv2md_beta.utils.timing import async_timed_operation
 
 
 async def ingest_paper_latex(

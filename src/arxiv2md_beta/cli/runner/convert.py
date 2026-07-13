@@ -20,7 +20,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_html,
 )
 from arxiv2md_beta.utils.logging_config import get_logger
-from arxiv2md_beta.utils.metrics import async_timed_operation
+from arxiv2md_beta.utils.timing import async_timed_operation
 
 logger = get_logger()
 

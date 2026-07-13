@@ -9,7 +9,7 @@ from arxiv2md_beta.output.layout import determine_output_dir
 from arxiv2md_beta.query.parser import parse_arxiv_input
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.logging_config import get_logger
-from arxiv2md_beta.utils.metrics import async_timed_operation
+from arxiv2md_beta.utils.timing import async_timed_operation
 
 logger = get_logger()
 

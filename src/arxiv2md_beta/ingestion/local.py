@@ -11,7 +11,7 @@ from typing import Any
 from loguru import logger
 
 from arxiv2md_beta.exceptions import IngestionError
-from arxiv2md_beta.images.resolver import process_images_async
+from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
