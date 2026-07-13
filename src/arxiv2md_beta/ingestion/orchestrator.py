@@ -7,6 +7,7 @@ class with discrete, testable steps.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -97,7 +98,6 @@ class IngestionOrchestrator:
         self._parse_query()
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
         await self._fetch_html_and_metadata()
-        self._parse_html()
         self._filter_sections()
         self._setup_output_dir()
         await self._fetch_tex_and_images()
@@ -144,7 +144,16 @@ class IngestionOrchestrator:
         """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。."""
         html_task = asyncio.create_task(self._fetch_html())
         metadata_task = asyncio.create_task(self._fetch_api_metadata())
-        await metadata_task
+        try:
+            await metadata_task
+        except BaseException:
+            # If metadata fetch fails, do not leave the HTML task orphaned —
+            # cancel and await it so the in-flight request is released and
+            # "Task was destroyed but it is pending" warnings do not fire.
+            html_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await html_task
+            raise
         await html_task
         self._parse_html()
 
