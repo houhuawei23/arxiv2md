@@ -135,7 +135,6 @@ module = [
     "arxiv2md_beta.output.formatter",
     "arxiv2md_beta.output.structured_export",
     "arxiv2md_beta.output.metadata",
-    "arxiv2md_beta.latex.structured",
     "arxiv2md_beta.ir._legacy_blocks",
     "arxiv2md_beta.citations.html_parser",
 ]
