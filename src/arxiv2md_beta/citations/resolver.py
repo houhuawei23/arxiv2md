@@ -16,6 +16,17 @@ if TYPE_CHECKING:
 logger = get_logger()
 
 
+# Maximum concurrent citation resolutions (each fires Crossref + arXiv API).
+_MAX_CONCURRENT_RESOLUTIONS = 6
+
+
+def _write_bibtex_file(output_path: str, bibtex: str) -> None:
+    """Write BibTeX to disk (sync helper for offloading from async caller)."""
+    from pathlib import Path
+
+    Path(output_path).write_text(bibtex, encoding="utf-8")
+
+
 # Regex patterns for extracting identifiers
 DOI_PATTERN = re.compile(r"10\.\d{4,}\/[^\s\"'<>]+", re.IGNORECASE)
 ARXIV_PATTERN = re.compile(r"arXiv:(\d{4}\.\d{4,}(?:v\d+)?)", re.IGNORECASE)
@@ -184,7 +195,16 @@ class CitationResolver:
         list[CitationEntry]
             List of resolved entries
         """
-        tasks = [self.resolve_citation(parsed, index) for index, parsed in enumerate(parsed_list)]
+        # Bound concurrency: each citation fires Crossref + arXiv API calls.
+        # A paper with 100+ references previously issued 100+ simultaneous
+        # requests → 429 rate-limiting / connection exhaustion / IP bans.
+        sem = asyncio.Semaphore(_MAX_CONCURRENT_RESOLUTIONS)
+
+        async def _bounded(parsed: ParsedCitation, index: int) -> CitationEntry:
+            async with sem:
+                return await self.resolve_citation(parsed, index)
+
+        tasks = [_bounded(parsed, index) for index, parsed in enumerate(parsed_list)]
         return await asyncio.gather(*tasks)
 
 
@@ -256,9 +276,7 @@ async def export_bibtex(
     bibtex = format_bibtex_database(entries)
 
     if output_path:
-        from pathlib import Path
-
-        Path(output_path).write_text(bibtex, encoding="utf-8")
+        await asyncio.to_thread(_write_bibtex_file, output_path, bibtex)
         logger.info(f"Wrote BibTeX to {output_path}")
 
     return bibtex

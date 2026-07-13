@@ -120,6 +120,9 @@ async def fetch_and_extract_tex_source(
         extracted_dir.mkdir(parents=True, exist_ok=True)
         _extract_archive(tex_source_path, extracted_dir)
     except Exception as e:
+        # Remove the partial extract so a later run does not mistake a half-
+        # extracted directory for a valid cache entry (cache poisoning).
+        shutil.rmtree(extracted_dir, ignore_errors=True)
         raise ImageExtractionError(f"Failed to extract TeX source: {e}") from e
 
     # Extract images and find main tex file
@@ -206,6 +209,9 @@ def extract_local_archive(
             raise ArchiveExtractionError(f"Unsupported archive format: {archive_path.suffix}")
 
     except Exception as e:
+        # Remove the partial extract so a later run does not mistake a half-
+        # extracted directory for a valid cache entry (cache poisoning).
+        shutil.rmtree(extracted_dir, ignore_errors=True)
         raise ArchiveExtractionError(f"Failed to extract archive: {e}") from e
 
     # Extract images and find main tex file
