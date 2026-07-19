@@ -33,8 +33,14 @@ class MarkdownEmitter(IREmitter):
 
     format_name = "markdown"
 
-    def __init__(self, *, linked_citations: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        linked_citations: bool = False,
+        remove_inline_citations: bool = False,
+    ) -> None:
         self.linked_citations = linked_citations
+        self.remove_inline_citations = remove_inline_citations
 
     def emit(self, doc: DocumentIR) -> str:
         parts: list[str] = []
@@ -141,8 +147,10 @@ class MarkdownEmitter(IREmitter):
             if inline.kind == "footnote":
                 # Markdown footnote reference: [^N] where N is the marker text.
                 return f"[^{text}]"
-            if inline.kind == "citation" and inline.target_id:
-                if self.linked_citations:
+            if inline.kind == "citation":
+                if self.remove_inline_citations:
+                    return ""
+                if inline.target_id and self.linked_citations:
                     return f"[{text}](#{inline.target_id})"
                 return f"[{text}]"
             if inline.kind == "internal" and inline.target_id:

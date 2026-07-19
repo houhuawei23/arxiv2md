@@ -74,6 +74,17 @@ class TestLinkIR:
         n = LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")])
         assert emitter._emit_inline(n) == "[[1]](#ref-1)"
 
+    def test_citation_link_removed(self):
+        emitter = MarkdownEmitter(remove_inline_citations=True)
+        n = LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")])
+        assert emitter._emit_inline(n) == ""
+
+    def test_citation_without_target_id_removed(self):
+        # No target_id: still a citation, still removed when flag set.
+        emitter = MarkdownEmitter(remove_inline_citations=True)
+        n = LinkIR(kind="citation", inlines=[TextIR(text="[2]")])
+        assert emitter._emit_inline(n) == ""
+
     def test_link_no_url_no_target(self, emitter):
         n = LinkIR(kind="external", inlines=[TextIR(text="text")])
         assert emitter._emit_inline(n) == "text"
