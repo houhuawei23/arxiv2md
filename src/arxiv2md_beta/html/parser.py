@@ -15,7 +15,11 @@ try:
     from bs4 import BeautifulSoup
     from bs4.element import NavigableString, Tag
 except ImportError as exc:  # pragma: no cover - runtime dependency check
-    raise RuntimeError("BeautifulSoup4 is required for HTML parsing (pip install beautifulsoup4).") from exc
+    from arxiv2md_beta.exceptions import UserInputError
+
+    raise UserInputError(
+        "BeautifulSoup4 is required for HTML parsing (pip install beautifulsoup4)."
+    ) from exc
 
 
 _HEADING_RE = re.compile(r"^h[1-6]$")

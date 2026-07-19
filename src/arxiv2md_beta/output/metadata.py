@@ -17,6 +17,8 @@ import contextlib
 
 from loguru import logger
 
+from arxiv2md_beta.exceptions import ParseError, UserInputError
+
 
 def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
     """Save paper metadata to paper.yml file in the output directory.
@@ -109,12 +111,12 @@ def write_paper_yml_file(
 def load_paper_yml(path: Path) -> dict:
     """Load a YAML file and return the top-level mapping (e.g. ``{'paper': {...}}``)."""
     if yaml is None:
-        raise RuntimeError("PyYAML is required; install with: pip install pyyaml")
+        raise UserInputError("PyYAML is required; install with: pip install pyyaml")
     path = Path(path)
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
     if not isinstance(data, dict):
-        raise ValueError(f"Expected YAML mapping at root, got {type(data).__name__}")
+        raise ParseError(f"Expected YAML mapping at root, got {type(data).__name__}")
     return data
 
 
@@ -122,14 +124,14 @@ def arxiv_id_from_paper_yml_dict(data: dict) -> str:
     """Extract arXiv id from a loaded ``paper.yml`` mapping."""
     paper = data.get("paper")
     if not isinstance(paper, dict):
-        raise ValueError("Invalid paper.yml: missing 'paper' object")
+        raise ParseError("Invalid paper.yml: missing 'paper' object")
     ids = paper.get("identifiers")
     if isinstance(ids, dict) and ids.get("arxiv"):
         return str(ids["arxiv"]).strip()
     pid = paper.get("id")
     if isinstance(pid, str) and pid.startswith("arxiv:"):
         return pid.split(":", 1)[1].strip()
-    raise ValueError("Could not find arXiv id in paper.yml (identifiers.arxiv or paper.id)")
+    raise ParseError("Could not find arXiv id in paper.yml (identifiers.arxiv or paper.id)")
 
 
 def arxiv_id_from_paper_yml(path: Path) -> str:
