@@ -44,8 +44,9 @@ def parse_citations_from_html(html: str) -> list[ParsedCitation]:
             if text:
                 key = f"bib{i + 1}"
                 # Try to find id attribute
-                if attr_optional(item, "id"):
-                    key = attr_optional(item, "id").replace("bib.", "")
+                item_id = attr_optional(item, "id")
+                if item_id:
+                    key = item_id.replace("bib.", "")
 
                 identifiers = extract_identifiers(text)
                 citations.append(

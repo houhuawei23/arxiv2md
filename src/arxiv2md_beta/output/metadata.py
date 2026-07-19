@@ -7,11 +7,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-yaml: Any
+yaml: Any = None
 try:
-    import yaml
+    import yaml  # type: ignore[no-redef]
 except ImportError:
-    yaml = None
+    pass
 
 import contextlib
 
@@ -270,7 +270,7 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     workflow["date_added"] = date_str or datetime.now().strftime("%Y-%m-%d")
 
     # relations
-    relations = OrderedDict()
+    relations: OrderedDict[str, Any] = OrderedDict()
     relations["tags"] = []
     relations["categories"] = list(categories) if categories else []
     if metadata.get("primary_category"):
@@ -278,7 +278,7 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     relations["related"] = []
 
     # Build paper object with fixed field order
-    paper = OrderedDict()
+    paper: OrderedDict[str, Any] = OrderedDict()
     paper["id"] = paper_id
     paper["title"] = title
     if authors:

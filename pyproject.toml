@@ -127,10 +127,3 @@ strict_equality = false
 ignore_missing_imports = true
 show_error_codes = true
 exclude = ["tests/", "demo/"]
-
-[[tool.mypy.overrides]]
-module = [
-    "arxiv2md_beta.output.metadata",
-    "arxiv2md_beta.citations.html_parser",
-]
-ignore_errors = true
