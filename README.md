@@ -322,29 +322,36 @@ arxiv2md-beta/
 - 解析 LaTeX 文件中的图片引用（展开 `\input`/`\include`；**不计入** `\icmltitle{…}` / `\title{…}` / `\affiliation{…}` 内的 `\includegraphics`，以便与 ar5iv 正文插图顺序一致）
 - 建立图片映射关系
 
-### `images/resolver.py`
+### `latex/includes.py`
 
-处理图片文件（支持异步并行）：
-- 将 PDF 图片转换为 PNG（CPU 密集型任务放入 `ProcessPoolExecutor`）
-- 复制其他格式的图片（通过线程池并发执行）
-- 生成图片映射表（figure_index -> local_path）及 **stem → 路径** 映射（含源文件名与输出文件名别名），供 HTML `<img src>` 解析
-- 通过信号量控制最大并发数，避免资源争用
+递归展开 `\input` / `\include` / `\lstinputlisting`，把多文件 TeX 工程合并为单一字符串交给 pandoc。处理循环引用、缺失文件、孤立 `\end{...}`。
 
-### `html/markdown.py`
+### `images/processor.py`
 
-HTML 到 Markdown 转换：
-- 支持图片路径替换（优先按 URL basename 与 TeX 产物 stem 匹配；否则按「未占用的最小 `image_map` 下标」兜底）
-- 处理表格、列表、数学公式等
-- 支持图片映射（`image_map`）与 `image_stem_map`
+异步图片处理（唯一入口 `process_images_async`）：
+- 将 PDF/EPS 图片转换为 PNG（CPU 密集型任务放入 `ProcessPoolExecutor`，`finally` shutdown）
+- 复制其他格式的图片（信号量限流）
+- 生成图片映射表（figure_index -> local_path）及 **stem → 路径** 映射，供 HTML `<img src>` 解析
 
-### `latex/parser.py`
+### `ir/builders/{html,latex}.py`
 
-LaTeX 到 Markdown 转换：
-- 使用 pypandoc 进行转换
-- 支持递归解析 `\input` 和 `\include`
-- 提取标题、作者、摘要等元数据
-- 替换图片引用为本地路径
-- 正则表达式预编译，减少解析时的 CPU 开销
+前端：原始格式 → `DocumentIR`。
+- `HTMLBuilder` 消费 `ParsedArxivHtml`（ar5iv/arXiv HTML）。
+- `LaTeXBuilder` 调 pypandoc 转 Pandoc AST 再映射到 IR。
+- 封装全部 BS4 / Pandoc 细节，IR 层不接触原始格式。
+
+### `ir/transforms/pipeline.py`
+
+中端：`build_default_pipeline(parser=…)` 是**唯一**管线来源。顺序敏感：
+`[SectionFilter?] → Numbering → [SectionNumbering 仅 latex] → FigureReorder → Anchor`。
+
+### `ir/emitters/{markdown,json,plaintext}.py`
+
+后端：`DocumentIR` → 目标格式。
+- `MarkdownEmitter`：GitHub-flavored Markdown（接 `linked_citations` / `remove_inline_citations`），未知类型 `raise EmitterError`。
+- `JsonEmitter`：`paper.{meta,document,assets,bib,graph}.json`，`SCHEMA_VERSION` 单一源。
+- `PlainTextEmitter`：token 计数 / 搜索，fail-fast。
+
 
 ## 测试
 

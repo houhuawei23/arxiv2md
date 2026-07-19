@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 yaml: Any = None
-try:
+with suppress(ImportError):
     import yaml  # type: ignore[no-redef]
-except ImportError:
-    pass
-
-import contextlib
 
 from loguru import logger
 
@@ -189,7 +186,7 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     if year is None and metadata.get("year"):
         year = metadata["year"]
     if year is None and date_str:
-        with contextlib.suppress(ValueError, TypeError):
+        with suppress(ValueError, TypeError):
             year = int(date_str[:4])
     if year is not None:
         publication["year"] = int(year) if isinstance(year, str) and str(year).isdigit() else year

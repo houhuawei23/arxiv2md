@@ -793,5 +793,5 @@
   "submission_date": null,
   "title": "A Sample Paper for Testing",
   "tool_name": "arxiv2md-beta",
-  "tool_version": "0.12.0"
+  "tool_version": "0.13.1"
 }
