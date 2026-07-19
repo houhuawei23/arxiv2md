@@ -16,15 +16,14 @@ from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
+from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown, run_structured_export
 from arxiv2md_beta.ir import (
     AnchorPass,
     FigureReorderPass,
     HTMLBuilder,
-    MarkdownEmitter,
     NumberingPass,
     PassPipeline,
     SectionFilterPass,
-    split_ir_sections,
 )
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
@@ -43,7 +42,6 @@ from arxiv2md_beta.output.layout import create_paper_output_dir
 from arxiv2md_beta.output.markdown_utils import (
     count_sections,
     create_sections_tree,
-    format_markdown_output,
     format_token_count,
 )
 from arxiv2md_beta.output.metadata import save_paper_metadata
@@ -387,36 +385,12 @@ class IngestionOrchestrator:
 
     def _emit_markdown(self) -> None:
         assert self._doc is not None
-        emitter = MarkdownEmitter(
+        self._content, self._content_references, self._content_appendix = emit_split_markdown(
+            self._doc,
+            reference_section_titles=self._ingestion_cfg.reference_section_titles,
             linked_citations=self.params.linked_citations,
             remove_inline_citations=self.params.remove_inline_citations,
         )
-        main_irs, ref_irs, app_irs = split_ir_sections(
-            self._doc.sections,
-            self._ingestion_cfg.reference_section_titles,
-        )
-
-        original_sections = self._doc.sections
-        original_abstract = self._doc.abstract
-
-        # Main content
-        self._doc.sections = main_irs
-        self._content = format_markdown_output(emitter.emit(self._doc))
-
-        # References sidecar (no abstract)
-        self._doc.abstract = []
-        self._doc.sections = ref_irs
-        ref_raw = emitter.emit(self._doc) if ref_irs else ""
-        self._content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
-
-        # Appendix sidecar (no abstract)
-        self._doc.sections = app_irs
-        app_raw = emitter.emit(self._doc) if app_irs else ""
-        self._content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
-
-        # Restore
-        self._doc.sections = original_sections
-        self._doc.abstract = original_abstract
 
     # ── Step 12: Build result ──────────────────────────────────────────
 
@@ -499,27 +473,15 @@ class IngestionOrchestrator:
     # ── Step 14: Structured JSON export ────────────────────────────────
 
     async def _structured_export(self) -> dict:
-        try:
-            assert self._doc is not None
-            assert self._paper_output_dir is not None
-            from arxiv2md_beta.ir.emitters.json_emitter import (
-                JsonEmitter,
-                normalize_structured_mode,
-            )
-
-            sm = normalize_structured_mode(self.params.structured_output)
-            if sm == "none":
-                return {}
-            json_emitter = JsonEmitter(mode=sm)
-            return json_emitter.write_bundle(
-                self._doc,
-                self._paper_output_dir,
-                images_subdir=self._images_dir_name,
-                emit_graph_csv=self.params.emit_graph_csv,
-            )
-        except (OSError, ValueError, TypeError, RuntimeError) as e:
-            logger.warning(f"Structured JSON export failed: {e}")
-            return {}
+        assert self._doc is not None
+        assert self._paper_output_dir is not None
+        return run_structured_export(
+            self._doc,
+            self._paper_output_dir,
+            mode=self.params.structured_output,
+            emit_graph_csv=self.params.emit_graph_csv,
+            images_subdir=self._images_dir_name,
+        )
 
     # ── Step 15: Build metadata dict ───────────────────────────────────
 

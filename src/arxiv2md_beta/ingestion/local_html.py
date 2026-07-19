@@ -118,30 +118,20 @@ async def ingest_local_html(
     except Exception as e:
         raise LocalHtmlIngestionError(f"Failed to build IR: {e}") from e
 
-    # Emit markdown with reference/appendix split (mirrors IR orchestrator).
-    from arxiv2md_beta.ir import MarkdownEmitter, split_ir_sections
+    # Emit markdown with reference/appendix split (shared finalization).
+    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
     from arxiv2md_beta.output.markdown_utils import (
         count_sections,
         create_sections_tree,
-        format_markdown_output,
         format_token_count,
     )
     from arxiv2md_beta.settings import get_settings
 
-    emitter = MarkdownEmitter()
-    main_irs, ref_irs, app_irs = split_ir_sections(
-        doc.sections, get_settings().ingestion.reference_section_titles
+    content, content_references, content_appendix = emit_split_markdown(
+        doc,
+        reference_section_titles=get_settings().ingestion.reference_section_titles,
+        remove_inline_citations=remove_inline_citations,
     )
-    original_sections = doc.sections
-    doc.sections = main_irs
-    content = format_markdown_output(emitter.emit(doc))
-    doc.sections = ref_irs
-    ref_raw = emitter.emit(doc) if ref_irs else ""
-    content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
-    doc.sections = app_irs
-    app_raw = emitter.emit(doc) if app_irs else ""
-    content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
-    doc.sections = original_sections
 
     m = doc.metadata
     result_title = m.title or title
@@ -188,16 +178,15 @@ async def ingest_local_html(
 
     structured_export: dict[str, Any] = {}
     try:
-        from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter, normalize_structured_mode
+        from arxiv2md_beta.ingestion.ir_finalize import run_structured_export
 
-        sm = normalize_structured_mode(structured_output)
-        if sm != "none":
-            structured_export = JsonEmitter(mode=sm).write_bundle(
-                doc,
-                paper_output_dir,
-                images_subdir=images_dir_name,
-                emit_graph_csv=emit_graph_csv,
-            )
+        structured_export = run_structured_export(
+            doc,
+            paper_output_dir,
+            mode=structured_output,
+            emit_graph_csv=emit_graph_csv,
+            images_subdir=images_dir_name,
+        )
     except Exception as e:
         logger.warning(f"Structured JSON export failed: {e}")
 
