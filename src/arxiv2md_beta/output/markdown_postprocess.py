@@ -154,7 +154,13 @@ def apply_markdown_postprocessing(
     *,
     include_anchors: bool | None = None,
 ) -> IngestionResult:
-    """Return a new :class:`IngestionResult` with final Markdown cleanup applied."""
+    """Return a new :class:`IngestionResult` with final Markdown cleanup applied.
+
+    Deprecated: ``finalize_markdown`` now runs the full cleanup (format +
+    clean) at emission time (``emit_split_markdown``), so result fields are
+    already finalized when they reach the CLI layer. Retained for callers
+    that emit markdown outside the shared helper.
+    """
     return result.model_copy(
         update={
             "content": clean_markdown_output(result.content, include_anchors=include_anchors),
@@ -170,3 +176,18 @@ def apply_markdown_postprocessing(
             ),
         }
     )
+
+
+def finalize_markdown(text: str, *, include_anchors: bool | None = None) -> str:
+    """Single-pass Markdown finalization: format then clean.
+
+    Composes :func:`format_markdown_output` (anchor newlines, table captions,
+    display-math simplification, bullet dedup, blank-line collapse) with
+    :func:`clean_markdown_output` (optional anchor stripping, math-latex
+    cleanup, inline ``$`` spacing). Replaces the former two-layer postprocess
+    (one pass at emission, a second at CLI finalize) with a single application
+    right after emission.
+    """
+    from arxiv2md_beta.output.markdown_utils import format_markdown_output
+
+    return clean_markdown_output(format_markdown_output(text), include_anchors=include_anchors)

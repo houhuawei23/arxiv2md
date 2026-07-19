@@ -13,7 +13,6 @@ from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.output.layout import build_output_basename
-from arxiv2md_beta.output.markdown_postprocess import apply_markdown_postprocessing
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
@@ -190,7 +189,9 @@ async def finalize_convert_output(
     title = metadata.get("title")
     naming_scheme = s.output_naming.naming_scheme
 
-    result = apply_markdown_postprocessing(result)
+    # Markdown content/refs/appendix are already finalized at emission time
+    # (emit_split_markdown applies the single format+clean pass), so no
+    # further postprocessing is needed here.
 
     output_text = format_output(
         result.summary,

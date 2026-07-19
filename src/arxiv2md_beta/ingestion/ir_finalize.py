@@ -18,7 +18,6 @@ from typing import Any
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
-from arxiv2md_beta.output.markdown_utils import format_markdown_output
 
 
 def emit_split_markdown(
@@ -27,13 +26,26 @@ def emit_split_markdown(
     reference_section_titles: list[str],
     linked_citations: bool = False,
     remove_inline_citations: bool = False,
+    include_anchors: bool | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Emit *doc* into main / references / appendix Markdown sidecars.
 
     The references and appendix sidecars are emitted with ``doc.abstract``
     emptied so the abstract is not repeated in every sidecar. The doc is
     restored to its original state before returning.
+
+    Each sidecar is finalized in a single pass (format + clean, including
+    optional anchor stripping per ``settings.output.include_anchors``) so the
+    returned strings are the final Markdown -- no further postprocessing is
+    needed at the CLI layer.
     """
+    # Lazy imports: markdown_postprocess pulls in settings, which would create
+    # an import cycle if loaded at module init (ingestion package -> cli).
+    from arxiv2md_beta.output.markdown_postprocess import finalize_markdown
+    from arxiv2md_beta.settings import get_settings
+
+    if include_anchors is None:
+        include_anchors = get_settings().output.include_anchors
     emitter = MarkdownEmitter(
         linked_citations=linked_citations,
         remove_inline_citations=remove_inline_citations,
@@ -44,16 +56,16 @@ def emit_split_markdown(
     original_abstract = doc.abstract
 
     doc.sections = main_irs
-    content = format_markdown_output(emitter.emit(doc))
+    content = finalize_markdown(emitter.emit(doc), include_anchors=include_anchors)
 
     doc.abstract = []
     doc.sections = ref_irs
     ref_raw = emitter.emit(doc) if ref_irs else ""
-    content_references = format_markdown_output(ref_raw) if ref_raw.strip() else None
+    content_references = finalize_markdown(ref_raw, include_anchors=include_anchors) if ref_raw.strip() else None
 
     doc.sections = app_irs
     app_raw = emitter.emit(doc) if app_irs else ""
-    content_appendix = format_markdown_output(app_raw) if app_raw.strip() else None
+    content_appendix = finalize_markdown(app_raw, include_anchors=include_anchors) if app_raw.strip() else None
 
     doc.sections = original_sections
     doc.abstract = original_abstract

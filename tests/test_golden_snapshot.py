@@ -26,16 +26,13 @@ from arxiv2md_beta.ir import (
     AnchorPass,
     FigureReorderPass,
     LaTeXBuilder,
-    MarkdownEmitter,
     NumberingPass,
     PassPipeline,
     SectionFilterPass,
-    split_ir_sections,
 )
 from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter
 from arxiv2md_beta.ir.resolvers import ImageResolver
 from arxiv2md_beta.latex.includes import resolve_latex_includes
-from arxiv2md_beta.output.markdown_utils import format_markdown_output
 from arxiv2md_beta.settings import get_settings
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "sample_paper.tex"
@@ -58,18 +55,17 @@ def _build_doc():
 
 
 def _emit_parts(doc):
-    emitter = MarkdownEmitter()
-    main, refs, appx = split_ir_sections(
-        doc.sections, get_settings().ingestion.reference_section_titles
+    # Lazy import: arxiv2md_beta.ingestion package init pulls in cli, which
+    # would cycle if loaded at test-module import time. By runtime the app
+    # graph is already loaded.
+    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
+
+    # Use the shared finalization helper so the golden reflects real
+    # production output (single format+clean pass, sidecars without abstract).
+    main_md, refs_md, appx_md = emit_split_markdown(
+        doc,
+        reference_section_titles=get_settings().ingestion.reference_section_titles,
     )
-    original = doc.sections
-    doc.sections = main
-    main_md = format_markdown_output(emitter.emit(doc))
-    doc.sections = refs
-    refs_md = format_markdown_output(emitter.emit(doc))
-    doc.sections = appx
-    appx_md = format_markdown_output(emitter.emit(doc))
-    doc.sections = original
     return main_md, refs_md, appx_md
 
 
@@ -123,7 +119,10 @@ def json_parts(doc):
 
 @pytest.mark.parametrize("idx,name", [(0, "sample_paper.main.md"), (1, "sample_paper.refs.md"), (2, "sample_paper.appendix.md")])
 def test_markdown_golden(parts, idx, name):
-    _check(name, parts[idx])
+    actual = parts[idx]
+    if actual is None:
+        pytest.skip(f"{name} is empty (no references/appendix sections in fixture)")
+    _check(name, actual)
 
 
 def test_meta_json_golden(json_parts):
