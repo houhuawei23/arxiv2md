@@ -42,6 +42,7 @@ from arxiv2md_beta.output.metadata import save_paper_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.settings.schema import AppSettings
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
@@ -56,9 +57,10 @@ class IngestionOrchestrator:
         result, metadata = await orch.run()
     """
 
-    def __init__(self, params: ConvertParams) -> None:
+    def __init__(self, params: ConvertParams, settings: AppSettings | None = None) -> None:
+        """Optionally inject *settings* for tests; defaults to the process global."""
         self.params = params
-        self._settings = get_settings()
+        self._settings = settings or get_settings()
         self._ingestion_cfg = self._settings.ingestion
 
         # Mutable pipeline state
