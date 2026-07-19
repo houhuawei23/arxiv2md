@@ -17,16 +17,10 @@ from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown, run_structured_export
-from arxiv2md_beta.ir import (
-    AnchorPass,
-    FigureReorderPass,
-    HTMLBuilder,
-    NumberingPass,
-    PassPipeline,
-    SectionFilterPass,
-)
+from arxiv2md_beta.ir import HTMLBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
+from arxiv2md_beta.ir.transforms import build_default_pipeline
 from arxiv2md_beta.latex.tex_source import (
     TexSourceInfo,
     TexSourceNotFoundError,
@@ -354,23 +348,13 @@ class IngestionOrchestrator:
 
     def _run_transforms(self) -> None:
         assert self._doc is not None
-        pipeline = PassPipeline()
-        # Phase 1: Filter first to reduce work for downstream passes
-        if self._selected_sections:
-            mode = self.params.section_filter_mode
-            assert mode in ("include", "exclude")
-            pipeline.add(
-                SectionFilterPass(
-                    mode=mode,
-                    selected=self._selected_sections,
-                )
-            )
-        # Phase 2: Numbering (required by FigureReorder)
-        pipeline.add(NumberingPass())
-        # Phase 3: Reorder figures (depends on numbering)
-        pipeline.add(FigureReorderPass())
-        # Phase 4: Anchor generation (last, needs final structure)
-        pipeline.add(AnchorPass())
+        pipeline = build_default_pipeline(
+            parser="html",
+            section_filter_mode=self.params.section_filter_mode,
+            selected_sections=self._selected_sections,
+            remove_refs=self.params.remove_refs,
+            reference_section_titles=self._ingestion_cfg.reference_section_titles,
+        )
         self._doc = pipeline.run(self._doc)
 
     # ── Step 10: Normalize abstract ────────────────────────────────────

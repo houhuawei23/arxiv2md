@@ -86,31 +86,20 @@ async def ingest_local_html(
 
     # Build IR via HTMLBuilder (consumes ParsedArxivHtml, same as the orchestrator).
     def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ir import (
-            AnchorPass,
-            FigureReorderPass,
-            HTMLBuilder,
-            NumberingPass,
-            PassPipeline,
-            SectionFilterPass,
-        )
+        from arxiv2md_beta.ir import HTMLBuilder
         from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.ir.transforms import build_default_pipeline
         from arxiv2md_beta.settings import get_settings
 
         doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(parsed, arxiv_id=arxiv_id)
-        pp = PassPipeline()
-        pp.add(SectionFilterPass(mode=section_filter_mode, selected=sections))
-        if remove_refs:
-            pp.add(
-                SectionFilterPass(
-                    mode="exclude",
-                    selected=get_settings().ingestion.reference_section_titles,
-                )
-            )
-        pp.add(NumberingPass())
-        pp.add(FigureReorderPass())
-        pp.add(AnchorPass())
-        pp.run(doc)
+        pipeline = build_default_pipeline(
+            parser="html",
+            section_filter_mode=section_filter_mode,
+            selected_sections=sections,
+            remove_refs=remove_refs,
+            reference_section_titles=get_settings().ingestion.reference_section_titles,
+        )
+        pipeline.run(doc)
         return doc
 
     try:

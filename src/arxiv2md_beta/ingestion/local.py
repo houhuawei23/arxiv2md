@@ -101,6 +101,10 @@ async def ingest_local_archive(
             source=source,
             short=short,
             no_images=no_images,
+            remove_refs=remove_refs,
+            remove_inline_citations=remove_inline_citations,
+            section_filter_mode=section_filter_mode,
+            sections=sections,
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
         )
@@ -139,6 +143,10 @@ async def _ingest_latex_archive(
     source: str,
     short: str | None,
     no_images: bool,
+    remove_refs: bool = False,
+    remove_inline_citations: bool = False,
+    section_filter_mode: str = "exclude",
+    sections: list[str] | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, Any]]:
@@ -190,15 +198,11 @@ async def _ingest_latex_archive(
 
     # Build IR via LaTeXBuilder (offload blocking pandoc to thread pool).
     def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ir import (
-            AnchorPass,
-            FigureReorderPass,
-            LaTeXBuilder,
-            NumberingPass,
-            PassPipeline,
-        )
+        from arxiv2md_beta.ir import LaTeXBuilder
         from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.ir.transforms import build_default_pipeline
         from arxiv2md_beta.latex.includes import resolve_latex_includes
+        from arxiv2md_beta.settings import get_settings
 
         main_tex = tex_source_info.main_tex_file
         assert main_tex is not None
@@ -211,11 +215,14 @@ async def _ingest_latex_archive(
             abstract=abstract,
             base_dir=tex_source_info.extracted_dir,
         )
-        pp = PassPipeline()
-        pp.add(NumberingPass())
-        pp.add(FigureReorderPass())
-        pp.add(AnchorPass())
-        pp.run(doc)
+        pipeline = build_default_pipeline(
+            parser="latex",
+            section_filter_mode=section_filter_mode,
+            selected_sections=sections,
+            remove_refs=remove_refs,
+            reference_section_titles=get_settings().ingestion.reference_section_titles,
+        )
+        pipeline.run(doc)
         return doc
 
     try:
@@ -369,33 +376,22 @@ async def _ingest_html_archive(
     # Build IR via HTMLBuilder (consumes the same ParsedArxivHtml as the remote
     # HTML orchestrator).
     def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ir import (
-            AnchorPass,
-            FigureReorderPass,
-            HTMLBuilder,
-            NumberingPass,
-            PassPipeline,
-            SectionFilterPass,
-        )
+        from arxiv2md_beta.ir import HTMLBuilder
         from arxiv2md_beta.ir.resolvers import ImageResolver
+        from arxiv2md_beta.ir.transforms import build_default_pipeline
         from arxiv2md_beta.settings import get_settings
 
         doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(
             parsed, arxiv_id=arxiv_id
         )
-        pp = PassPipeline()
-        pp.add(SectionFilterPass(mode=section_filter_mode, selected=sections))
-        if remove_refs:
-            pp.add(
-                SectionFilterPass(
-                    mode="exclude",
-                    selected=get_settings().ingestion.reference_section_titles,
-                )
-            )
-        pp.add(NumberingPass())
-        pp.add(FigureReorderPass())
-        pp.add(AnchorPass())
-        pp.run(doc)
+        pipeline = build_default_pipeline(
+            parser="html",
+            section_filter_mode=section_filter_mode,
+            selected_sections=sections,
+            remove_refs=remove_refs,
+            reference_section_titles=get_settings().ingestion.reference_section_titles,
+        )
+        pipeline.run(doc)
         return doc
 
     try:
