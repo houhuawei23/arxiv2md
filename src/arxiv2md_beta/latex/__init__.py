@@ -1,6 +1,7 @@
-"""LaTeX source handling and LaTeX to Markdown conversion."""
+"""LaTeX source handling: include resolution, TeX source fetch, author affiliations."""
 
-from arxiv2md_beta.latex.parser import ParserNotAvailableError, parse_latex_to_markdown
+from arxiv2md_beta.exceptions import ParserNotAvailableError
+from arxiv2md_beta.latex.includes import resolve_latex_includes
 from arxiv2md_beta.latex.tex_source import (
     ImageExtractionError,
     TexSourceInfo,
@@ -14,5 +15,5 @@ __all__ = [
     "TexSourceInfo",
     "TexSourceNotFoundError",
     "fetch_and_extract_tex_source",
-    "parse_latex_to_markdown",
+    "resolve_latex_includes",
 ]

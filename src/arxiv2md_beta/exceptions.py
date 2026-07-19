@@ -61,6 +61,12 @@ class ParseError(Arxiv2mdError):
         self.source_snippet = source_snippet
 
 
+class ParserNotAvailableError(ParseError):
+    """A required parser backend (e.g. pypandoc/Pandoc) is not installed."""
+
+    pass
+
+
 class BuilderError(Arxiv2mdError):
     """IR builder failure (HTMLBuilder or LaTeXBuilder)."""
 

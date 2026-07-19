@@ -139,14 +139,14 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     )
     from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter
     from arxiv2md_beta.ir.resolvers import ImageResolver
-    from arxiv2md_beta.latex.parser import _resolve_latex_includes
+    from arxiv2md_beta.latex.includes import resolve_latex_includes
     from arxiv2md_beta.output.markdown_utils import format_markdown_output
     from arxiv2md_beta.settings import get_settings
 
     tex_path = Path(__file__).resolve().parent / "fixtures" / "sample_paper.tex"
     main_tex = tex_path
     base_dir = tex_path.parent
-    tex_content = _resolve_latex_includes(main_tex, base_dir)
+    tex_content = resolve_latex_includes(main_tex, base_dir)
 
     doc = LaTeXBuilder(image_resolver=ImageResolver()).build(
         tex_content, arxiv_id="sample", title="A Sample Paper for Testing"

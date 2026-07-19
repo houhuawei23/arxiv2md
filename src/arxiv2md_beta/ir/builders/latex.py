@@ -145,7 +145,7 @@ class LaTeXBuilder(IRBuilder):
         try:
             import pypandoc
         except ImportError as e:
-            from arxiv2md_beta.latex.parser import ParserNotAvailableError
+            from arxiv2md_beta.exceptions import ParserNotAvailableError
 
             raise ParserNotAvailableError(
                 "pypandoc is required for LaTeX parsing. Install it with: pip install pypandoc"

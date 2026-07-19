@@ -34,7 +34,7 @@ from arxiv2md_beta.ir import (
 )
 from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter
 from arxiv2md_beta.ir.resolvers import ImageResolver
-from arxiv2md_beta.latex.parser import _resolve_latex_includes
+from arxiv2md_beta.latex.includes import resolve_latex_includes
 from arxiv2md_beta.output.markdown_utils import format_markdown_output
 from arxiv2md_beta.settings import get_settings
 
@@ -44,7 +44,7 @@ _REGEN = os.environ.get("GOLDEN_REGEN") == "1"
 
 
 def _build_doc():
-    tex = _resolve_latex_includes(FIXTURE, FIXTURE.parent)
+    tex = resolve_latex_includes(FIXTURE, FIXTURE.parent)
     doc = LaTeXBuilder(image_resolver=ImageResolver()).build(
         tex, arxiv_id="sample", title="A Sample Paper for Testing"
     )

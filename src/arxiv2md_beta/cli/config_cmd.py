@@ -16,7 +16,6 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from arxiv2md_beta.cache import get_result_cache
 from arxiv2md_beta.settings import get_settings, load_settings
 from arxiv2md_beta.utils.logging_config import get_logger
 
@@ -207,46 +206,3 @@ def config_get(
             raise typer.Exit(code=2)
 
     console.print(str(value))
-
-
-@app.command("cache")
-def config_cache(
-    action: str = typer.Argument(
-        ...,
-        help="Action: stats, clear, or invalidate",
-    ),
-    arxiv_id: str | None = typer.Option(
-        None,
-        "--arxiv-id",
-        help="arXiv ID for invalidate action.",
-    ),
-) -> None:
-    """Manage the result cache."""
-    import asyncio
-
-    cache = get_result_cache()
-
-    if action == "stats":
-        stats = cache.get_stats()
-        table = Table(title="Cache Statistics")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="green")
-        table.add_row("Entries", str(stats["entries"]))
-        table.add_row("Size (bytes)", str(stats["size_bytes"]))
-        table.add_row("Size (MB)", str(stats["size_mb"]))
-        console.print(table)
-
-    elif action == "clear":
-        removed = asyncio.run(cache.clear())
-        console.print(f"[green]✓[/green] Cleared {removed} cache entries")
-
-    elif action == "invalidate":
-        if not arxiv_id:
-            console.print("[red]✗[/red] --arxiv-id is required for invalidate action")
-            raise typer.Exit(code=2)
-        removed = asyncio.run(cache.invalidate(arxiv_id))
-        console.print(f"[green]✓[/green] Invalidated {removed} cache entries for {arxiv_id}")
-
-    else:
-        console.print(f"[red]✗[/red] Unknown action: {action}. Use stats, clear, or invalidate.")
-        raise typer.Exit(code=2)

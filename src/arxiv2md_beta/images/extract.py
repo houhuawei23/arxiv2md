@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from loguru import logger
 
-from arxiv2md_beta.images.processor import ProcessedImages, process_images
+from arxiv2md_beta.images.processor import ProcessedImages, process_images_async
 from arxiv2md_beta.latex.tex_source import fetch_and_extract_tex_source
 
 
@@ -23,28 +22,9 @@ async def extract_arxiv_images(
 
     Does not invoke pandoc or write Markdown. Intended for testing image extraction
     and PDF→PNG processing settings.
-
-    Parameters
-    ----------
-    arxiv_id : str
-        Normalized arXiv identifier (base id, version passed separately).
-    version : str | None
-        Version suffix (e.g. ``v1``) or None for latest in id string semantics.
-    output_dir : Path
-        Directory under which ``images_subdir`` will be created.
-    images_subdir : str
-        Subdirectory name for processed images (e.g. ``\"images\"``).
-    use_tex_cache : bool
-        If True, reuse cached TeX extract when fresh (same as full pipeline).
-
-    Returns:
-    -------
-    ProcessedImages
-        Maps and absolute ``images_dir`` path.
     """
     tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_tex_cache)
     if not tex_source_info.main_tex_file:
         logger.warning("No main .tex file found; processing image files discovered in the extract.")
-    # process_images runs pdf2image (ghostscript subprocess) and Pillow — CPU/subprocess
-    # bound. Offload so the event loop (and tqdm) are not blocked.
-    return await asyncio.to_thread(process_images, tex_source_info, output_dir, images_subdir)
+    return await process_images_async(tex_source_info, output_dir, images_subdir)
+

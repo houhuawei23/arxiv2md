@@ -8,10 +8,9 @@ from typing import Any, cast
 
 from loguru import logger
 
-from arxiv2md_beta.exceptions import ParseError
+from arxiv2md_beta.exceptions import ParseError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
-from arxiv2md_beta.latex.parser import ParserNotAvailableError
 from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_extract_tex_source
 from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, fetch_arxiv_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
@@ -163,11 +162,11 @@ async def _ingest_paper_latex_impl(
             SectionNumberingPass,
         )
         from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.latex.parser import _resolve_latex_includes
+        from arxiv2md_beta.latex.includes import resolve_latex_includes
 
         main_tex = tex_source_info.main_tex_file
         assert main_tex is not None  # checked above; narrow for type-checker
-        tex_content = _resolve_latex_includes(
+        tex_content = resolve_latex_includes(
             main_tex,
             tex_source_info.extracted_dir,
         )

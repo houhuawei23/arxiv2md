@@ -10,10 +10,9 @@ from typing import Any, cast
 
 from loguru import logger
 
-from arxiv2md_beta.exceptions import IngestionError
+from arxiv2md_beta.exceptions import IngestionError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
-from arxiv2md_beta.latex.parser import ParserNotAvailableError
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
     TexSourceInfo,
@@ -199,11 +198,11 @@ async def _ingest_latex_archive(
             PassPipeline,
         )
         from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.latex.parser import _resolve_latex_includes
+        from arxiv2md_beta.latex.includes import resolve_latex_includes
 
         main_tex = tex_source_info.main_tex_file
         assert main_tex is not None
-        tex_content = _resolve_latex_includes(main_tex, tex_source_info.extracted_dir)
+        tex_content = resolve_latex_includes(main_tex, tex_source_info.extracted_dir)
         doc = LaTeXBuilder(image_resolver=ImageResolver(path_map=latex_image_map)).build(
             tex_content,
             arxiv_id=arxiv_id,
