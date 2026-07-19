@@ -1,0 +1,797 @@
+{
+  "abstract": [
+    {
+      "id": "",
+      "inlines": [
+        {
+          "id": "",
+          "order_index": 0,
+          "section_id": "",
+          "text": "This is a sample abstract for testing the arxiv2md-beta converter.",
+          "type": "text"
+        }
+      ],
+      "order_index": 0,
+      "section_id": "",
+      "type": "paragraph"
+    }
+  ],
+  "abstract_text": "This is a sample abstract for testing the arxiv2md-beta converter.",
+  "arxiv_id": "sample",
+  "arxiv_version": null,
+  "authors": [
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "John DoeInstitution One",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    },
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "Jane SmithInstitution Two",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    }
+  ],
+  "content_sha256": "1d516d1b23fdd9be4050dae417de6b66087a27a37d2a9ceda1e0dd89a13049b1",
+  "front_matter": [],
+  "parser": "latex",
+  "schema_version": "2.0",
+  "sections": [
+    {
+      "anchor": "sec:intro",
+      "blocks": [
+        {
+          "id": "sec_0:b0:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "This",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "is",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "the",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "introduction",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "section.",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "We",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "present",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "our",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "main",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "equation:",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "display": true,
+              "id": "",
+              "latex": "\\begin{equation}\n    E = mc^2\n    \\label{eq:emc2}\n\\end{equation}",
+              "order_index": 0,
+              "section_id": "",
+              "type": "math"
+            }
+          ],
+          "order_index": 0,
+          "section_id": "sec_0",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_0",
+      "title": "Introduction"
+    },
+    {
+      "anchor": "sec:methods",
+      "blocks": [
+        {
+          "id": "sec_1:b0:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "We",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "describe",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "our",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "methodology",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "in",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "this",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "section.",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "See",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Figure\u00a0",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "inlines": [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "1",
+                  "type": "text"
+                }
+              ],
+              "kind": "internal",
+              "order_index": 0,
+              "section_id": "",
+              "type": "link",
+              "url": "#fig:setup"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": ".",
+              "type": "text"
+            }
+          ],
+          "order_index": 0,
+          "section_id": "sec_1",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        },
+        {
+          "anchor": "fig:setup",
+          "caption": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Sample",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "figure",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "showing",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "experimental",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "setup.",
+              "type": "text"
+            }
+          ],
+          "figure_id": "fig:setup",
+          "id": "sec_1:b1:figure",
+          "images": [
+            {
+              "alt": "",
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "src": "figure1.png",
+              "type": "image_ref"
+            }
+          ],
+          "kind": "image",
+          "order_index": 1,
+          "section_id": "sec_1",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "figure"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_1",
+      "title": "Methods"
+    },
+    {
+      "anchor": "sec:results",
+      "blocks": [
+        {
+          "id": "sec_2:b0:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Our",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "results",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "are",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "summarized",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "in",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Table\u00a0",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "inlines": [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "1",
+                  "type": "text"
+                }
+              ],
+              "kind": "internal",
+              "order_index": 0,
+              "section_id": "",
+              "type": "link",
+              "url": "#tab:comparison"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": ".",
+              "type": "text"
+            }
+          ],
+          "order_index": 0,
+          "section_id": "sec_2",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        },
+        {
+          "anchor": "tab:comparison",
+          "caption": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Comparison",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "of",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "methods.",
+              "type": "text"
+            }
+          ],
+          "headers": [
+            [
+              {
+                "id": "",
+                "order_index": 0,
+                "section_id": "",
+                "text": "Method",
+                "type": "text"
+              }
+            ],
+            [
+              {
+                "id": "",
+                "order_index": 0,
+                "section_id": "",
+                "text": "Accuracy",
+                "type": "text"
+              }
+            ]
+          ],
+          "id": "sec_2:b1:table",
+          "order_index": 1,
+          "rows": [
+            [
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "A",
+                  "type": "text"
+                }
+              ],
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "0.95",
+                  "type": "text"
+                }
+              ]
+            ],
+            [
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "B",
+                  "type": "text"
+                }
+              ],
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "0.92",
+                  "type": "text"
+                }
+              ]
+            ]
+          ],
+          "section_id": "sec_2",
+          "source": {
+            "parser": "latex"
+          },
+          "table_id": "table-1",
+          "type": "table"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_2",
+      "title": "Results"
+    },
+    {
+      "anchor": "sec:conclusion",
+      "blocks": [
+        {
+          "id": "sec_3:b0:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "We",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "conclude",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "with",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "some",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "final",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "thoughts.",
+              "type": "text"
+            }
+          ],
+          "order_index": 0,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_3",
+      "title": "Conclusion"
+    }
+  ],
+  "source_url": null,
+  "submission_date": null,
+  "title": "A Sample Paper for Testing",
+  "tool_name": "arxiv2md-beta",
+  "tool_version": "0.12.0"
+}
