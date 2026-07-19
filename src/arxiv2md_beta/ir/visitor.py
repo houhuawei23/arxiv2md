@@ -54,11 +54,14 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
     "code": [("caption", "inline")],
     # Document level
     "section": [("blocks", "block"), ("children", "section")],
+    "metadata": [("authors", "author")],
     "document": [
         ("abstract", "block"),
         ("front_matter", "block"),
         ("sections", "section"),
         ("bibliography", "block"),
+        ("assets", "asset"),
+        ("metadata", "object"),
     ],
 }
 
@@ -116,18 +119,9 @@ def _walk_children(node: IRNode, visitor: IRVisitor) -> None:
         children = getattr(node, attr, None)
         if children is None:
             continue
-        if kind == "inline":
-            # list[InlineUnion]
-            for child in children:
-                walk(child, visitor)
-        elif kind == "block":
-            # list[BlockUnion]
-            for child in children:
-                walk(child, visitor)
-        elif kind == "section":
-            # list[SectionIR]
-            for child in children:
-                walk(child, visitor)
+        if kind == "object":
+            # Single nested IRNode (e.g. doc.metadata).
+            walk(children, visitor)
         elif kind == "block_list":
             # list[list[BlockUnion]] — used for list items
             for item in children:
@@ -144,6 +138,10 @@ def _walk_children(node: IRNode, visitor: IRVisitor) -> None:
                 for cell in row:
                     for child in cell:
                         walk(child, visitor)
+        else:
+            # Flat list kinds: inline / block / section / asset / author.
+            for child in children:
+                walk(child, visitor)
 
 
 # ─────────────────────────────────────────────────────────────────────

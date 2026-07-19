@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from arxiv2md_beta.exceptions import EmitterError
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
     BlockQuoteIR,
@@ -12,6 +13,7 @@ from arxiv2md_beta.ir.blocks import (
     HeadingIR,
     ListIR,
     ParagraphIR,
+    RawBlockIR,
     RuleIR,
     TableIR,
 )
@@ -24,6 +26,7 @@ from arxiv2md_beta.ir.inlines import (
     InlineUnion,
     LinkIR,
     MathIR,
+    RawInlineIR,
     SubscriptIR,
     SuperscriptIR,
     TextIR,
@@ -106,10 +109,9 @@ class PlainTextEmitter(IREmitter):
             return f"[Algorithm: {cap}]\n{steps}"
         elif isinstance(block, RuleIR):
             return "---"
-        else:
-            # RawBlockIR and any future block types fall back to content.
-            # getattr avoids AttributeError on future types without .content.
-            return getattr(block, "content", "")
+        elif isinstance(block, RawBlockIR):
+            return block.content
+        raise EmitterError(f"Unhandled IR block type: {block.type!r}")
 
     def _emit_inlines(self, inlines: list[InlineUnion]) -> str:
         parts: list[str] = []
@@ -138,7 +140,6 @@ class PlainTextEmitter(IREmitter):
             return self._emit_inlines(il.inlines)
         elif isinstance(il, BreakIR):
             return "\n"
-        else:
-            # RawInlineIR and any future inline types fall back to content.
-            # getattr avoids AttributeError on future types without .content.
-            return getattr(il, "content", "")
+        elif isinstance(il, RawInlineIR):
+            return il.content
+        raise EmitterError(f"Unhandled IR inline type: {il.type!r}")

@@ -136,7 +136,8 @@ class TestEmptyDocument:
         doc = DocumentIR(metadata=PaperMetadata(arxiv_id="empty"))
         visitor = RecordingVisitor()
         walk(doc, visitor)
-        assert visitor.visited == ["document"]
+        # walk descends into metadata (no authors) then stops.
+        assert visitor.visited == ["document", "metadata"]
 
 
 class TestDeepNesting:
@@ -354,3 +355,23 @@ def test_child_specs_cover_all_container_types():
     # Document and Section are the structural containers.
     assert "document" in _CHILD_SPECS
     assert "section" in _CHILD_SPECS
+
+
+def test_walk_reaches_assets_and_authors():
+    """Regression: walk() must descend into doc.assets and doc.metadata.authors.
+
+    Previously the 'document' child-spec omitted both, so NodeCounter and any
+    custom visitor silently never saw assets or authors.
+    """
+    from arxiv2md_beta.ir.assets import ImageAsset
+    from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata
+    from arxiv2md_beta.ir.visitor import NodeCounter, walk
+
+    doc = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="x", authors=[AuthorIR(name="Jane")]),
+        assets=[ImageAsset(path="images/a.png", figure_index=1)],
+    )
+    counter = NodeCounter()
+    walk(doc, counter)
+    assert counter.counts.get("author") == 1
+    assert counter.counts.get("image_asset") == 1
