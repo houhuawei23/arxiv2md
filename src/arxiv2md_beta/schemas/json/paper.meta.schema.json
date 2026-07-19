@@ -2,7 +2,7 @@
   "description": "Machine-oriented metadata (``paper.meta.json``).",
   "properties": {
     "schema_version": {
-      "default": "1.0",
+      "default": "2.0",
       "title": "Schema Version",
       "type": "string"
     },

@@ -16,11 +16,10 @@ from typing import Any
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+from arxiv2md_beta.schemas.structured import SCHEMA_VERSION
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
-
-SCHEMA_VERSION = "2.0"
 
 
 def _package_version() -> str:

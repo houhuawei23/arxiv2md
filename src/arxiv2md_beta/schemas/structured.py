@@ -1,4 +1,19 @@
-"""Versioned JSON models for structured paper export (paper.meta.json, paper.document.json, etc.)."""
+"""Coarse, versioned JSON models for the structured paper export.
+
+These models describe the **coarse section-tree / block-overview** contract
+shipped as ``schemas/json/paper.{meta,document}.schema.json``. They are the
+single source of ``SCHEMA_VERSION`` consumed by :mod:`ir.emitters.json_emitter`.
+
+Note: the emitter's ``paper.document.json`` is a *richer* v2 shape -- sections
+embed full IR blocks (``model_dump`` of the 11-type ``BlockUnion``, with
+inlines, figure images, table rows, etc.) rather than the coarse
+``BlockJson`` (9 types + ``other``) modelled here. The coarse models cover the
+section tree and a lossy block summary; downstream consumers needing full
+fidelity should read the emitter output directly (its authoritative types are
+the Pydantic IR models in :mod:`arxiv2md_beta.ir`). Collapsing the coarse and
+rich contracts into one model set is deferred (requires mirroring the IR
+unions or restructuring emitter output).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
 
 
 class PaperMetaJson(BaseModel):

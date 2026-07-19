@@ -142,7 +142,7 @@
   "description": "Section tree + blocks (``paper.document.json``).",
   "properties": {
     "schema_version": {
-      "default": "1.0",
+      "default": "2.0",
       "title": "Schema Version",
       "type": "string"
     },
