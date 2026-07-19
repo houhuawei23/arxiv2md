@@ -9,7 +9,7 @@ import pytest
 
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.cli.runner import run_batch_flow
-from arxiv2md_beta.cli.runner.base import merge_convert_params
+from arxiv2md_beta.cli.runner.batch import merge_convert_params
 from arxiv2md_beta.exceptions import UserInputError
 
 

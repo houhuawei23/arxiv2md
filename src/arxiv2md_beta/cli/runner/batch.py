@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from arxiv2md_beta.cli.runner.base import merge_convert_params
 from arxiv2md_beta.cli.runner.convert import run_convert_flow
 from arxiv2md_beta.exceptions import Arxiv2mdError
 from arxiv2md_beta.utils.logging_config import get_logger
@@ -15,6 +15,17 @@ if TYPE_CHECKING:
     from arxiv2md_beta.cli.params import ConvertParams
 
 logger = get_logger()
+
+
+def merge_convert_params(template: ConvertParams, input_text: str) -> ConvertParams:
+    """Build params for one batch line from a template.
+
+    Uses :func:`dataclasses.replace` so every field of ``ConvertParams`` is
+    carried over -- hand-listing fields previously dropped ``no_cache``,
+    ``naming_scheme``, ``download_pdf`` and ``linked_citations`` in batch mode
+    (silent feature loss).
+    """
+    return replace(template, input_text=input_text)
 
 
 def run_batch_sync(
