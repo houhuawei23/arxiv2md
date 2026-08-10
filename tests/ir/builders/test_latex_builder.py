@@ -308,6 +308,7 @@ As shown previously \cite{smith2020,jones2021}.
         # Should contain citation markers
         assert "smith2020" in md or "1" in md
 
+
 class TestLaTeXBuilderRegressions:
     """Regression tests for IR-builder fixes (A12/A14)."""
 
@@ -321,8 +322,10 @@ class TestLaTeXBuilderRegressions:
         assert "*SmallCapsWord*" not in md
 
     def test_unknown_pandoc_block_emits_comment_not_json(self):
-        """Regression A14: unknown Pandoc block must emit a comment marker,
-        not json.dumps(blk) which leaked raw JSON into the Markdown."""
+        """Regression A14: unknown Pandoc block must emit a comment marker.
+
+        Not ``json.dumps(blk)`` which leaked raw JSON into the Markdown.
+        """
         builder = LaTeXBuilder()
         raw = builder._block_from_pandoc({"t": "TotallyUnknownBlock"}, "sec", 0)
         assert raw is not None
@@ -333,6 +336,30 @@ class TestLaTeXBuilderRegressions:
         # No JSON garbage from json.dumps(blk).
         assert "{" not in raw.content
         assert '"' not in raw.content
+
+    def test_split_macro_def_name_joined_for_pandoc(self):
+        r"""Regression: Pandoc 3.6.4 aborts when a macro name sits on the next line.
+
+        The name token after a definition keyword (e.g. arXiv 2603.04780) must
+        be collapsed onto one line. ``_sanitize_tex_for_pandoc`` does this, and
+        ``build()`` must succeed on such input rather than backtracking.
+        """
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = "\\DeclareRobustCommand\n  \\cdotsshort{\\cdot}"
+        joined = _sanitize_tex_for_pandoc(tex)
+        assert joined == "\\DeclareRobustCommand \\cdotsshort{\\cdot}"
+
+        # End-to-end: a document using the split form must build without error.
+        doc_tex = r"""\documentclass{article}
+\begin{document}
+\DeclareRobustCommand
+  \foo{FOO}
+\foo
+\end{document}"""
+        doc = LaTeXBuilder().build(doc_tex, arxiv_id="t")
+        md = MarkdownEmitter().emit(doc)
+        assert "FOO" in md
 
 
 class TestLaTeXBuilderContentCoverage:

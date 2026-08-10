@@ -71,6 +71,45 @@ def _pandoc_attrs_classes(attrs: list[Any]) -> list[str]:
     return []
 
 
+# Macro-definition keywords whose name token must follow on the same logical
+# line. LaTeX tolerates a newline between the keyword and the name (the newline
+# is absorbed as inter-token space), but Pandoc's LaTeX reader rejects a bare
+# name token after a newline — e.g. ``\DeclareRobustCommand\n  \foo{...}`` raises
+# "unexpected ..." and aborts the whole document parse (observed on arXiv
+# 2603.04780 whose header.tex uses this form). Match the keyword plus optional
+# ``*``, trailing spaces, a newline, leading spaces, lookahead to the name token
+# (``\name`` or ``{...}``); join onto one line with a single space.
+_DEF_KEYWORDS = (
+    r"newcommand|renewcommand|providecommand|DeclareRobustCommand|"
+    r"DeclareMathOperator|DeclarePairedDelimiter|DeclareMathSymbol|"
+    r"DeclareMathDelimiter|DeclareDocumentCommand|NewDocumentCommand|"
+    r"newcites|newenvironment"
+)
+_SPLIT_DEF_NAME_RE = re.compile(r"(\\(?:" + _DEF_KEYWORDS + r")\*?)[ \t]*\n[ \t]*(?=[\\{])")
+
+
+def _sanitize_tex_for_pandoc(tex_content: str) -> str:
+    r"""Normalize LaTeX that Pandoc's reader rejects but LaTeX accepts.
+
+    Currently fixes macro-definition families whose name token sits on the line
+    *after* the keyword (``\DeclareRobustCommand\n  \foo{...}``). Without this,
+    Pandoc aborts the entire conversion with a misleading
+    "expecting end of input" at line 1. Applied after ``\input`` resolution,
+    immediately before the Pandoc call in :meth:`LaTeXBuilder.build`.
+
+    Parameters
+    ----------
+    tex_content : str
+        Expanded LaTeX content.
+
+    Returns:
+    -------
+    str
+        Sanitized content (same text unless a fix-up applied).
+    """
+    return _SPLIT_DEF_NAME_RE.sub(r"\1 ", tex_content)
+
+
 class LaTeXBuilder(IRBuilder):
     r"""Build a :class:`DocumentIR` from LaTeX source via Pandoc JSON AST.
 
@@ -140,6 +179,11 @@ class LaTeXBuilder(IRBuilder):
         # Nth ``\bibitem`` is reference [N]. Used by the Cite handler to render
         # ``\cite{key}`` as ``[N]`` instead of leaking the raw key.
         self._cite_key_to_num = self._extract_bibitem_numbers(tex_content)
+
+        # Normalize LaTeX constructs Pandoc rejects but LaTeX accepts (e.g. a
+        # macro name on the line after ``\DeclareRobustCommand``). Without this
+        # Pandoc aborts the whole parse.
+        tex_content = _sanitize_tex_for_pandoc(tex_content)
 
         # Convert LaTeX → Pandoc JSON AST
         try:
