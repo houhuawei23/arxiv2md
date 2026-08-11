@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from arxiv2md_beta.citations.resolver import extract_identifiers
 from arxiv2md_beta.utils.html_attrs import attr_optional
@@ -37,7 +37,7 @@ def parse_citations_from_html(html: str) -> list[ParsedCitation]:
 
     # Try to find bibliography section
     bib_section = soup.find("section", class_=re.compile(r"ltx_bibliography"))
-    if bib_section:
+    if isinstance(bib_section, Tag):
         # Look for list items in bibliography
         for i, item in enumerate(bib_section.find_all("li")):
             text = item.get_text(" ", strip=True)

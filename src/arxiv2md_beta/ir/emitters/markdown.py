@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from arxiv2md_beta.exceptions import EmitterError
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
@@ -26,6 +28,9 @@ _EMPHASIS_DELIMITERS: dict[str, str] = {
 _EMPHASIS_CLOSERS: dict[str, str] = {
     "underline": "</u>",
 }
+
+# Citation target_id form: ar5iv href "#bib.bibN" -> "ref-N".
+_CITATION_NUM_RE = re.compile(r"ref-(\d+)$")
 
 
 class MarkdownEmitter(IREmitter):
@@ -150,9 +155,21 @@ class MarkdownEmitter(IREmitter):
             if inline.kind == "citation":
                 if self.remove_inline_citations:
                     return ""
+                # ar5iv encodes the bibitem position in the cite href
+                # (#bib.bibN -> target_id "ref-N"). Emit the numeric form [N]
+                # so citations match a numbered reference list instead of bare
+                # natbib keys ("[vicuna ]" -> "[9]").
+                m = _CITATION_NUM_RE.match(inline.target_id or "")
+                if m:
+                    if self.linked_citations:
+                        return f"[{m.group(1)}](#{inline.target_id})"
+                    return f"[{m.group(1)}]"
+                # Fallback: bare key text, with trailing punctuation/whitespace
+                # stripped ("vicuna ", "radford2021learning, " -> "[vicuna]").
+                cite_text = text.strip().rstrip(",").rstrip(";").strip()
                 if inline.target_id and self.linked_citations:
-                    return f"[{text}](#{inline.target_id})"
-                return f"[{text}]"
+                    return f"[{cite_text}](#{inline.target_id})"
+                return f"[{cite_text}]"
             if inline.kind == "internal" and inline.target_id:
                 return f"[{text}](#{inline.target_id})"
             elif inline.url:
@@ -257,7 +274,13 @@ class MarkdownEmitter(IREmitter):
         num = eq.equation_number
         latex = eq.latex
         if num:
-            parts.append(f"$$\n{latex} \\tag{{{num}}}\n$$")
+            # ar5iv equation numbers arrive parenthesized, e.g. "(1)"; \tag adds
+            # its own parens during rendering, so strip surrounding ()/[].
+            num_str = num.strip().strip("()")
+            if num_str:
+                parts.append(f"$$\n{latex} \\tag{{{num_str}}}\n$$")
+            else:
+                parts.append(f"$$\n{latex}\n$$")
         else:
             parts.append(f"$$\n{latex}\n$$")
         return "\n".join(parts)

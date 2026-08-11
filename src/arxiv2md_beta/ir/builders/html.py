@@ -199,7 +199,7 @@ class HTMLBuilder(IRBuilder):
         idx = start_idx
         for child in children:
             if isinstance(child, NavigableString):
-                text = str(child).strip()
+                text = re.sub(r"\s+", " ", str(child)).strip()
                 if text:
                     blocks.append(
                         ParagraphIR(
@@ -437,6 +437,11 @@ class HTMLBuilder(IRBuilder):
                 if text and not text.strip():
                     continue
                 if text:
+                    # Collapse internal whitespace (HTML source line wraps) so a
+                    # soft-wrapped sentence like "counting\nthe objects" does not
+                    # emit as two lines. Leading/trailing space is preserved to
+                    # keep word separation between adjacent inline siblings.
+                    text = re.sub(r"\s+", " ", text)
                     inlines.append(TextIR(text=text))
             elif isinstance(child, Tag):
                 il = self._tag_to_inline(child)
@@ -510,8 +515,8 @@ class HTMLBuilder(IRBuilder):
 
         # Images
         if tag_name == "img":
-            src = attr_str(tag, "src")
-            alt = attr_str(tag, "alt")
+            src = self._image_resolver.resolve(attr_str(tag, "src"))
+            alt = _clean_image_alt(attr_str(tag, "alt"))
             return ImageRefIR(src=src, alt=alt)
 
         # Superscript / Subscript
@@ -657,11 +662,17 @@ class HTMLBuilder(IRBuilder):
 
         # Image figure (default) — resolve local image paths
         imgs = tag.find_all("img")
+        # ar5iv sometimes renders a table as a vector <svg> inside
+        # <figure class="ltx_table"> with no <table> and no <img>. With nothing
+        # to show, emitting only the caption produces a misleading orphan
+        # "> Table N: ..." block; skip it (the rendered table lives in the PDF).
+        if not imgs:
+            return None
         figure_index = self._figure_counter + 1  # 1-based for image_map lookup
         images = [
             ImageRefIR(
                 src=self._resolve_image_src(img, figure_index),
-                alt=attr_str(img, "alt"),
+                alt=_clean_image_alt(attr_str(img, "alt")),
             )
             for img in imgs
         ]
@@ -775,7 +786,7 @@ class HTMLBuilder(IRBuilder):
 
             for child in li.children:
                 if isinstance(child, NavigableString):
-                    text = str(child).strip()
+                    text = re.sub(r"\s+", " ", str(child)).strip()
                     if text:
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
@@ -816,7 +827,7 @@ class HTMLBuilder(IRBuilder):
             item_blocks: list[BlockUnion] = []
             for child in item.children:
                 if isinstance(child, NavigableString):
-                    text = str(child).strip()
+                    text = re.sub(r"\s+", " ", str(child)).strip()
                     if text:
                         item_blocks.append(ParagraphIR(inlines=[TextIR(text=text)]))
                 elif isinstance(child, Tag):
@@ -899,10 +910,46 @@ def _normalize_math_latex(latex: str) -> str:
     Markdown math rendering; collapse them to spaces and trim surrounding
     whitespace while preserving ``\\\\`` line-break commands.
     """
+    # Strip ar5iv/MathJax artifacts from the <annotation encoding="application/x-tex">:
+    # colored-token macros (pgfstroke / xcolor), which serialize as
+    #   \color[rgb]{...}\definecolor[named]{pgfstrokecolor}{rgb}{...}
+    #   \pgfsys@color@rgb@stroke{...}\pgfsys@color@rgb@fill{...}
+    latex = re.sub(r"\\definecolor(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}\{[^}]*\}", " ", latex)
+    latex = re.sub(r"\\color(?:\[[^\]]*\])?\{[^}]*\}", " ", latex)
+    latex = re.sub(r"\\pgfsys@color@[a-z@]+\{[^}]*\}\{[^}]*\}\{[^}]*\}", " ", latex)
+    # Bare \displaystyle is redundant in $$ ... $$ display math.
+    latex = re.sub(r"\\displaystyle\b", " ", latex)
+    # MathJax line-wrap markers: a trailing '%' continues a wrapped line and
+    # leaves stray fragments like '{% \bf Z}' or '% }\text{or}'.
+    latex = re.sub(r"(?<!\\)%", " ", latex)
     # Replace literal newlines/tabs with spaces, then collapse runs of spaces.
     latex = re.sub(r"[\n\r\t]+", " ", latex)
     latex = re.sub(r" {2,}", " ", latex)
+    # Tidy brace-space artifacts left by '%' removal, e.g. '{ \bf Z}'.
+    latex = re.sub(r"\{\s+", "{", latex)
     return latex.strip()
+
+
+# ar5iv placeholder alt texts that carry no information; emit empty alt instead.
+_PLACEHOLDER_IMAGE_ALTS = frozenset(
+    {"", "[uncaptioned image]", "uncaptioned image", "refer to caption", "[ refer to caption ]"}
+)
+
+
+def _clean_image_alt(alt: str) -> str:
+    """Sanitize an ``<img>`` alt string for Markdown ``![alt](src)`` syntax.
+
+    ar5iv uses placeholder alts (``[Uncaptioned image]``, ``Refer to caption``)
+    that contain square brackets and would break Markdown image syntax
+    (``![[Uncaptioned image]](src)`` parses as ``!`` + a wikilink). Replace
+    placeholders with empty alt and strip ``[``/``]`` from any real alt.
+    """
+    if not alt:
+        return ""
+    stripped = alt.strip()
+    if stripped.lower() in _PLACEHOLDER_IMAGE_ALTS:
+        return ""
+    return stripped.replace("[", "").replace("]", "").strip()
 
 
 def _is_citation_link(href: str) -> bool:

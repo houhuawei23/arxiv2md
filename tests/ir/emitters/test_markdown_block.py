@@ -143,7 +143,10 @@ class TestEquation:
         result = emitter._emit_block(b)
         assert "$$" in result
         assert "x=1" in result
-        assert "\\tag{(1)}" in result
+        # ar5iv numbers arrive parenthesized; \tag renders its own parens, so
+        # surrounding () must be stripped to avoid "\tag{(1)}".
+        assert "\\tag{1}" in result
+        assert "\\tag{(1)}" not in result
 
     def test_unnumbered(self, emitter):
         b = EquationIR(latex="x=1")

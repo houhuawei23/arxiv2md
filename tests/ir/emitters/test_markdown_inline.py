@@ -67,12 +67,13 @@ class TestLinkIR:
 
     def test_citation_link(self, emitter):
         n = LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")])
-        assert emitter._emit_inline(n) == "[[1]]"
+        # target_id "ref-N" carries the bibitem position; emit numeric [N].
+        assert emitter._emit_inline(n) == "[1]"
 
     def test_citation_link_linked(self):
         emitter = MarkdownEmitter(linked_citations=True)
         n = LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")])
-        assert emitter._emit_inline(n) == "[[1]](#ref-1)"
+        assert emitter._emit_inline(n) == "[1](#ref-1)"
 
     def test_citation_link_removed(self):
         emitter = MarkdownEmitter(remove_inline_citations=True)

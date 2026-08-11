@@ -20,11 +20,10 @@ if TYPE_CHECKING:
 from arxiv2md_beta.schemas import SectionNode
 from arxiv2md_beta.settings import get_settings
 
-tiktoken: Any
 try:
     import tiktoken
 except ImportError:  # pragma: no cover - optional dependency
-    tiktoken = None
+    tiktoken = None  # type: ignore[assignment]
 
 # ── tiktoken encoding cache ──────────────────────────────────────────────────
 

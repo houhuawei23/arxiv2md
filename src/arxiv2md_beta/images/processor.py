@@ -113,6 +113,9 @@ async def process_images_async(
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
     stem_to_image_path: dict[str, Path] = {}
+    # source_path -> (relative_path, original_filename), used to rebuild the
+    # figure-index map in float-figure order after concurrent processing.
+    source_to_outcome: dict[Path, tuple[Path, str]] = {}
 
     async def _process_one(idx: int, source_path: Path) -> None:
         suffix = source_path.suffix.lower()
@@ -145,6 +148,7 @@ async def process_images_async(
                     )
                 image_map[idx] = relative_path
                 filename_map[idx] = original_filename
+                source_to_outcome[source_path] = (relative_path, original_filename)
                 stem_to_image_path[original_filename] = relative_path
                 stem_to_image_path[relative_path.name] = relative_path
                 if source_path.name != relative_path.name:
@@ -168,6 +172,27 @@ async def process_images_async(
             await asyncio.gather(*tasks)
     finally:
         process_pool.shutdown(wait=True)
+
+    # Rebuild the figure-index map in float-figure order so ar5iv xN.png names
+    # (and positional figure_index fallback) resolve to the correct file.
+    # ``image_map`` currently keys by document-order processing index, which
+    # includes inline table images; only figure-env graphics should occupy the
+    # 0..N-1 slots that HTML floats index into.
+    figure_image_files = tex_source_info.figure_image_files
+    if figure_image_files:
+        ordered_map: dict[int, Path] = {}
+        ordered_filenames: dict[int, str] = {}
+        next_idx = 0
+        for src in figure_image_files:
+            outcome = source_to_outcome.get(src)
+            if outcome is None:
+                continue
+            ordered_map[next_idx] = outcome[0]
+            ordered_filenames[next_idx] = outcome[1]
+            next_idx += 1
+        if ordered_map:
+            image_map = ordered_map
+            filename_map = ordered_filenames
 
     return ProcessedImages(
         image_map=image_map,

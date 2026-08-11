@@ -29,6 +29,9 @@ class TexSourceInfo(NamedTuple):
     main_tex_file: Path | None
     image_files: dict[str, Path]  # figure_label -> local_path
     all_images: list[Path]  # All image files found
+    # \includegraphics inside \begin{figure} envs only, in float order. Drives
+    # the figure-index map so ar5iv xN.png names resolve to the right file.
+    figure_image_files: list[Path] = []
 
 
 class TexSourceNotFoundError(NetworkError):
@@ -372,14 +375,17 @@ def _extract_info_from_dir(extracted_dir: Path) -> TexSourceInfo:
 
     # Build image map from tex files
     image_map: dict[str, Path] = {}
+    figure_image_files: list[Path] = []
     if main_tex:
         image_map = _parse_images_from_tex(main_tex, extracted_dir, all_images)
+        figure_image_files = _parse_figure_env_images_from_tex(main_tex, extracted_dir, all_images)
 
     return TexSourceInfo(
         extracted_dir=extracted_dir,
         main_tex_file=main_tex,
         image_files=image_map,
         all_images=all_images,
+        figure_image_files=figure_image_files,
     )
 
 
@@ -582,15 +588,48 @@ def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
     return "".join(out)
 
 
+def _extract_figure_env_text(text: str) -> str:
+    r"""Return the concatenation of all ``\begin{figure}...\end{figure}`` bodies.
+
+    ar5iv renames rasterized float figures to ``x1.png``, ``x2.png``, ... in
+    **float-figure** order. ``\includegraphics`` that live outside a ``figure``
+    env (inline images inside ``table``/``tabular``/multirow cells, or bare
+    in-text graphics) keep their original names in the HTML and are *not*
+    counted by the ``xN`` scheme. Counting them in TeX document order shifts
+    ``image_map`` indices out of sync with HTML float numbers, so the
+    positional fallback pairs each float caption with the wrong file
+    (e.g. Figure 1's ``x1.png`` -> TeX index 0 = an inline table image).
+
+    Only graphics inside ``figure``/``figure*`` envs are emitted. Nested envs
+    (``tabular``, ``subfigure``, ``overpic``) within a figure are included.
+    """
+    env_re = re.compile(r"\\(begin|end)\s*\{([^}]+)\}")
+    chunks: list[str] = []
+    fig_depth = 0
+    pos = 0
+    for m in env_re.finditer(text):
+        if fig_depth > 0 and m.start() > pos:
+            chunks.append(text[pos : m.start()])
+        kind, name = m.group(1), m.group(2).strip()
+        is_figure = name in ("figure", "figure*")
+        if kind == "begin" and is_figure:
+            fig_depth += 1
+        elif kind == "end" and is_figure and fig_depth > 0:
+            fig_depth -= 1
+        pos = m.end()
+    return "\n".join(chunks)
+
+
 def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path]) -> dict[str, Path]:
     r"""Parse image references from LaTeX file in document order.
 
     Expands \\input/\\include recursively so images in included files are found.
-    Returns ordered mapping (label -> path) matching HTML figure order (x1, x2, ...).
+    Returns ordered mapping (label -> path) covering **every** ``\includegraphics``
+    so all referenced images get processed/copied (inline table images included).
 
     Graphics only used in the title block (``\\icmltitle``, ``\\title``) or author
-    metadata (``\\affiliation{...}`` logos) are excluded so indices align with ar5iv
-    numbered figures when HTML uses opaque names like ``xN.png``.
+    metadata (``\\affiliation{...}`` logos) are excluded so institution logos do
+    not occupy processing slots.
     """
     expanded = _expand_tex_includes(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
@@ -621,6 +660,47 @@ def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path
         _process_match(match)
 
     return image_map
+
+
+def _parse_figure_env_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path]) -> list[Path]:
+    r"""Return ``\includegraphics`` paths that live inside ``\begin{figure}`` envs, in order.
+
+    ar5iv renames rasterized float figures to ``x1.png``, ``x2.png``, ... in
+    **float-figure** order. ``\includegraphics`` outside a ``figure`` env
+    (inline images in ``table``/``tabular``/multirow cells, or bare in-text
+    graphics) keep their original filenames in the HTML and are *not* part of
+    the ``xN`` scheme. Counting them in document order shifts positional
+    indices out of sync with HTML float numbers, so the resolver pairs each
+    float caption with the wrong file (e.g. Figure 1's ``x1.png`` -> an inline
+    table image).
+
+    This list feeds the figure-index map only; every image still gets processed
+    via :func:`_parse_images_from_tex`.
+    """
+    expanded = _expand_tex_includes(tex_file, base_dir)
+    expanded = _strip_title_blocks_for_image_extraction(expanded)
+    expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
+    figure_text = _extract_figure_env_text(expanded)
+    includegraphics_pattern = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
+    overpic_pattern = re.compile(r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}")
+    ordered: list[Path] = []
+    seen_paths: set[Path] = set()
+
+    def _process_match(match: re.Match[str]) -> None:
+        line_start = figure_text.rfind("\n", 0, match.start()) + 1
+        if figure_text[line_start : match.start()].strip().startswith("%"):
+            return
+        image_path_str = match.group(1).strip()
+        image_path = _resolve_image_path(image_path_str, base_dir, all_images)
+        if image_path and image_path not in seen_paths:
+            seen_paths.add(image_path)
+            ordered.append(image_path)
+
+    for match in includegraphics_pattern.finditer(figure_text):
+        _process_match(match)
+    for match in overpic_pattern.finditer(figure_text):
+        _process_match(match)
+    return ordered
 
 
 def _resolve_image_path(image_path_str: str, base_dir: Path, all_images: list[Path]) -> Path | None:

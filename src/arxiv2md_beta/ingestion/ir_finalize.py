@@ -12,12 +12,40 @@ references/appendix output). Both steps live here once now.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
+
+# Top-level bullet ("- " / "* " at column 0) marks a reference entry start.
+# Continuation / wrapped lines never begin with a bullet at column 0, so this
+# reliably segments the list even when wrap lines are un-indented.
+_REF_ENTRY_RE = re.compile(r"^(?P<marker>- |\* )(?P<rest>\S)")
+
+
+def _number_reference_entries(markdown: str) -> str:
+    r"""Number reference entries ``[1]``, ``[2]``, ... and add ``ref-N`` anchors.
+
+    ar5iv numbers bibitems in bibliography order, which equals the order entries
+    appear here, so the Nth entry corresponds to inline ``[N]`` citations and
+    the ``#ref-N`` anchors that ``_fix_citation_links`` points at.
+    """
+    lines = markdown.split("\n")
+    out: list[str] = []
+    n = 0
+    for line in lines:
+        m = _REF_ENTRY_RE.match(line)
+        if m:
+            n += 1
+            marker = m.group("marker")
+            out.append(f'<a id="ref-{n}"></a>')
+            out.append(f"{marker}[{n}] " + line[len(marker) :])
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def emit_split_markdown(
@@ -61,7 +89,11 @@ def emit_split_markdown(
     doc.abstract = []
     doc.sections = ref_irs
     ref_raw = emitter.emit(doc) if ref_irs else ""
-    content_references = finalize_markdown(ref_raw, include_anchors=include_anchors) if ref_raw.strip() else None
+    if ref_raw.strip():
+        ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
+        content_references = _number_reference_entries(ref_final)
+    else:
+        content_references = None
 
     doc.sections = app_irs
     app_raw = emitter.emit(doc) if app_irs else ""

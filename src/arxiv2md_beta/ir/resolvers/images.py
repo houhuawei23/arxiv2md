@@ -1,11 +1,12 @@
 """Unified image path resolution for HTML and LaTeX builders.
 
 Supports multi-strategy fallback:
-    exact path match → stem match → index match → original src
+    exact path match → stem match → xN.png name → index match → original src
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,9 @@ class ImageResolver:
     All value types accept :class:`~pathlib.Path` or ``str``.
     """
 
+    # ar5iv renames rasterized float figures: x1.png, x2.png, ... in figure order.
+    _XNAME_RE = re.compile(r"^x(\d+)\.png$", re.IGNORECASE)
+
     def __init__(
         self,
         index_map: dict[int, Any] | None = None,
@@ -43,14 +47,19 @@ class ImageResolver:
 
     def resolve(self, src: str, *, figure_index: int | None = None) -> str:
         """Return a local path for *src* if known, otherwise *src* unchanged."""
-        if src in self._cache:
-            return self._cache[src]
+        cache_key = f"{src}@{figure_index}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
         resolved = (
-            self._try_exact(src) or self._try_stem(src) or self._try_index(figure_index) or self._try_path_map(src)
+            self._try_exact(src)
+            or self._try_stem(src)
+            or self._try_xname(src)
+            or self._try_index(figure_index)
+            or self._try_path_map(src)
         )
         result = str(resolved) if resolved else src
-        self._cache[src] = result
+        self._cache[cache_key] = result
         return result
 
     def iter_assets(self) -> Iterator[tuple[str | int, Path]]:
@@ -96,6 +105,25 @@ class ImageResolver:
             if Path(key).stem == path_obj.stem or Path(key).name == path_obj.name:
                 return val
 
+        return None
+
+    def _try_xname(self, src: str) -> Path | None:
+        """Resolve ar5iv opaque float names ``x1.png``, ``x2.png``, ...
+
+        ar5iv renames rasterized float figures to ``xN.png`` in figure order.
+        ``N`` is 1-based and matches the TeX float-figure order, so it maps
+        directly to ``index_map[N-1]`` (0-based). This is more precise than
+        positional ``figure_index`` fallback when an HTML page mixes float
+        and inline images.
+        """
+        basename = src.rsplit("/", 1)[-1] if "/" in src else src
+        m = self._XNAME_RE.match(basename)
+        if not m:
+            return None
+        idx = int(m.group(1)) - 1
+        if idx in self._index_map and idx not in self._used_indices:
+            self._used_indices.add(idx)
+            return self._index_map[idx]
         return None
 
     def _try_index(self, figure_index: int | None) -> Path | None:
