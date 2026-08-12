@@ -15,6 +15,7 @@ from arxiv2md_beta.cli.output_finalize import (
     write_split_markdown_sidecars,
 )
 from arxiv2md_beta.cli.params import ConvertParams
+from arxiv2md_beta.output.layout import build_output_basename
 from arxiv2md_beta.schemas import IngestionResult
 
 
@@ -27,6 +28,29 @@ def test_format_output_without_tree() -> None:
     out = format_output("S", "T", "C", include_tree=False)
     assert "T" not in out.split("\n\n")[1] if "\n\n" in out else True
     assert "S" in out and "C" in out
+
+
+def test_build_output_basename_arxiv_ym() -> None:
+    # YYYYMM truncates full YYYYMMDD submission date to 6-digit year-month.
+    got = build_output_basename(
+        "20200101",
+        "Hello World Title Here",
+        source="Arxiv",
+        short=None,
+        naming_scheme="arxiv-ym",
+    )
+    assert got == "202001-Arxiv-Hello-World-Title-Here"
+
+
+def test_build_output_basename_arxiv_ym_with_short() -> None:
+    got = build_output_basename(
+        "20260603",
+        "LimiX",
+        source="Arxiv",
+        short="2M",
+        naming_scheme="arxiv-ym",
+    )
+    assert got == "202606-Arxiv-2M-LimiX"
 
 
 def test_resolve_paper_output_dir_from_metadata_str(tmp_path: Path) -> None:
@@ -46,9 +70,23 @@ async def test_write_split_markdown_sidecars(tmp_path: Path) -> None:
         content_references="refs",
         content_appendix="app",
     )
-    await write_split_markdown_sidecars(tmp_path, "paper.md", r)
+    await write_split_markdown_sidecars(tmp_path, "paper.md", r, naming_scheme="classic")
     assert (tmp_path / "paper-References.md").read_text() == "refs"
     assert (tmp_path / "paper-Appendix.md").read_text() == "app"
+
+
+@pytest.mark.asyncio
+async def test_write_split_markdown_sidecars_arxiv_ym_fixed(tmp_path: Path) -> None:
+    r = IngestionResult(
+        summary="s",
+        sections_tree="",
+        content="c",
+        content_references="refs",
+        content_appendix="app",
+    )
+    await write_split_markdown_sidecars(tmp_path, "paper.md", r, naming_scheme="arxiv-ym")
+    assert (tmp_path / "References.md").read_text() == "refs"
+    assert (tmp_path / "Appendix.md").read_text() == "app"
 
 
 @pytest.mark.asyncio

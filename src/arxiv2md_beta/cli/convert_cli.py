@@ -47,9 +47,9 @@ def apply_convert_cli_settings(
         )
         raise typer.Exit(code=2)
 
-    if naming_scheme is not None and naming_scheme not in ("classic", "paper-pipeline"):
+    if naming_scheme is not None and naming_scheme not in ("classic", "paper-pipeline", "arxiv-ym"):
         typer.echo(
-            f"Invalid --naming-scheme {naming_scheme!r}; expected classic or paper-pipeline.",
+            f"Invalid --naming-scheme {naming_scheme!r}; expected classic, paper-pipeline, or arxiv-ym.",
             err=True,
         )
         raise typer.Exit(code=2)

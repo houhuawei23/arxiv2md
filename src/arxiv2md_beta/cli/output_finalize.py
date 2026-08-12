@@ -20,6 +20,10 @@ from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
 
+# Schemes that emit fixed internal filenames (paper.md, References.md, Appendix.md, <dir>.pdf)
+# instead of stem-prefixed ones.
+_FIXED_INTERNAL_SCHEMES = frozenset({"paper-pipeline", "arxiv-ym"})
+
 
 def _fix_citation_links(content: str, refs_filename: str) -> str:
     """Replace #ref-N anchors with relative links to References file."""
@@ -30,14 +34,14 @@ async def write_split_markdown_sidecars(
     paper_output_dir: Path,
     output_filename: str,
     result: IngestionResult,
-    naming_scheme: str = "classic",
+    naming_scheme: str = "arxiv-ym",
 ) -> None:
     """Write ``-References.md`` and ``-Appendix.md`` when HTML ingestion produced a split."""
     has_ref = bool(result.content_references and result.content_references.strip())
     has_app = bool(result.content_appendix and result.content_appendix.strip())
     if not has_ref and not has_app:
         return
-    if naming_scheme == "paper-pipeline":
+    if naming_scheme in _FIXED_INTERNAL_SCHEMES:
         ref_path = paper_output_dir / "References.md"
         app_path = paper_output_dir / "Appendix.md"
     else:
@@ -200,7 +204,7 @@ async def finalize_convert_output(
         include_tree=params.include_tree,
     )
 
-    if naming_scheme == "paper-pipeline":
+    if naming_scheme in _FIXED_INTERNAL_SCHEMES:
         output_filename = "paper.md"
     elif submission_date and title:
         basename = build_output_basename(
@@ -227,7 +231,7 @@ async def finalize_convert_output(
     if pdf_fetch is not None and params.download_pdf:
         arxiv_id, version = pdf_fetch
         try:
-            if naming_scheme == "paper-pipeline":
+            if naming_scheme in _FIXED_INTERNAL_SCHEMES:
                 pdf_filename = f"{paper_output_dir.name}.pdf"
             else:
                 pdf_filename = output_filename.replace(".md", ".pdf")

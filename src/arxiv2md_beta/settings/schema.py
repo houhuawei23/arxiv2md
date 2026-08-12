@@ -69,12 +69,12 @@ class OutputNamingSection(BaseModel):
     default_unknown_title: str
     sanitize_source_max_length: int = Field(ge=1)
     sanitize_short_max_length: int = Field(ge=1)
-    naming_scheme: Literal["classic", "paper-pipeline"] = Field(
-        default="paper-pipeline",
+    naming_scheme: Literal["classic", "paper-pipeline", "arxiv-ym"] = Field(
+        default="arxiv-ym",
         description=(
-            "Output naming scheme. paper-pipeline: {source}-{date}-{title} with fixed"
-            " internal filenames (paper.md, Appendix.md, References.md). classic: legacy"
-            " {date}-{source}-{title} naming."
+            "Output naming scheme. arxiv-ym (default): {YYYYMM}-{source}-{short}-{title} with"
+            " fixed internal filenames (paper.md, Appendix.md, References.md). paper-pipeline:"
+            " {source}-{date}-{title} (fixed filenames). classic: legacy {date}-{source}-{title}."
         ),
     )
 

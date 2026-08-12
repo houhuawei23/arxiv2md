@@ -217,7 +217,7 @@ def convert_cmd(
     naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
-        help="Output naming scheme: classic (default) or paper-pipeline.",
+        help="Output naming scheme: arxiv-ym (default), paper-pipeline, or classic.",
     ),
     download_pdf: bool = typer.Option(
         True,
@@ -394,7 +394,7 @@ def batch_cmd(
     naming_scheme: str | None = typer.Option(
         None,
         "--naming-scheme",
-        help="Output naming scheme: classic (default) or paper-pipeline.",
+        help="Output naming scheme: arxiv-ym (default), paper-pipeline, or classic.",
     ),
     download_pdf: bool = typer.Option(
         True,

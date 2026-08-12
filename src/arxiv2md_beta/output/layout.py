@@ -41,6 +41,41 @@ def sanitize_title_for_filesystem(title: str, max_length: int = 220, *, settings
     return _sanitize_for_filesystem(title, max_length)
 
 
+def _compose_basename(
+    scheme: str,
+    date_str: str,
+    safe_source: str,
+    safe_short: str,
+    safe_title: str,
+) -> str:
+    """Join the 3-4 segments in the order the naming scheme dictates."""
+    if scheme == "paper-pipeline":
+        if safe_short:
+            return f"{safe_source}-{date_str}-{safe_short}-{safe_title}"
+        return f"{safe_source}-{date_str}-{safe_title}"
+    # classic and arxiv-ym share the same segment order: [date]-[source]-[short]-[title]
+    if safe_short:
+        return f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
+    return f"{date_str}-{safe_source}-{safe_title}"
+
+
+def _date_segment(
+    scheme: str,
+    submission_date: str | None,
+    *,
+    fallback: str,
+) -> str:
+    """Render the date segment per scheme.
+
+    classic / paper-pipeline use the full YYYYMMDD submission date.
+    arxiv-ym truncates it to YYYYMM (e.g. 20260603 -> 202606) so the prefix
+    encodes the arXiv id's year-month.
+    """
+    if scheme == "arxiv-ym" and submission_date and len(submission_date) == 8 and submission_date.isdigit():
+        return submission_date[:6]
+    return submission_date if submission_date else fallback
+
+
 def build_output_basename(
     submission_date: str | None,
     title: str | None,
@@ -54,8 +89,9 @@ def build_output_basename(
 ) -> str:
     """Build output basename for directory and files.
 
-    classic: [Date]-[Source]-[Short]-[Paper Name]
-    paper-pipeline: [Source]-[Date]-[Short]-[Paper Name]
+    classic:        [Date]-[Source]-[Short]-[Paper Name]   (Date = full YYYYMMDD)
+    paper-pipeline: [Source]-[Date]-[Short]-[Paper Name]   (Date = full YYYYMMDD)
+    arxiv-ym:       [YYYYMM]-[Source]-[Short]-[Paper Name] (YYYYMM, e.g. 202606)
     """
     s = settings or get_settings()
     on = s.output_naming
@@ -63,7 +99,7 @@ def build_output_basename(
     max_title_length = max_title_length if max_title_length is not None else on.max_title_length
     max_basename_length = max_basename_length if max_basename_length is not None else on.max_basename_length
 
-    date_str = submission_date if submission_date else on.default_unknown_title
+    date_str = _date_segment(scheme, submission_date, fallback=on.default_unknown_title)
     src_max = on.sanitize_source_max_length
     short_max = on.sanitize_short_max_length
     safe_source = _sanitize_for_filesystem(source, max_length=src_max) or s.cli_defaults.source
@@ -72,43 +108,26 @@ def build_output_basename(
         title or on.default_unknown_title, max_length=max_title_length, settings=s
     )
 
-    if scheme == "paper-pipeline":
-        if safe_short:
-            basename = f"{safe_source}-{date_str}-{safe_short}-{safe_title}"
-        else:
-            basename = f"{safe_source}-{date_str}-{safe_title}"
-    else:
-        if safe_short:
-            basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
-        else:
-            basename = f"{date_str}-{safe_source}-{safe_title}"
+    basename = _compose_basename(scheme, date_str, safe_source, safe_short, safe_title)
 
     if len(basename) > max_basename_length:
-        max_dir_length = max_basename_length
+        # Fixed (non-title) prefix; shrink the title to fit max_basename_length.
         if safe_short:
-            if scheme == "paper-pipeline":
-                fixed_part = f"{safe_source}-{date_str}-{safe_short}-"
-            else:
-                fixed_part = f"{date_str}-{safe_source}-{safe_short}-"
+            fixed_part = (
+                f"{safe_source}-{date_str}-{safe_short}-"
+                if scheme == "paper-pipeline"
+                else f"{date_str}-{safe_source}-{safe_short}-"
+            )
         else:
             fixed_part = f"{safe_source}-{date_str}-" if scheme == "paper-pipeline" else f"{date_str}-{safe_source}-"
-        max_title_in_basename = max_dir_length - len(fixed_part)
+        max_title_in_basename = max_basename_length - len(fixed_part)
         if len(safe_title) > max_title_in_basename:
             safe_title = sanitize_title_for_filesystem(
                 title or on.default_unknown_title,
                 max_length=max_title_in_basename,
                 settings=s,
             )
-        if scheme == "paper-pipeline":
-            if safe_short:
-                basename = f"{safe_source}-{date_str}-{safe_short}-{safe_title}"
-            else:
-                basename = f"{safe_source}-{date_str}-{safe_title}"
-        else:
-            if safe_short:
-                basename = f"{date_str}-{safe_source}-{safe_short}-{safe_title}"
-            else:
-                basename = f"{date_str}-{safe_source}-{safe_title}"
+        basename = _compose_basename(scheme, date_str, safe_source, safe_short, safe_title)
 
     return basename
 
