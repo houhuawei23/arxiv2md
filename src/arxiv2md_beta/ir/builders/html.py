@@ -68,6 +68,7 @@ class HTMLBuilder(IRBuilder):
         image_map: Mapping[int, Path | str] | None = None,
         image_stem_map: Mapping[str, Path | str] | None = None,
         image_resolver: ImageResolver | None = None,
+        svg_output_dir: Path | None = None,
     ):
         self.image_map = dict(image_map or {})
         self.image_stem_map = dict(image_stem_map or {})
@@ -78,6 +79,8 @@ class HTMLBuilder(IRBuilder):
         self._figure_counter = 0
         self._used_image_indices: set[int] = set()
         self._pending_footnotes: deque[BlockUnion] = deque()
+        self._svg_output_dir = svg_output_dir
+        self._svg_counter = 0
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -661,7 +664,16 @@ class HTMLBuilder(IRBuilder):
                 return self._build_table(inner_table, section_id, base_idx)
 
         # Image figure (default) — resolve local image paths
-        imgs = tag.find_all("img")
+        imgs: list[Tag] = list(tag.find_all("img"))
+        if not imgs:
+            svg = tag.find("svg")
+            if isinstance(svg, Tag) and self._svg_output_dir is not None:
+                self._svg_output_dir.mkdir(parents=True, exist_ok=True)
+                self._svg_counter += 1
+                filename = f"figure-{self._svg_counter}.svg"
+                path = self._svg_output_dir / filename
+                path.write_text(str(svg), encoding="utf-8")
+                imgs.append(svg)
         # ar5iv sometimes renders a table as a vector <svg> inside
         # <figure class="ltx_table"> with no <table> and no <img>. With nothing
         # to show, emitting only the caption produces a misleading orphan
@@ -671,7 +683,11 @@ class HTMLBuilder(IRBuilder):
         figure_index = self._figure_counter + 1  # 1-based for image_map lookup
         images = [
             ImageRefIR(
-                src=self._resolve_image_src(img, figure_index),
+                src=(
+                    f"images/figure-{self._svg_counter}.svg"
+                    if img.name == "svg"
+                    else self._resolve_image_src(img, figure_index)
+                ),
                 alt=_clean_image_alt(attr_str(img, "alt")),
             )
             for img in imgs

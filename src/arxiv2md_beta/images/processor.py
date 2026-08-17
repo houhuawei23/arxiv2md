@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import subprocess
+import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -17,6 +19,64 @@ from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import iterable_task_progress
+
+
+def _compile_tex_figures(tex_source_info: TexSourceInfo, images_dir: Path) -> list[Path]:
+    """Best-effort rasterization of TikZ/PGFPlots figure snippets."""
+    main = tex_source_info.main_tex_file
+    if main is None:
+        return []
+    source = main.read_text(encoding="utf-8", errors="replace")
+    preamble = source.split(r"\begin{document}", 1)[0]
+    snippets = sorted(tex_source_info.extracted_dir.rglob("*.tex"))
+    snippets = [p for p in snippets if p != main and ("tikzpicture" in p.read_text(encoding="utf-8", errors="ignore"))]
+    results: list[Path] = []
+    for index, snippet in enumerate(snippets, 1):
+        with tempfile.TemporaryDirectory(prefix="arxiv2md-tikz-") as tmp:
+            work = Path(tmp)
+            wrapper = work / "figure.tex"
+            rel = snippet.relative_to(tex_source_info.extracted_dir).as_posix()
+            wrapper.write_text(
+                preamble + "\n\\pagestyle{empty}\n\\begin{document}\n\\input{" + rel + "}\n\\end{document}\n",
+                encoding="utf-8",
+            )
+            try:
+                subprocess.run(
+                    [
+                        "pdflatex",
+                        "-interaction=nonstopmode",
+                        "-halt-on-error",
+                        "-output-directory",
+                        str(work),
+                        str(wrapper),
+                    ],
+                    cwd=tex_source_info.extracted_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=45,
+                    check=True,
+                )
+                png = images_dir / f"figure-{index}.png"
+                subprocess.run(
+                    [
+                        "pdftocairo",
+                        "-png",
+                        "-singlefile",
+                        "-r",
+                        "180",
+                        str(work / "figure.pdf"),
+                        str(png.with_suffix("")),
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                    check=True,
+                )
+                if png.exists():
+                    results.append(png)
+            except (OSError, subprocess.SubprocessError):
+                logger.warning(f"Failed to compile TeX figure: {snippet.name}")
+    return results
 
 
 def _trim_whitespace(img: Image.Image, tolerance: int = 100) -> Image.Image:
@@ -99,6 +159,11 @@ async def process_images_async(
         image_files = tex_source_info.all_images
 
     if not image_files:
+        compiled = _compile_tex_figures(tex_source_info, images_dir)
+        if compiled:
+            relative = {i: p.relative_to(output_dir) for i, p in enumerate(compiled)}
+            stem_map = {p.stem: p.relative_to(output_dir) for p in compiled}
+            return ProcessedImages(relative, images_dir, {}, stem_map)
         logger.warning("No images found in TeX source")
         return ProcessedImages(image_map={}, images_dir=images_dir, filename_map={}, stem_to_image_path={})
 

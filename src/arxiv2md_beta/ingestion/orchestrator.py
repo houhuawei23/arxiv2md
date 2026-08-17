@@ -264,7 +264,11 @@ class IngestionOrchestrator:
 
     def _build_ir(self) -> None:
         assert self._parsed is not None
-        builder = HTMLBuilder(image_resolver=self._image_resolver)
+        assert self._paper_output_dir is not None
+        builder = HTMLBuilder(
+            image_resolver=self._image_resolver,
+            svg_output_dir=self._paper_output_dir / self._images_dir_name,
+        )
         # 直接复用 parse_arxiv_html 的解析结果，避免 builder 再次解析完整 HTML
         self._doc = builder.build(self._parsed, arxiv_id=self._query.arxiv_id)
         self._populate_assets()
