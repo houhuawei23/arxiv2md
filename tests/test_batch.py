@@ -22,7 +22,6 @@ def _template() -> ConvertParams:
         short=None,
         no_images=True,
         remove_refs=False,
-        remove_toc=False,
         remove_inline_citations=False,
         section_filter_mode="exclude",
         sections=None,
@@ -38,9 +37,9 @@ def test_merge_convert_params_preserves_all_fields() -> None:
     """Regression: batch must carry every ConvertParams field, not a hand-picked subset.
 
     Previously ``merge_convert_params`` hand-listed 16 of 21 non-input fields and
-    silently dropped ``no_cache``/``naming_scheme``/``download_pdf``/
-    ``linked_citations``, so ``batch --no-cache`` used the cache,
-    ``--linked-citations`` produced plain ``[N]``, etc.
+    silently dropped ``no_cache``/``download_pdf``/``linked_citations``, so
+    ``batch --no-cache`` used the cache, ``--linked-citations`` produced plain
+    ``[N]``, etc.
     """
     template = ConvertParams(
         input_text="",
@@ -50,7 +49,6 @@ def test_merge_convert_params_preserves_all_fields() -> None:
         short=None,
         no_images=True,
         remove_refs=True,
-        remove_toc=False,
         remove_inline_citations=True,
         section_filter_mode="exclude",
         sections="References",
@@ -60,7 +58,6 @@ def test_merge_convert_params_preserves_all_fields() -> None:
         structured_output="full",
         emit_graph_csv=True,
         no_cache=True,
-        naming_scheme="paper-pipeline",
         download_pdf=False,
         linked_citations=True,
     )
@@ -72,9 +69,9 @@ def test_merge_convert_params_preserves_all_fields() -> None:
         if field_name == "input_text":
             assert getattr(merged, field_name) == "2501.11120"
             continue
-        assert getattr(merged, field_name) == getattr(template, field_name), (
-            f"merge_convert_params dropped field {field_name!r}"
-        )
+        assert getattr(merged, field_name) == getattr(
+            template, field_name
+        ), f"merge_convert_params dropped field {field_name!r}"
 
 
 @pytest.mark.asyncio

@@ -42,9 +42,7 @@ _REGEN = os.environ.get("GOLDEN_REGEN") == "1"
 
 def _build_doc():
     tex = resolve_latex_includes(FIXTURE, FIXTURE.parent)
-    doc = LaTeXBuilder(image_resolver=ImageResolver()).build(
-        tex, arxiv_id="sample", title="A Sample Paper for Testing"
-    )
+    doc = LaTeXBuilder(image_resolver=ImageResolver()).build(tex, arxiv_id="sample", title="A Sample Paper for Testing")
     pipeline = PassPipeline()
     pipeline.add(SectionFilterPass(mode="exclude", selected=[]))
     pipeline.add(NumberingPass())
@@ -72,9 +70,7 @@ def _emit_parts(doc):
 def _emit_json(doc):
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        JsonEmitter(mode="full").write_bundle(
-            doc, tmp_path, images_subdir="images", emit_graph_csv=False
-        )
+        JsonEmitter(mode="full").write_bundle(doc, tmp_path, images_subdir="images", emit_graph_csv=False)
         meta = json.loads((tmp_path / "paper.meta.json").read_text())
         document = json.loads((tmp_path / "paper.document.json").read_text())
         assets = json.loads((tmp_path / "paper.assets.json").read_text())
@@ -87,9 +83,7 @@ def _check(golden_name: str, actual: str) -> None:
         golden_path.write_text(actual)
         pytest.skip(f"regenerated {golden_name}")
         return
-    assert golden_path.exists(), (
-        f"golden file missing: {golden_path}. Run with GOLDEN_REGEN=1 to create."
-    )
+    assert golden_path.exists(), f"golden file missing: {golden_path}. Run with GOLDEN_REGEN=1 to create."
     expected = golden_path.read_text()
     assert actual == expected, (
         f"{golden_name} drifted. If intended, regenerate with GOLDEN_REGEN=1.\n"
@@ -117,7 +111,10 @@ def json_parts(doc):
     return _emit_json(doc)
 
 
-@pytest.mark.parametrize("idx,name", [(0, "sample_paper.main.md"), (1, "sample_paper.refs.md"), (2, "sample_paper.appendix.md")])
+@pytest.mark.parametrize(
+    "idx,name",
+    [(0, "sample_paper.main.md"), (1, "sample_paper.refs.md"), (2, "sample_paper.appendix.md")],
+)
 def test_markdown_golden(parts, idx, name):
     actual = parts[idx]
     if actual is None:

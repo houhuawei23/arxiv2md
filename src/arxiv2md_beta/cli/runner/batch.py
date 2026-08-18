@@ -12,7 +12,7 @@ from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
 
 if TYPE_CHECKING:
-    from arxiv2md_beta.cli.params import ConvertParams
+    from arxiv2md_beta.params import ConvertParams
 
 logger = get_logger()
 
@@ -67,22 +67,25 @@ async def run_batch_flow(
         sem = asyncio.Semaphore(max(1, max_concurrency))
 
         async def run_one(line: str, index: int) -> tuple[str, str | None, str | None]:
-            if delay_seconds > 0 and index > 0:
-                await asyncio.sleep(delay_seconds)
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 return (line, None, None)
             merged = merge_convert_params(params_template, stripped)
             async with sem:
+                # Sleep inside the semaphore so concurrent tasks actually space
+                # out their network bursts (outside it, everyone sleeps in
+                # parallel and the delay has no rate-limiting effect).
+                if delay_seconds > 0 and index > 0:
+                    await asyncio.sleep(delay_seconds)
                 try:
                     out = await run_convert_flow(merged)
                     return (stripped, None, str(out.resolve()))
                 except (Arxiv2mdError, OSError) as exc:
-                    # Arxiv2mdError covers UserInputError/NetworkError/ParseError/
-                    # BuilderError/IngestionError/etc. (previously raised as bare
-                    # ValueError/RuntimeError); OSError retained for filesystem
-                    # failures so one bad paper does not crash the batch.
                     return (stripped, str(exc), None)
+                except Exception as exc:
+                    # Unexpected errors (unwrapped httpx bugs, etc.) must not
+                    # escape gather() and cancel sibling conversions.
+                    return (stripped, f"{type(exc).__name__}: {exc}", None)
 
         if continue_on_error:
             tasks = [run_one(line, i) for i, line in enumerate(lines)]

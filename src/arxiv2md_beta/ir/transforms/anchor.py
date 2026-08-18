@@ -48,7 +48,10 @@ class AnchorPass(IRPass):
                 block.anchor = block.table_id or block.label
         elif t == "equation":
             if not block.anchor:
-                block.anchor = block.label or f"eq-{block.equation_number or '?'}"
+                # Equation numbers arrive parenthesized ("(3)"); anchors must
+                # be bare digits ("eq-3") to stay valid HTML ids.
+                num = str(block.equation_number or "").strip().strip("()[]")
+                block.anchor = block.label or (f"eq-{num}" if num else "eq-?")
         elif t == "algorithm":
             if not block.anchor:
                 block.anchor = block.label or f"alg-{block.algorithm_number or '?'}"

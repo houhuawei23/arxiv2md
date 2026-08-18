@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
@@ -27,8 +27,8 @@ async def ingest_local_html(
     short: str | None = None,
     no_images: bool = False,
     remove_refs: bool = False,
-    remove_toc: bool = False,
     remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     structured_output: str = "none",
@@ -53,7 +53,6 @@ async def ingest_local_html(
 
     # Use provided metadata or fall back to parsed
     title = parsed.title or query.title or query.html_path.stem
-    authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
     submission_date = query.submission_date
 
     # Create paper-specific output directory
@@ -107,90 +106,32 @@ async def ingest_local_html(
     except Exception as e:
         raise LocalHtmlIngestionError(f"Failed to build IR: {e}") from e
 
-    # Emit markdown with reference/appendix split (shared finalization).
-    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
-    from arxiv2md_beta.output.markdown_utils import (
-        count_sections,
-        create_sections_tree,
-        format_token_count,
-    )
-    from arxiv2md_beta.settings import get_settings
+    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
+    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 
-    content, content_references, content_appendix = emit_split_markdown(
+    return await asyncio.to_thread(
+        finalize_ingestion_output,
         doc,
-        reference_section_titles=get_settings().ingestion.reference_section_titles,
-        remove_inline_citations=remove_inline_citations,
-    )
-
-    m = doc.metadata
-    result_title = m.title or title
-    author_names = [a.name for a in m.authors] or (list(authors) if authors else [])
-    summary_lines: list[str] = []
-    if result_title:
-        summary_lines.append(f"# Title: {result_title}")
-    summary_lines.append(f"- ArXiv: {arxiv_id}")
-    if author_names:
-        summary_lines.append(f"- Authors: {', '.join(author_names)}")
-    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
-    tree_lines = ["Sections:"]
-    if m.abstract_text:
-        tree_lines.append("Abstract")
-    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
-    sections_tree = "\n".join(tree_lines)
-    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
-    token_estimate = format_token_count(sections_tree + "\n" + token_body)
-    if token_estimate:
-        summary_lines.append(f"- Estimated tokens: {token_estimate}")
-    result = IngestionResult(
-        summary="\n".join(summary_lines),
-        sections_tree=sections_tree,
-        content=content,
-        content_references=content_references,
-        content_appendix=content_appendix,
-    )
-
-    # Save metadata
-    try:
-        from arxiv2md_beta.output.metadata import save_paper_metadata
-
-        metadata_dict = {
-            "title": result_title,
-            "authors": author_names,
-            "abstract": m.abstract_text,
+        arxiv_id=arxiv_id,
+        paper_output_dir=paper_output_dir,
+        paper_yml_data={
+            "title": doc.metadata.title or title,
+            "authors": [a.name for a in doc.metadata.authors],
+            "abstract": doc.metadata.abstract_text,
             "submission_date": submission_date,
             "source": source or query.source,
             "html_path": str(query.html_path),
-        }
-        save_paper_metadata(metadata_dict, paper_output_dir)
-    except Exception as e:
-        logger.warning(f"Failed to save paper.yml: {e}")
-
-    structured_export: dict[str, Any] = {}
-    try:
-        from arxiv2md_beta.ingestion.ir_finalize import run_structured_export
-
-        structured_export = run_structured_export(
-            doc,
-            paper_output_dir,
-            mode=structured_output,
-            emit_graph_csv=emit_graph_csv,
-            images_subdir=images_dir_name,
-        )
-    except Exception as e:
-        logger.warning(f"Structured JSON export failed: {e}")
-
-    metadata: dict[str, Any] = {
-        "title": result_title,
-        "authors": author_names,
-        "abstract": m.abstract_text,
-        "submission_date": submission_date,
-        "paper_output_dir": paper_output_dir,
-        "html_path": str(query.html_path),
-        "arxiv_id": arxiv_id,
-        "structured_export": structured_export,
-    }
-
-    return result, metadata
+        },
+        linked_citations=linked_citations,
+        remove_inline_citations=remove_inline_citations,
+        structured_output=structured_output,
+        emit_graph_csv=emit_graph_csv,
+        images_subdir=images_dir_name,
+        extra_metadata={
+            "submission_date": submission_date,
+            "html_path": str(query.html_path),
+        },
+    )
 
 
 def _copy_associated_files(html_path: Path, images_dir: Path) -> None:

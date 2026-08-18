@@ -165,25 +165,13 @@ class TextCollector(IRVisitor):
         pass
 
 
-class FigureCollector(IRVisitor):
-    """Collect all FigureIR nodes with their figure_ids."""
-
-    def __init__(self) -> None:
-        self.figures: list[IRNode] = []
-
-    def visit_figure(self, node: IRNode) -> None:
-        self.figures.append(node)
-
-    def visit_default(self, node: IRNode) -> None:
-        pass
-
-
 class NodeCounter(IRVisitor):
-    """Count occurrences of each node type."""
+    """Count nodes by ``type`` discriminator (stats, test coverage of child specs)."""
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
 
     def visit_default(self, node: IRNode) -> None:
-        node_type = node.type
-        self.counts[node_type] = self.counts.get(node_type, 0) + 1
+        t = getattr(node, "type", None)
+        if isinstance(t, str):
+            self.counts[t] = self.counts.get(t, 0) + 1

@@ -42,12 +42,14 @@
 arxiv2md-beta/
 ├── src/arxiv2md_beta/          # 主源代码目录
 │   ├── __init__.py             # 包初始化，版本号
+│   ├── params.py               # ConvertParams（CLI 与 ingestion 共享，避免 ingestion→cli 依赖倒置）
 │   ├── __main__.py             # python -m 入口，转调 cli.main
 │   ├── cli/                    # Typer 应用与异步编排
 │   │   ├── app.py              # Typer：callback + convert / batch / images / paper-yml / config / bibtex
 │   │   ├── convert_cli.py      # convert 命令参数处理
 │   │   ├── config_cmd.py       # config 子命令
-│   │   ├── params.py           # ConvertParams / ImagesParams / PaperYmlParams
+│   │   │   ├── options.py       # convert/batch 共享的 Typer 选项注解
+│   │   └── params.py       # ImagesParams / PaperYmlParams（ConvertParams 在包根 params.py）
 │   │   ├── runner/             # 各命令的 asyncio 业务流
 │   │   ├── output_finalize.py  # 输出收尾与侧车 JSON
 │   │   └── helpers.py          # collect_sections 等
@@ -86,9 +88,8 @@ arxiv2md-beta/
 │   ├── images/                 # 图片处理
 │   │   ├── resolver.py         # process_images / process_images_async
 │   │   └── extract.py          # 仅提取图片的 CLI/API 入口
-│   ├── cache/                  # 结果缓存
-│   │   └── result_cache.py
 │   ├── network/                # HTTP 客户端、arXiv API、Crossref、OpenAlex
+│   │   └── retry.py            # 共享 best-effort 重试循环（指数退避）
 │   ├── output/                 # 输出格式化、目录布局、metadata、结构化导出
 │   ├── query/                  # 查询解析
 │   ├── schemas/                # Pydantic 数据模型
@@ -223,7 +224,7 @@ arxiv2md-beta convert 2501.11120 -o ./output --source "ICML" --short "Dreamer3"
 arxiv2md-beta convert 2501.11120 --no-images
 
 # 移除参考文献和目录
-arxiv2md-beta convert 2501.11120 --remove-refs --remove-toc
+arxiv2md-beta convert 2501.11120 --remove-refs
 
 # Section 过滤
 arxiv2md-beta convert 2501.11120 --sections "Abstract,Introduction,Method"

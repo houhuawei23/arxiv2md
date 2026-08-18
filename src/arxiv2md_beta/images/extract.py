@@ -27,4 +27,3 @@ async def extract_arxiv_images(
     if not tex_source_info.main_tex_file:
         logger.warning("No main .tex file found; processing image files discovered in the extract.")
     return await process_images_async(tex_source_info, output_dir, images_subdir)
-

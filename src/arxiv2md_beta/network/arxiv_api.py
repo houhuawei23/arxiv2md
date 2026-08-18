@@ -12,6 +12,7 @@ from loguru import logger
 
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.html_attrs import attr_str
 
 
@@ -21,7 +22,7 @@ def submission_date_from_new_style_arxiv_id(arxiv_id: str) -> str | None:
     Used when the Atom API is unavailable (e.g. rate limit) so output dirs and ``paper.yml``
     still get a stable date. See https://arxiv.org/help/arxiv_identifier
     """
-    base = arxiv_id.split("v")[0].strip()
+    base = strip_version(arxiv_id)
     m = re.match(r"^(\d{2})(\d{2})\.(\d{4,5})$", base)
     if not m:
         return None
@@ -132,7 +133,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
     dict
         Metadata including title, authors, published date, etc., enriched with Crossref data if available
     """
-    base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
+    base_id = strip_version(arxiv_id)
 
     s = get_settings()
     h = s.http
@@ -547,7 +548,7 @@ def _generate_bibtex(
 
     if arxiv_id:
         # Remove version suffix for eprint
-        base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
+        base_id = strip_version(arxiv_id)
         bibtex_lines.append(f"  eprint = {{{base_id}}},")
         bibtex_lines.append("  archivePrefix = {arXiv},")
 

@@ -143,9 +143,11 @@ class TestFigureReorderPass:
             )
             FigureReorderPass().run(doc)
             blocks = doc.sections[0].blocks
-            assert [b.type for b in blocks] == ["paragraph", "figure", "paragraph"], (
-                f"Fig.-style citation did not trigger reorder: {citation!r}"
-            )
+            assert [b.type for b in blocks] == [
+                "paragraph",
+                "figure",
+                "paragraph",
+            ], f"Fig.-style citation did not trigger reorder: {citation!r}"
 
     def test_citation_inside_math_is_seen(self):
         """Regression: citations embedded in MathIR.latex must be visible to matching.

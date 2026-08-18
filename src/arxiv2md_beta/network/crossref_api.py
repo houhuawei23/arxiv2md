@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime
 
-import httpx
+from loguru import logger
 
-from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 
 
@@ -27,8 +26,9 @@ def is_arxiv_doi(doi: str) -> bool:
     """
     if not doi:
         return False
-    doi_lower = doi.lower()
-    return "arxiv" in doi_lower or doi_lower.startswith("10.48550/arxiv")
+    # Prefix match only: a substring test would misclassify journal DOIs whose
+    # path merely contains "arxiv" (e.g. 10.1234/arxiv-study).
+    return doi.lower().startswith("10.48550/arxiv")
 
 
 async def fetch_crossref_metadata(doi: str) -> dict | None:
@@ -44,58 +44,32 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
     dict | None
         Metadata dictionary if successful, None if failed or not found
     """
-    if not doi:
-        return None
-
-    # Skip arXiv DOIs as they're usually not in Crossref
-    if is_arxiv_doi(doi):
+    if not doi or is_arxiv_doi(doi):
+        # arXiv DOIs are usually not in Crossref.
         return None
 
     # Normalize DOI (remove http://dx.doi.org/ prefix if present)
     doi_clean = doi.strip()
-    if doi_clean.startswith("http://dx.doi.org/"):
-        doi_clean = doi_clean[len("http://dx.doi.org/") :]
-    elif doi_clean.startswith("https://dx.doi.org/"):
-        doi_clean = doi_clean[len("https://dx.doi.org/") :]
-    elif doi_clean.startswith("http://doi.org/"):
-        doi_clean = doi_clean[len("http://doi.org/") :]
-    elif doi_clean.startswith("https://doi.org/"):
-        doi_clean = doi_clean[len("https://doi.org/") :]
+    for prefix in ("http://dx.doi.org/", "https://dx.doi.org/", "http://doi.org/", "https://doi.org/"):
+        if doi_clean.startswith(prefix):
+            doi_clean = doi_clean[len(prefix) :]
+            break
 
-    s = get_settings()
-    h = s.http
-    urls = s.urls
-    retry_status = set(h.retry_status_codes)
-    api_url = urls.crossref_works_template.format(doi=doi_clean)
+    h = get_settings().http
+    api_url = get_settings().urls.crossref_works_template.format(doi=doi_clean)
 
-    headers = {"User-Agent": h.user_agent}
-
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            client = get_http_client()
-            response = await client.get(api_url, headers=headers)
-
-            if response.status_code == 404:
-                # Not found is expected for some DOIs, return None silently
-                return None
-
-            if response.status_code in retry_status:
-                if attempt < h.fetch_max_retries:
-                    backoff = h.fetch_backoff_s * (2**attempt)
-                    await asyncio.sleep(backoff)
-                    continue
-                return None
-
-            response.raise_for_status()
-            return _parse_crossref_response(response.json())
-        except (httpx.RequestError, httpx.HTTPStatusError):
-            if attempt < h.fetch_max_retries:
-                backoff = h.fetch_backoff_s * (2**attempt)
-                await asyncio.sleep(backoff)
-                continue
-            return None
-
-    return None
+    r = await request_with_retries(
+        api_url,
+        headers={"User-Agent": h.user_agent},
+        label=f"Crossref {doi_clean}",
+    )
+    if r is None:
+        return None
+    try:
+        return _parse_crossref_response(r.json())
+    except ValueError:
+        logger.debug(f"Crossref {doi_clean} returned invalid JSON")
+        return None
 
 
 def _parse_crossref_response(json_data: dict) -> dict:

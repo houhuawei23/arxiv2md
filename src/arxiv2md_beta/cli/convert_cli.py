@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import typer
 
-from arxiv2md_beta.cli.params import ConvertParams
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.settings import apply_cli_overrides, get_settings, set_settings
 
 
@@ -17,8 +17,8 @@ def apply_convert_cli_settings(
     section_filter_mode: str | None,
     structured_output: str,
     no_progress: bool,
-    include_anchors: bool = False,
-    linked_citations: bool = False,
+    include_anchors: bool | None = None,
+    linked_citations: bool | None = None,
     naming_scheme: str | None = None,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
@@ -84,7 +84,6 @@ def make_convert_params(
     short: str | None,
     no_images: bool,
     remove_refs: bool,
-    remove_toc: bool,
     remove_inline_citations: bool,
     mode: str,
     sections: str | None,
@@ -94,7 +93,6 @@ def make_convert_params(
     so: str,
     emit_graph_csv: bool,
     no_cache: bool = False,
-    naming_scheme: str = "classic",
     download_pdf: bool = True,
     linked_citations: bool = False,
 ) -> ConvertParams:
@@ -108,7 +106,6 @@ def make_convert_params(
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
-        remove_toc=remove_toc,
         remove_inline_citations=remove_inline_citations,
         section_filter_mode=mode,
         sections=sections,
@@ -118,7 +115,6 @@ def make_convert_params(
         structured_output=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
-        naming_scheme=naming_scheme,
         download_pdf=download_pdf,
         linked_citations=linked_citations,
     )

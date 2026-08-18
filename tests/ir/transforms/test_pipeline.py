@@ -11,10 +11,7 @@ Locks the fixes from the 2026-07-19 refactor (docs/REVIEW_2026-07-19.md Phase 4)
 from __future__ import annotations
 
 from arxiv2md_beta.ir.transforms import build_default_pipeline
-from arxiv2md_beta.ir.transforms.numbering import NumberingPass, SectionNumberingPass
 from arxiv2md_beta.ir.transforms.section_filter import SectionFilterPass
-from arxiv2md_beta.ir.transforms.figure_reorder import FigureReorderPass
-from arxiv2md_beta.ir.transforms.anchor import AnchorPass
 
 
 def _types(pipeline) -> list[str]:
@@ -35,9 +32,7 @@ def test_html_pipeline_omits_section_numbering():
 
 def test_filter_only_added_when_sections_selected():
     no_filter = build_default_pipeline(parser="html", selected_sections=[])
-    with_filter = build_default_pipeline(
-        parser="html", section_filter_mode="exclude", selected_sections=["References"]
-    )
+    with_filter = build_default_pipeline(parser="html", section_filter_mode="exclude", selected_sections=["References"])
     assert "SectionFilterPass" not in _types(no_filter)
     assert "SectionFilterPass" in _types(with_filter)
 

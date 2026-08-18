@@ -307,7 +307,6 @@ def test_child_specs_cover_all_container_types():
     """
     from arxiv2md_beta.ir import blocks as blocks_mod
     from arxiv2md_beta.ir import inlines as inlines_mod
-    from arxiv2md_beta.ir.document import DocumentIR, SectionIR
     from arxiv2md_beta.ir.visitor import _CHILD_SPECS
 
     # Container inline types (carry list[InlineUnion]).
@@ -317,10 +316,7 @@ def test_child_specs_cover_all_container_types():
         if isinstance(cls, type)
         and issubclass(cls, inlines_mod.InlineIR)
         and hasattr(cls, "model_fields")
-        and any(
-            "InlineUnion" in str(getattr(cls.model_fields[f], "annotation", ""))
-            for f in cls.model_fields
-        )
+        and any("InlineUnion" in str(getattr(cls.model_fields[f], "annotation", "")) for f in cls.model_fields)
     }
     # Container block types (carry list[BlockUnion] / list[list[BlockUnion]] / list[InlineUnion]).
     block_containers = {

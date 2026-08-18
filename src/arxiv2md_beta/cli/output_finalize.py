@@ -3,31 +3,21 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
-from arxiv2md_beta.output.layout import build_output_basename
+from arxiv2md_beta.output.layout import FIXED_INTERNAL_SCHEMES, build_output_basename
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
-
-# Schemes that emit fixed internal filenames (paper.md, References.md, Appendix.md, <dir>.pdf)
-# instead of stem-prefixed ones.
-_FIXED_INTERNAL_SCHEMES = frozenset({"paper-pipeline", "arxiv-ym"})
-
-
-def _fix_citation_links(content: str, refs_filename: str) -> str:
-    """Replace #ref-N anchors with relative links to References file."""
-    return re.sub(r"\(#(ref-\d+)\)", rf"({refs_filename}#\1)", content)
 
 
 async def write_split_markdown_sidecars(
@@ -41,7 +31,7 @@ async def write_split_markdown_sidecars(
     has_app = bool(result.content_appendix and result.content_appendix.strip())
     if not has_ref and not has_app:
         return
-    if naming_scheme in _FIXED_INTERNAL_SCHEMES:
+    if naming_scheme in FIXED_INTERNAL_SCHEMES:
         ref_path = paper_output_dir / "References.md"
         app_path = paper_output_dir / "Appendix.md"
     else:
@@ -77,42 +67,6 @@ def emit_result_json_line(
         payload["structured_paths"] = structured.get("paths")
     line = f"ARXIV2MD_RESULT_JSON={json.dumps(payload, ensure_ascii=False)}"
     print(line, flush=True)
-
-
-def _result_json_filename_key(arxiv_id: str) -> str:
-    """用于结果侧车文件名：新式 ID 去掉 ``vN`` 后缀，与流水线侧查找一致。."""
-    s = arxiv_id.strip()
-    m = re.match(r"^(\d{4}\.\d{4,5})(v\d+)?$", s)
-    if m:
-        return m.group(1)
-    return s.replace("/", "_")
-
-
-async def write_result_json_sidecar(
-    base_output_dir: Path,
-    paper_output_dir: Path,
-    *,
-    result_key: str,
-    arxiv_id: str | None = None,
-    structured: dict[str, object] | None = None,
-) -> None:
-    """在输出根目录写入 ``.arxiv2md-result-{key}.json``。."""
-    payload: dict[str, object] = {
-        "paper_output_dir": str(paper_output_dir.resolve()),
-        "result_key": result_key,
-    }
-    if arxiv_id is not None:
-        payload["arxiv_id"] = arxiv_id
-    if structured and structured.get("paths"):
-        payload["schema_version"] = structured.get("schema_version")
-        payload["structured_paths"] = structured.get("paths")
-    name = f".arxiv2md-result-{_result_json_filename_key(result_key)}.json"
-    path = base_output_dir / name
-    await async_write_text(
-        path,
-        json.dumps(payload, ensure_ascii=False, indent=0) + "\n",
-        encoding="utf-8",
-    )
 
 
 def format_output(summary: str, tree: str, content: str, *, include_tree: bool) -> str:
@@ -154,13 +108,11 @@ async def finalize_convert_output(
     metadata: dict[str, Any],
     params: ConvertParams,
     base_output_dir: Path,
-    result_key: str,
-    arxiv_id_for_sidecar: str | None,
     fallback_md_stem: str,
     pdf_fetch: tuple[str, str | None] | None = None,
     log_local_success: bool = False,
 ) -> Path:
-    """Write JSON sidecars, main Markdown, split sidecars; optionally fetch PDF (arXiv).
+    """Write the main Markdown, split sidecars; optionally fetch PDF (arXiv).
 
     Returns the resolved paper output directory.
     """
@@ -178,16 +130,6 @@ async def finalize_convert_output(
         structured = None
 
     emit_result_json_line(paper_output_dir, params=params, structured=structured)
-    try:
-        await write_result_json_sidecar(
-            base_output_dir,
-            paper_output_dir,
-            result_key=result_key,
-            arxiv_id=arxiv_id_for_sidecar,
-            structured=structured,
-        )
-    except OSError as e:
-        logger.warning(f"Could not write arxiv2md result sidecar: {e}")
 
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
@@ -204,7 +146,7 @@ async def finalize_convert_output(
         include_tree=params.include_tree,
     )
 
-    if naming_scheme in _FIXED_INTERNAL_SCHEMES:
+    if naming_scheme in FIXED_INTERNAL_SCHEMES:
         output_filename = "paper.md"
     elif submission_date and title:
         basename = build_output_basename(
@@ -231,7 +173,7 @@ async def finalize_convert_output(
     if pdf_fetch is not None and params.download_pdf:
         arxiv_id, version = pdf_fetch
         try:
-            if naming_scheme in _FIXED_INTERNAL_SCHEMES:
+            if naming_scheme in FIXED_INTERNAL_SCHEMES:
                 pdf_filename = f"{paper_output_dir.name}.pdf"
             else:
                 pdf_filename = output_filename.replace(".md", ".pdf")

@@ -21,7 +21,6 @@ class ArxivQuery(BaseModel):
     id: UUID
     cache_dir: Path
     remove_refs: bool = False
-    remove_toc: bool = False
     remove_inline_citations: bool = False
     section_filter_mode: Literal["include", "exclude"] = "exclude"
     sections: list[str] = Field(default_factory=list)
@@ -40,7 +39,6 @@ class LocalArchiveQuery(BaseModel):
     authors: list[str] = Field(default_factory=list)
     submission_date: str | None = None
     remove_refs: bool = False
-    remove_toc: bool = False
     remove_inline_citations: bool = False
     section_filter_mode: Literal["include", "exclude"] = "exclude"
     sections: list[str] = Field(default_factory=list)
@@ -59,7 +57,6 @@ class LocalHtmlQuery(BaseModel):
     submission_date: str | None = None
     source: str = "Local"  # Source identifier (e.g., "ScienceRobotics", "Local")
     remove_refs: bool = False
-    remove_toc: bool = False
     remove_inline_citations: bool = False
     section_filter_mode: Literal["include", "exclude"] = "exclude"
     sections: list[str] = Field(default_factory=list)

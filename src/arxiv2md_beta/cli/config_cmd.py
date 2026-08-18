@@ -41,43 +41,11 @@ def config_show(
     """Display the effective configuration."""
     settings = get_settings()
 
-    # Build config dict
-    config_dict: dict[str, dict[str, Any]] = {
-        "app": {
-            "environment": settings.app.environment,
-            "log_level": settings.app.log_level,
-        },
-        "http": {
-            "fetch_timeout_s": settings.http.fetch_timeout_s,
-            "fetch_max_retries": settings.http.fetch_max_retries,
-            "fetch_backoff_s": settings.http.fetch_backoff_s,
-            "user_agent": settings.http.user_agent,
-            "retry_status_codes": settings.http.retry_status_codes,
-            "large_transfer_timeout_multiplier": settings.http.large_transfer_timeout_multiplier,
-            "max_connections": settings.http.max_connections,
-            "max_keepalive_connections": settings.http.max_keepalive_connections,
-        },
-        "cache": {
-            "dir": str(settings.resolved_cache_path()) if resolve_paths else settings.cache.dir,
-            "ttl_seconds": settings.cache.ttl_seconds,
-        },
-        "cli_defaults": {
-            "parser": settings.cli_defaults.parser,
-            "source": settings.cli_defaults.source,
-            "section_filter_mode": settings.cli_defaults.section_filter_mode,
-            "output_dir": settings.cli_defaults.output_dir,
-            "images_subdir": settings.cli_defaults.images_subdir,
-        },
-        "images": {
-            "pdf_to_png_dpi": settings.images.pdf_to_png_dpi,
-            "trim_whitespace": settings.images.trim_whitespace,
-            "trim_whitespace_tolerance": settings.images.trim_whitespace_tolerance,
-            "disable_tqdm": settings.images.disable_tqdm,
-        },
-        "output": {
-            "tiktoken_encoding": settings.output.tiktoken_encoding,
-        },
-    }
+    # Full model dump: always in sync with the schema (a hand-enumerated
+    # dict drifted and hid e.g. the active output_naming.naming_scheme).
+    config_dict: dict[str, Any] = settings.model_dump()
+    if resolve_paths:
+        config_dict.setdefault("cache", {})["dir"] = str(settings.resolved_cache_path())
 
     if format == "yaml":
         yaml_str = yaml.dump(config_dict, default_flow_style=False, sort_keys=True)
@@ -110,7 +78,13 @@ def config_validate(
     """Validate a configuration file."""
     try:
         if config_file:
+            # Validate in isolation: do not let the tested file replace the
+            # process-global settings used by any later command.
+            from arxiv2md_beta.settings import set_settings
+
+            previous = get_settings()
             load_settings(config_path=config_file, force_reload=True)
+            set_settings(previous)
             console.print(f"[green]✓[/green] Configuration file is valid: {config_file}")
         else:
             # Just re-validate current settings

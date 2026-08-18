@@ -324,18 +324,21 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     disable_tqdm = s.images.disable_tqdm
 
+                    # Write to a temp sibling then rename so a concurrent
+                    # conversion never sees (or overwrites) a half-written cache.
+                    tmp_path = output_path.with_name(output_path.name + ".part")
                     async with (
                         async_byte_download_progress(
                             "Downloading TeX source",
                             total_size if total_size > 0 else None,
                             disable=disable_tqdm,
                         ) as advance,
-                        aiofiles.open(output_path, "wb") as f,
+                        aiofiles.open(tmp_path, "wb") as f,
                     ):
                         async for chunk in response.aiter_bytes():
                             await f.write(chunk)
                             advance(len(chunk))
-
+                    tmp_path.replace(output_path)
                     return
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
@@ -348,17 +351,13 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
 
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> None:
-    """Extract tar.gz or gz archive."""
-    if archive_path.suffix == ".gz" and archive_path.suffixes[-2:] != [".tar", ".gz"]:
-        # Single gzipped file
-        with gzip.open(archive_path, "rb") as f_in:
-            output_file = output_dir / archive_path.stem
-            with open(output_file, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
-    else:
-        # tar.gz archive
-        with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(output_dir)
+    """Extract downloaded tar.gz or gz archive.
+
+    Delegates to :func:`_extract_tar_archive` so the arXiv-downloaded tarball
+    gets the same path-traversal protection as local archives (previously it
+    called ``tar.extractall`` unchecked and duplicated the gz/tar logic).
+    """
+    _extract_tar_archive(archive_path, output_dir)
 
 
 def _extract_info_from_dir(extracted_dir: Path) -> TexSourceInfo:

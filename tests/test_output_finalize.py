@@ -11,7 +11,6 @@ from arxiv2md_beta.cli.output_finalize import (
     emit_result_json_line,
     format_output,
     resolve_paper_output_dir,
-    write_result_json_sidecar,
     write_split_markdown_sidecars,
 )
 from arxiv2md_beta.cli.params import ConvertParams
@@ -89,21 +88,6 @@ async def test_write_split_markdown_sidecars_arxiv_ym_fixed(tmp_path: Path) -> N
     assert (tmp_path / "Appendix.md").read_text() == "app"
 
 
-@pytest.mark.asyncio
-async def test_write_result_json_sidecar(tmp_path: Path) -> None:
-    pdir = tmp_path / "p"
-    pdir.mkdir()
-    await write_result_json_sidecar(
-        tmp_path,
-        pdir,
-        result_key="1234.5678",
-        arxiv_id="1234.5678v1",
-        structured=None,
-    )
-    files = list(tmp_path.glob(".arxiv2md-result-*.json"))
-    assert len(files) == 1
-
-
 def test_emit_result_json_line_disabled(capsys: pytest.CaptureFixture[str]) -> None:
     p = ConvertParams(
         input_text="x",
@@ -113,7 +97,6 @@ def test_emit_result_json_line_disabled(capsys: pytest.CaptureFixture[str]) -> N
         short=None,
         no_images=True,
         remove_refs=False,
-        remove_toc=False,
         remove_inline_citations=False,
         section_filter_mode="exclude",
         sections=None,
@@ -143,7 +126,6 @@ async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
         short=None,
         no_images=True,
         remove_refs=False,
-        remove_toc=False,
         remove_inline_citations=False,
         section_filter_mode="exclude",
         sections=None,
@@ -162,8 +144,6 @@ async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
             metadata=meta,
             params=params,
             base_output_dir=tmp_path,
-            result_key="1234.5678",
-            arxiv_id_for_sidecar="1234.5678",
             fallback_md_stem="1234.5678",
             pdf_fetch=("1234.5678", None),
             log_local_success=False,

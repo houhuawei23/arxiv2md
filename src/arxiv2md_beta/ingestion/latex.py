@@ -6,8 +6,6 @@ import asyncio
 from pathlib import Path
 from typing import Any, cast
 
-from loguru import logger
-
 from arxiv2md_beta.exceptions import ParseError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
@@ -25,7 +23,8 @@ async def ingest_paper_latex(
     version: str | None,
     base_output_dir: Path,
     remove_refs: bool = False,
-    remove_toc: bool = False,
+    remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     no_images: bool = False,
@@ -42,7 +41,8 @@ async def ingest_paper_latex(
             version=version,
             base_output_dir=base_output_dir,
             remove_refs=remove_refs,
-            remove_toc=remove_toc,
+            remove_inline_citations=remove_inline_citations,
+            linked_citations=linked_citations,
             section_filter_mode=section_filter_mode,
             sections=sections or [],
             no_images=no_images,
@@ -60,7 +60,8 @@ async def _ingest_paper_latex_impl(
     version: str | None,
     base_output_dir: Path,
     remove_refs: bool = False,
-    remove_toc: bool = False,
+    remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     no_images: bool = False,
@@ -82,8 +83,10 @@ async def _ingest_paper_latex_impl(
         Base output directory (paper-specific directory will be created inside)
     remove_refs : bool
         Remove bibliography sections
-    remove_toc : bool
-        Remove table of contents
+    remove_inline_citations : bool
+        Remove inline citations
+    linked_citations : bool
+        Render inline citations as [N](#ref-N) links
     section_filter_mode : str
         "include" or "exclude"
     sections : list[str] | None
@@ -189,81 +192,21 @@ async def _ingest_paper_latex_impl(
     except Exception as e:
         raise ParseError(f"Failed to parse LaTeX: {e}") from e
 
-    # Emit markdown with reference/appendix split (shared finalization).
-    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
-    from arxiv2md_beta.output.markdown_utils import (
-        count_sections,
-        create_sections_tree,
-        format_token_count,
-    )
+    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
+    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 
-    content, content_references, content_appendix = emit_split_markdown(
+    merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
+    result, metadata = finalize_ingestion_output(
         doc,
-        reference_section_titles=get_settings().ingestion.reference_section_titles,
+        arxiv_id=arxiv_id,
+        version=version,
+        paper_output_dir=paper_output_dir,
+        paper_yml_data=dict(api_metadata),
+        linked_citations=linked_citations,
+        remove_inline_citations=remove_inline_citations,
+        structured_output=structured_output,
+        emit_graph_csv=emit_graph_csv,
+        images_subdir=images_dir_name,
+        extra_metadata={"submission_date": submission_date},
     )
-
-    # Build IngestionResult summary + tree from IR sections (duck-typed: SectionIR
-    # exposes .title/.children just like SectionNode).
-    m = doc.metadata
-    result_title = m.title or title
-    author_names = [a.name for a in m.authors] or display_author_names
-    summary_lines: list[str] = []
-    if result_title:
-        summary_lines.append(f"# Title: {result_title}")
-    summary_lines.append(f"- ArXiv: {arxiv_id}")
-    if version:
-        summary_lines.append(f"- Version: {version}")
-    if author_names:
-        summary_lines.append(f"- Authors: {', '.join(author_names)}")
-    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
-    tree_lines = ["Sections:"]
-    if m.abstract_text:
-        tree_lines.append("Abstract")
-    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
-    sections_tree = "\n".join(tree_lines)
-    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
-    token_estimate = format_token_count(sections_tree + "\n" + token_body)
-    if token_estimate:
-        summary_lines.append(f"- Estimated tokens: {token_estimate}")
-    result = IngestionResult(
-        summary="\n".join(summary_lines),
-        sections_tree=sections_tree,
-        content=content,
-        content_references=content_references,
-        content_appendix=content_appendix,
-    )
-
-    # Save paper metadata to paper.yml
-    try:
-        from arxiv2md_beta.output.metadata import save_paper_metadata
-
-        merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
-        save_paper_metadata(api_metadata, paper_output_dir)
-    except Exception as e:
-        logger.warning(f"Failed to save paper.yml: {e}")
-
-    structured_export: dict[str, object] = {}
-    try:
-        from arxiv2md_beta.ingestion.ir_finalize import run_structured_export
-
-        structured_export = run_structured_export(
-            doc,
-            paper_output_dir,
-            mode=structured_output,
-            emit_graph_csv=emit_graph_csv,
-            images_subdir=images_dir_name,
-        )
-    except Exception as e:
-        logger.warning(f"Structured JSON export failed: {e}")
-
-    metadata = {
-        "title": result_title,
-        "authors": author_names,
-        "abstract": m.abstract_text,
-        "submission_date": submission_date,
-        "paper_output_dir": paper_output_dir,  # Return the directory path
-        "arxiv_id": arxiv_id,
-        "structured_export": structured_export,
-    }
-
     return result, metadata

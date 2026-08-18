@@ -77,7 +77,6 @@ class HTMLBuilder(IRBuilder):
             stem_map=self.image_stem_map,
         )
         self._figure_counter = 0
-        self._used_image_indices: set[int] = set()
         self._pending_footnotes: deque[BlockUnion] = deque()
         self._svg_output_dir = svg_output_dir
         self._svg_counter = 0
@@ -643,8 +642,9 @@ class HTMLBuilder(IRBuilder):
             caption = []
             caption_text = ""
 
-        # Extract figure number from caption
-        fig_id = _extract_figure_id(caption_text) or f"figure-{self._figure_counter}"
+        # Extract figure number from caption (1-based fallback, matching the
+        # 1-based figure_index used for image_map lookup below).
+        fig_id = _extract_figure_id(caption_text) or f"figure-{self._figure_counter + 1}"
 
         # Algorithm figure
         if "ltx_float_algorithm" in tag_classes or "ltx_algorithm" in tag_classes:

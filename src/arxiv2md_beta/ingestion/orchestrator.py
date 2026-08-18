@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import subprocess
 import unicodedata
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
@@ -40,9 +40,11 @@ from arxiv2md_beta.output.markdown_utils import (
 )
 from arxiv2md_beta.output.metadata import save_paper_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
@@ -143,14 +145,16 @@ class IngestionOrchestrator:
         metadata_task = asyncio.create_task(self._fetch_api_metadata())
         try:
             await metadata_task
-        except BaseException:
-            # If metadata fetch fails, do not leave the HTML task orphaned —
-            # cancel and await it so the in-flight request is released and
-            # "Task was destroyed but it is pending" warnings do not fire.
+        except asyncio.CancelledError:
             html_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await html_task
             raise
+        except Exception as exc:
+            # Metadata is an enrichment, not a requirement: degrade to
+            # HTML-parsed authors/date instead of failing the whole conversion.
+            logger.warning(f"arXiv API metadata fetch failed; falling back to HTML metadata: {exc}")
+            self._api_metadata = {}
         await html_task
         await asyncio.to_thread(self._parse_html)
 
@@ -234,7 +238,7 @@ class IngestionOrchestrator:
                 image_stem_map = processed.stem_to_image_path
             except TexSourceNotFoundError:
                 pass
-            except (OSError, ValueError, TypeError, RuntimeError) as e:
+            except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired) as e:
                 logger.warning(f"Failed to process images: {e}")
 
         # Affiliation-only TeX fetch
@@ -434,7 +438,7 @@ class IngestionOrchestrator:
         try:
             assert self._parsed is not None
             assert self._paper_output_dir is not None
-            base_id = self._query.arxiv_id.split("v")[0] if "v" in self._query.arxiv_id else self._query.arxiv_id
+            base_id = strip_version(self._query.arxiv_id)
             paper_meta = dict(self._api_metadata)
             if not paper_meta.get("title") and self._parsed.title:
                 paper_meta["title"] = self._parsed.title

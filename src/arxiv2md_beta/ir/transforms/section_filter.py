@@ -6,6 +6,7 @@ import re
 
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms.base import IRPass
+from arxiv2md_beta.utils.section_titles import normalize_section_title
 
 # Matches a section-number prefix added by SectionNumberingPass, e.g.
 # ``"8 "``, ``"3.1 "``, ``"A "``.  Used by ``split_ir_sections`` to
@@ -78,6 +79,7 @@ class SectionFilterPass(IRPass):
     ):
         self.mode = mode
         self.selected = selected or []
+        self._selected_titles = {normalize_section_title(kw) for kw in self.selected if kw.strip()}
 
     def run(self, doc: DocumentIR) -> DocumentIR:
         doc.sections = [s for s in doc.sections if self._should_keep(s, self.mode)]
@@ -86,11 +88,15 @@ class SectionFilterPass(IRPass):
     def _should_keep(self, section: SectionIR, mode: str) -> bool:
         """Check if section should be kept.
 
-        Also filters children recursively.
+        Also filters children recursively. Title matching uses the same
+        normalized-exact semantics as the sections tree (``--sections
+        Introduction`` does not match "Introduction and Related Work"), plus
+        struct_id matching.
         """
         section.children = [c for c in section.children if self._should_keep(c, mode)]
 
-        matches = any(kw.lower() in section.title.lower() for kw in self.selected) or section.struct_id in self.selected
+        normalized = normalize_section_title(section.title or "")
+        matches = normalized in self._selected_titles or section.struct_id in self.selected
 
         if mode == "include":
             return matches

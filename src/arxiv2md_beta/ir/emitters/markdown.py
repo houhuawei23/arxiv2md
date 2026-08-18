@@ -29,8 +29,9 @@ _EMPHASIS_CLOSERS: dict[str, str] = {
     "underline": "</u>",
 }
 
-# Citation target_id form: ar5iv href "#bib.bibN" -> "ref-N".
-_CITATION_NUM_RE = re.compile(r"ref-(\d+)$")
+# Citation target_id forms: ar5iv href "#bib.bibN" -> "ref-N"; the LaTeX
+# builder joins multi-cites as a bare comma list ("35,2,5").
+_CITATION_NUM_RE = re.compile(r"^(?:ref-)?(\d+(?:\s*,\s*\d+)*)$")
 
 
 class MarkdownEmitter(IREmitter):
@@ -161,9 +162,10 @@ class MarkdownEmitter(IREmitter):
                 # natbib keys ("[vicuna ]" -> "[9]").
                 m = _CITATION_NUM_RE.match(inline.target_id or "")
                 if m:
+                    nums = [n.strip() for n in m.group(1).split(",")]
                     if self.linked_citations:
-                        return f"[{m.group(1)}](#{inline.target_id})"
-                    return f"[{m.group(1)}]"
+                        return "".join(f"[{n}](#ref-{n})" for n in nums)
+                    return f"[{','.join(nums)}]"
                 # Fallback: bare key text, with trailing punctuation/whitespace
                 # stripped ("vicuna ", "radford2021learning, " -> "[vicuna]").
                 cite_text = text.strip().rstrip(",").rstrip(";").strip()
@@ -182,9 +184,9 @@ class MarkdownEmitter(IREmitter):
         elif t == "image_ref":
             alt = inline.alt or ""
             src = inline.src or ""
-            w = f' width="{inline.width}"' if inline.width else ""
-            h = f' height="{inline.height}"' if inline.height else ""
-            return f"![{alt}]({src}{w}{h})"
+            # GFM image syntax has no width/height inside the URL parens;
+            # appending them there makes the path part of the link target.
+            return f"![{alt}]({src})"
         elif t == "superscript":
             return f"^{self._emit_inlines(inline.inlines)}"
         elif t == "subscript":
@@ -397,10 +399,10 @@ def _post_process(md: str) -> str:
     # Remove trailing whitespace on each line
     md = "\n".join(line.rstrip() for line in md.split("\n"))
 
-    # Trim leading/trailing blank lines
-    md = md.strip()
-
-    return md
+    # Trim leading/trailing blank lines; emit a single trailing newline
+    # (POSIX text-file convention; also keeps goldens stable under
+    # pre-commit's end-of-file-fixer).
+    return md.strip() + "\n"
 
 
 def _escape_pipe_cell(text: str) -> str:

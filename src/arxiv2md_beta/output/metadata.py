@@ -20,6 +20,11 @@ from arxiv2md_beta.exceptions import ParseError, UserInputError
 def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
     """Save paper metadata to paper.yml file in the output directory.
 
+    Thin wrapper over :func:`write_paper_yml_file` so the conversion pipeline
+    and the ``paper-yml`` command share one serialization path. Differences:
+    empty metadata is skipped silently (local sources may have none) and all
+    errors are swallowed with a warning (paper.yml is best-effort).
+
     Parameters
     ----------
     metadata : dict
@@ -27,22 +32,12 @@ def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
     paper_output_dir : Path
         Output directory where paper.yml will be saved
     """
-    if yaml is None:
-        logger.warning("PyYAML not installed, skipping paper.yml generation. Install with: pip install pyyaml")
-        return
-
     try:
-        paper_yml_data = _metadata_to_paper_yml(metadata)
-        if not paper_yml_data:
+        if not _metadata_to_paper_yml(metadata):
             logger.debug("No metadata to save, skipping paper.yml")
             return
-
-        output_path = paper_output_dir / "paper.yml"
-        with open(output_path, "w", encoding="utf-8") as f:
-            yaml.dump(paper_yml_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-
-        logger.info(f"Paper metadata saved to: {output_path}")
-    except Exception as e:
+        write_paper_yml_file(metadata, paper_output_dir / "paper.yml")
+    except Exception as e:  # noqa: BLE001 - paper.yml is best-effort by design
         logger.warning(f"Failed to save paper.yml: {e}")
 
 

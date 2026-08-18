@@ -108,10 +108,12 @@ class TestImageRefIR:
         assert "![alt text](./a.png" in result
 
     def test_image_with_dimensions(self, emitter):
+        # GFM image syntax cannot carry width/height inside the URL parens;
+        # emitting them there corrupted the link target, so they are dropped
+        # (block figures keep sizing via the multi-image <img> path).
         n = ImageRefIR(src="./a.png", alt="img", width="100", height="200")
         result = emitter._emit_inline(n)
-        assert 'width="100"' in result
-        assert 'height="200"' in result
+        assert result == "![img](./a.png)"
 
 
 class TestSuperscriptIR:

@@ -62,7 +62,6 @@ from arxiv2md_beta.ir.emitters import (  # noqa: F401
     IREmitter,
     JsonEmitter,
     MarkdownEmitter,
-    PlainTextEmitter,
 )
 from arxiv2md_beta.ir.inlines import (  # noqa: F401
     BreakIR,
@@ -142,7 +141,6 @@ __all__ = [
     "IREmitter",
     "JsonEmitter",
     "MarkdownEmitter",
-    "PlainTextEmitter",
     # Transforms
     "IRPass",
     "PassPipeline",

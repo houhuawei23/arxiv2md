@@ -6,12 +6,12 @@ from pathlib import Path
 
 from arxiv2md_beta.cli.helpers import collect_sections
 from arxiv2md_beta.cli.output_finalize import finalize_convert_output
-from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.ingestion import ingest_paper
 from arxiv2md_beta.ingestion.local import ingest_local_archive
 from arxiv2md_beta.ingestion.local_html import ingest_local_html
 from arxiv2md_beta.output.layout import determine_output_dir
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.query.parser import (
     is_local_archive_path,
     is_local_html_path,
@@ -19,6 +19,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_archive,
     parse_local_html,
 )
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
 
@@ -68,8 +69,8 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         ar5iv_url=query.ar5iv_url,
         parser=params.parser,
         remove_refs=params.remove_refs,
-        remove_toc=params.remove_toc,
         remove_inline_citations=params.remove_inline_citations,
+        linked_citations=params.linked_citations,
         section_filter_mode=params.section_filter_mode,
         sections=sections,
         base_output_dir=base_output_dir,
@@ -81,14 +82,12 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         use_cache=not params.no_cache,
     )
 
-    base_id = query.arxiv_id.split("v")[0] if "v" in query.arxiv_id else query.arxiv_id
+    base_id = strip_version(query.arxiv_id)
     return await finalize_convert_output(
         result=result,
         metadata=metadata,
         params=params,
         base_output_dir=base_output_dir,
-        result_key=query.arxiv_id,
-        arxiv_id_for_sidecar=str(metadata.get("arxiv_id") or query.arxiv_id),
         fallback_md_stem=base_id,
         pdf_fetch=(query.arxiv_id, query.version),
         log_local_success=False,
@@ -110,14 +109,12 @@ async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
     orchestrator = IngestionOrchestrator(params)
     result, metadata = await orchestrator.run()
 
-    base_id = query.arxiv_id.split("v")[0] if "v" in query.arxiv_id else query.arxiv_id
+    base_id = strip_version(query.arxiv_id)
     return await finalize_convert_output(
         result=result,
         metadata=metadata,
         params=params,
         base_output_dir=base_output_dir,
-        result_key=query.arxiv_id,
-        arxiv_id_for_sidecar=str(metadata.get("arxiv_id") or query.arxiv_id),
         fallback_md_stem=base_id,
         pdf_fetch=(query.arxiv_id, query.version),
         log_local_success=False,
@@ -142,22 +139,19 @@ async def _process_local_html(params: ConvertParams) -> Path:
         short=params.short,
         no_images=params.no_images,
         remove_refs=params.remove_refs,
-        remove_toc=params.remove_toc,
         remove_inline_citations=params.remove_inline_citations,
+        linked_citations=params.linked_citations,
         section_filter_mode=params.section_filter_mode,
         sections=sections,
         structured_output=params.structured_output,
         emit_graph_csv=params.emit_graph_csv,
     )
 
-    rk = str(metadata.get("arxiv_id") or query.html_path.stem)
     return await finalize_convert_output(
         result=result,
         metadata=metadata,
         params=params,
         base_output_dir=base_output_dir,
-        result_key=query.html_path.stem,
-        arxiv_id_for_sidecar=rk,
         fallback_md_stem=query.html_path.stem,
         pdf_fetch=None,
         log_local_success=True,
@@ -183,22 +177,19 @@ async def _process_local_archive(params: ConvertParams) -> Path:
         short=params.short,
         no_images=params.no_images,
         remove_refs=params.remove_refs,
-        remove_toc=params.remove_toc,
         remove_inline_citations=params.remove_inline_citations,
+        linked_citations=params.linked_citations,
         section_filter_mode=params.section_filter_mode,
         sections=sections,
         structured_output=params.structured_output,
         emit_graph_csv=params.emit_graph_csv,
     )
 
-    rk = str(metadata.get("arxiv_id") or query.archive_path.stem)
     return await finalize_convert_output(
         result=result,
         metadata=metadata,
         params=params,
         base_output_dir=base_output_dir,
-        result_key=query.archive_path.stem,
-        arxiv_id_for_sidecar=rk,
         fallback_md_stem=query.archive_path.stem,
         pdf_fetch=None,
         log_local_success=True,

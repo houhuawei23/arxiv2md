@@ -80,8 +80,7 @@ def parse_local_archive(input_text: str) -> LocalArchiveQuery:
     archive_type = _get_archive_type(archive_path)
     if not archive_type:
         raise UserInputError(
-            f"Unsupported archive format: {archive_path.suffix}. "
-            "Supported formats: .tar.gz, .tgz, .zip"
+            f"Unsupported archive format: {archive_path.suffix}. " "Supported formats: .tar.gz, .tgz, .zip"
         )
 
     query_id = uuid4()

@@ -104,6 +104,108 @@ def emit_split_markdown(
     return content, content_references, content_appendix
 
 
+def finalize_ingestion_output(
+    doc: DocumentIR,
+    *,
+    arxiv_id: str,
+    paper_output_dir: Path,
+    paper_yml_data: dict[str, Any],
+    version: str | None = None,
+    linked_citations: bool = False,
+    remove_inline_citations: bool = False,
+    structured_output: str = "none",
+    emit_graph_csv: bool = False,
+    images_subdir: str,
+    extra_metadata: dict[str, Any] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Shared ingestion tail: emit Markdown, build result, write paper.yml + structured JSON.
+
+    This is the single implementation of the finalize steps that the LaTeX,
+    local-archive (LaTeX and HTML) and local-HTML ingestion paths share. It
+    replaces four copy-pasted variants that had drifted (e.g. the LaTeX paths
+    forgot to forward ``remove_inline_citations`` / ``linked_citations``).
+
+    Returns ``(IngestionResult, metadata_dict)``. paper.yml and structured
+    export failures are logged and swallowed so they never abort an otherwise
+    successful conversion (same policy the call sites previously had).
+    """
+    from typing import cast
+
+    from loguru import logger
+
+    from arxiv2md_beta.output.markdown_utils import (
+        count_sections,
+        create_sections_tree,
+        format_token_count,
+    )
+    from arxiv2md_beta.schemas import IngestionResult
+    from arxiv2md_beta.settings import get_settings
+
+    reference_section_titles = get_settings().ingestion.reference_section_titles
+    content, content_references, content_appendix = emit_split_markdown(
+        doc,
+        reference_section_titles=reference_section_titles,
+        linked_citations=linked_citations,
+        remove_inline_citations=remove_inline_citations,
+    )
+
+    m = doc.metadata
+    result_title = m.title or arxiv_id
+    author_names = [a.name for a in m.authors]
+    summary_lines: list[str] = []
+    if result_title:
+        summary_lines.append(f"# Title: {result_title}")
+    summary_lines.append(f"- ArXiv: {arxiv_id}")
+    if version:
+        summary_lines.append(f"- Version: {version}")
+    if author_names:
+        summary_lines.append(f"- Authors: {', '.join(author_names)}")
+    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
+    tree_lines = ["Sections:"]
+    if m.abstract_text:
+        tree_lines.append("Abstract")
+    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
+    sections_tree = "\n".join(tree_lines)
+    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
+    token_estimate = format_token_count(sections_tree + "\n" + token_body)
+    if token_estimate:
+        summary_lines.append(f"- Estimated tokens: {token_estimate}")
+    result = IngestionResult(
+        summary="\n".join(summary_lines),
+        sections_tree=sections_tree,
+        content=content,
+        content_references=content_references,
+        content_appendix=content_appendix,
+    )
+
+    try:
+        from arxiv2md_beta.output.metadata import save_paper_metadata
+
+        save_paper_metadata(paper_yml_data, paper_output_dir)
+    except Exception as e:  # noqa: BLE001 - paper.yml is best-effort by design
+        logger.warning(f"Failed to save paper.yml: {e}")
+
+    structured_export = run_structured_export(
+        doc,
+        paper_output_dir,
+        mode=structured_output,
+        emit_graph_csv=emit_graph_csv,
+        images_subdir=images_subdir,
+    )
+
+    metadata: dict[str, Any] = {
+        "title": result_title,
+        "authors": author_names,
+        "abstract": m.abstract_text,
+        "paper_output_dir": paper_output_dir,
+        "arxiv_id": arxiv_id,
+        "structured_export": structured_export,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return result, metadata
+
+
 def run_structured_export(
     doc: DocumentIR,
     output_dir: Path,

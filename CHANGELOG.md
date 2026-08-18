@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-18
+
+全项目架构评审与重构：修复 11 个确定性 bug、收敛 4 份复制的收尾代码、消除 ingestion→cli 依赖倒置。评审由三位并行探索代理完成全面扫描后按 P0-P3 分阶段实施。
+
+### Fixed（P0 确定性 bug）
+
+- **配置合并链**：`--include-anchors` / `--linked-citations` 改为三态 flag（`--flag/--no-flag`），仅显式传参时覆盖 YAML/env（此前 CLI 默认 `False` 无条件覆盖用户 YAML）；`apply_cli_overrides` 补上缺失的 `linked_citations` 分支。
+- **LaTeX 路径功能漂移**：`--remove-inline-citations` / `--linked-citations` 现已接入远程 LaTeX、本地归档、本地 HTML 全部 ingestion 路径（此前被静默忽略）。
+- **图编号 0/1 基混用**：HTML builder 无 caption 图的 `figure_id` 与 `figure_index` 统一为 1 基。
+- **元数据抓取失败降级**：orchestrator 中 arXiv API 失败改为回退 HTML 解析的作者/日期，而非取消整个转换。
+- **batch 三个语义 bug**：`--delay-seconds` 移入信号量内（真正限速）；未预期异常不再从 `gather` 冒出炸掉整个 batch。
+- **arXiv ID 去 version**：新增 `utils/arxiv_ids.strip_version()`（正则 `v\d+$`）替换全部 7 处脆弱的 `split("v")[0]`。
+- **下载缓存原子写**：PDF/TeX 缓存改为 temp+rename，并发转换同一论文不再写坏缓存。
+- **arXiv tarball 路径穿越防护**：`_extract_archive` 合并到已加固的 `_extract_tar_archive`（本地路径版本本有检查，远程版本缺失）。
+- **Crossref DOI 误判**：`is_arxiv_doi` 由子串匹配收窄为 `10.48550/arxiv` 前缀匹配。
+- **图像子进程超时**：`subprocess.TimeoutExpired` 纳入 orchestrator 降级捕获，不再中断转换。
+
+### Fixed（P3 边界 bug）
+
+- `FigureReorderPass` 改为按对象身份定位 figure 与引用段落（修复多图交错移动时的错位/IndexError）。
+- unnumbered section 子树编号延续同级序列（消除重复 `struct_id`/anchor）；equation anchor 不再产出非法的 `eq-(3)`。
+- LaTeX 多引用（`target_id="35,2,5"`）正确渲染并支持逐个 `#ref-N` 链接；内联图片不再把 width/height 拼进 URL（破坏 GFM 链接目标）。
+- 本地归档 `_copy_local_images` 同名图加 `_1/_2` 后缀防静默覆盖（与 local_html 行为一致）。
+- Section 过滤统一为规范化精确匹配（`utils/section_titles.py` 单一来源），消除 sections tree 与实际输出内容的语义分叉（子串匹配导致的矛盾）。
+
+### Changed（架构收敛）
+
+- **收尾代码收敛**：新增 `ingestion/ir_finalize.finalize_ingestion_output()`，替换 4 份复制的 summary/tree/paper.yml/structured-export 尾巴（漂移曾导致 LaTeX 路径丢失 flags）。
+- **网络重试统一**：新增 `network/retry.request_with_retries()` 收敛 Crossref/OpenAlex/abs-page 三个 best-effort 重试循环；不可重试 4xx 不再浪费重试。
+- **convert/batch 选项共享**：新增 `cli/options.py`，21 个选项注解单一定义，杜绝两份签名漂移。
+- **依赖倒置消除**：`ConvertParams` 下沉至包根 `params.py`，ingestion 层不再 import `cli/`。
+- **naming scheme 单一来源**：`FIXED_INTERNAL_SCHEMES` 移入 `output/layout.py`；删除失效的 `ConvertParams.naming_scheme`（实际读取走 settings）。
+- **paper.yml 单一序列化路径**：`save_paper_metadata` 委托 `write_paper_yml_file`。
+- `config show` 改为全量 model_dump（手工枚举已落后 schema）；`config validate` 不再把被验证文件写入全局 settings。
+
+### Removed
+
+- `--remove-toc`（全链路 no-op 死参数）、`split_sections_at_reference`、`_fix_citation_links`、僵尸结果侧车 `write_result_json_sidecar`、`PlainTextEmitter`、`FigureCollector`、`_used_image_indices`、`cache/` 与 `html/serializers/` 残档。
+
+
 ## [0.13.1] - 2026-07-13
 
 ### Fixed

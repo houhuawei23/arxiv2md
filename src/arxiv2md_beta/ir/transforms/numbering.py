@@ -43,7 +43,10 @@ class SectionNumberingPass(IRPass):
         counter.append(0)
         for sec in sections:
             if sec.unnumbered or sec.level >= 5:
-                SectionNumberingPass._number_sections(sec.children, None)
+                # Children of unnumbered sections continue the sibling
+                # sequence (LaTeX convention); restarting from 1 would
+                # duplicate struct_ids like "sec_1" and break anchors.
+                SectionNumberingPass._number_sections(sec.children, list(counter))
                 continue
 
             counter[-1] += 1

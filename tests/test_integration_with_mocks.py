@@ -117,7 +117,9 @@ class TestHtmlFetching:
 
 @pytest.mark.asyncio
 async def test_latex_ir_migration_flow_on_fixture(tmp_path):
-    """Verify the migrated LaTeX IR flow (LaTeXBuilder→PassPipeline→emit+split→JsonEmitter)
+    """Verify the migrated LaTeX IR flow end-to-end.
+
+    (LaTeXBuilder→PassPipeline→emit+split→JsonEmitter)
     produces a complete IngestionResult on a local TeX fixture, without network.
 
     Regression for the Phase 5 LaTeX→IR migration: the legacy parse_latex_to_markdown
@@ -159,9 +161,7 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     pp.run(doc)
 
     emitter = MarkdownEmitter()
-    main_irs, ref_irs, app_irs = split_ir_sections(
-        doc.sections, get_settings().ingestion.reference_section_titles
-    )
+    main_irs, ref_irs, app_irs = split_ir_sections(doc.sections, get_settings().ingestion.reference_section_titles)
     doc.sections = main_irs
     content = format_markdown_output(emitter.emit(doc))
 
@@ -172,8 +172,6 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     assert "figure1.png" in content  # figure
 
     # Structured export via JsonEmitter (replaces write_structured_bundle_for_latex).
-    bundle = JsonEmitter(mode="full").write_bundle(
-        doc, tmp_path, images_subdir="images", emit_graph_csv=False
-    )
+    bundle = JsonEmitter(mode="full").write_bundle(doc, tmp_path, images_subdir="images", emit_graph_csv=False)
     assert "paper.meta.json" in bundle.get("paths", {})
     assert (tmp_path / "paper.meta.json").is_file()

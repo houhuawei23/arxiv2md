@@ -15,6 +15,7 @@ from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 
@@ -132,7 +133,7 @@ async def fetch_arxiv_pdf(
         logger.debug(f"Using cached PDF for {arxiv_id}")
         return output_path
 
-    base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
+    base_id = strip_version(arxiv_id)
     pdf_url = urls.arxiv_pdf_template.format(base_id=base_id)
 
     pdf_timeout = h.fetch_timeout_s * h.large_transfer_timeout_multiplier
@@ -155,17 +156,21 @@ async def fetch_arxiv_pdf(
                     disable_tqdm = s.images.disable_tqdm
 
                     total_size = int(response.headers.get("content-length", 0))
+                    # Write to a temp sibling then rename so a concurrent
+                    # conversion never sees (or overwrites) a half-written cache.
+                    tmp_path = cache_path.with_name(cache_path.name + ".part")
                     async with (
                         async_byte_download_progress(
                             "Downloading PDF",
                             total_size if total_size > 0 else None,
                             disable=disable_tqdm,
                         ) as advance,
-                        aio_open(cache_path, "wb") as f,
+                        aio_open(tmp_path, "wb") as f,
                     ):
                         async for chunk in response.aiter_bytes():
                             await f.write(chunk)
                             advance(len(chunk))
+                    tmp_path.replace(cache_path)
 
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(cache_path, output_path)

@@ -49,18 +49,19 @@ class FigureReorderPass(IRPass):
             self._reorder_section(child)
 
     def _reorder_in_blocks(self, blocks: list) -> None:
-        # Collect figures and their citations
-        figures: dict[str, int] = {}  # figure_id → index in blocks
-        for i, block in enumerate(blocks):
+        # Collect figures by identity; indices go stale as blocks are moved,
+        # so every insertion re-locates the figure and its citing paragraph.
+        figures: dict[str, object] = {}  # figure_id → figure block
+        for block in blocks:
             if block.type == "figure" and block.figure_id:
-                figures[block.figure_id] = i
+                figures[block.figure_id] = block
 
         if not figures:
             return
 
         # Find first citation of each figure in paragraph text
-        first_cite: dict[str, int] = {}  # figure_id → paragraph index
-        for i, block in enumerate(blocks):
+        first_cite: dict[str, object] = {}  # figure_id → citing paragraph block
+        for block in blocks:
             if block.type != "paragraph":
                 continue
             text = _inlines_to_text(getattr(block, "inlines", []))
@@ -68,17 +69,27 @@ class FigureReorderPass(IRPass):
             for m in _FIGURE_CITATION_RE.finditer(text):
                 fig_id = f"figure-{m.group(1)}"
                 if fig_id in figures and fig_id not in first_cite:
-                    first_cite[fig_id] = i
+                    first_cite[fig_id] = block
 
         # Move each figure to after its first citation
-        for fig_id, fig_idx in sorted(figures.items(), reverse=True):
-            cite_idx = first_cite.get(fig_id)
-            if cite_idx is not None and cite_idx < fig_idx:
-                # Figure is after its citation — move it
-                figure = blocks.pop(fig_idx)
-                # Insert after the citing paragraph
-                insert_pos = cite_idx + 1
-                blocks.insert(insert_pos, figure)
+        for fig_id, figure in figures.items():
+            para = first_cite.get(fig_id)
+            if para is None:
+                continue
+            fig_idx = _index_of(blocks, figure)
+            para_idx = _index_of(blocks, para)
+            if fig_idx is None or para_idx is None or para_idx >= fig_idx:
+                continue
+            blocks.pop(fig_idx)
+            blocks.insert(para_idx + 1, figure)
+
+
+def _index_of(blocks: list, obj: object) -> int | None:
+    """Index of *obj* in *blocks* by identity (``list.index`` uses ``==``)."""
+    for i, block in enumerate(blocks):
+        if block is obj:
+            return i
+    return None
 
 
 def _inlines_to_text(inlines: list) -> str:
@@ -103,7 +114,7 @@ def _inlines_to_text(inlines: list) -> str:
             if il.url:
                 parts.append(il.url)
             parts.append(_inlines_to_text(il.inlines))
-        elif isinstance(il, (EmphasisIR, SuperscriptIR, SubscriptIR)):
+        elif isinstance(il, EmphasisIR | SuperscriptIR | SubscriptIR):
             parts.append(_inlines_to_text(il.inlines))
         # BreakIR has no text content; skip.
     return " ".join(parts)

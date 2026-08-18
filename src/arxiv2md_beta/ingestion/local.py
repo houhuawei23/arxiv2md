@@ -6,7 +6,7 @@ import asyncio
 import re
 import shutil
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
@@ -34,8 +34,8 @@ async def ingest_local_archive(
     short: str | None = None,
     no_images: bool = False,
     remove_refs: bool = False,
-    remove_toc: bool = False,
     remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     structured_output: str = "none",
@@ -60,10 +60,10 @@ async def ingest_local_archive(
         If True, skip image processing
     remove_refs : bool
         Remove bibliography sections
-    remove_toc : bool
-        Remove table of contents
     remove_inline_citations : bool
         Remove inline citations
+    linked_citations : bool
+        Render inline citations as [N](#ref-N) links
     section_filter_mode : str
         "include" or "exclude" section filtering
     sections : list[str] | None
@@ -103,6 +103,7 @@ async def ingest_local_archive(
             no_images=no_images,
             remove_refs=remove_refs,
             remove_inline_citations=remove_inline_citations,
+            linked_citations=linked_citations,
             section_filter_mode=section_filter_mode,
             sections=sections,
             structured_output=structured_output,
@@ -122,8 +123,8 @@ async def ingest_local_archive(
                 short=short,
                 no_images=no_images,
                 remove_refs=remove_refs,
-                remove_toc=remove_toc,
                 remove_inline_citations=remove_inline_citations,
+                linked_citations=linked_citations,
                 section_filter_mode=section_filter_mode,
                 sections=sections,
                 structured_output=structured_output,
@@ -145,6 +146,7 @@ async def _ingest_latex_archive(
     no_images: bool,
     remove_refs: bool = False,
     remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     structured_output: str = "none",
@@ -232,85 +234,32 @@ async def _ingest_latex_archive(
     except Exception as e:
         raise LocalIngestionError(f"Failed to parse LaTeX: {e}") from e
 
-    # Emit markdown with reference/appendix split (shared finalization).
-    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
-    from arxiv2md_beta.output.markdown_utils import (
-        count_sections,
-        create_sections_tree,
-        format_token_count,
-    )
-    from arxiv2md_beta.settings import get_settings
+    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
+    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 
-    content, content_references, content_appendix = emit_split_markdown(
+    return await asyncio.to_thread(
+        finalize_ingestion_output,
         doc,
-        reference_section_titles=get_settings().ingestion.reference_section_titles,
-    )
-
-    m = doc.metadata
-    result_title = m.title or title or "Unknown"
-    author_names = [a.name for a in m.authors] or (list(authors) if authors else [])
-    summary_lines: list[str] = []
-    if result_title:
-        summary_lines.append(f"# Title: {result_title}")
-    summary_lines.append(f"- ArXiv: {arxiv_id}")
-    if author_names:
-        summary_lines.append(f"- Authors: {', '.join(author_names)}")
-    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
-    tree_lines = ["Sections:"]
-    if m.abstract_text:
-        tree_lines.append("Abstract")
-    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
-    sections_tree = "\n".join(tree_lines)
-    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
-    token_estimate = format_token_count(sections_tree + "\n" + token_body)
-    if token_estimate:
-        summary_lines.append(f"- Estimated tokens: {token_estimate}")
-    result = IngestionResult(
-        summary="\n".join(summary_lines),
-        sections_tree=sections_tree,
-        content=content,
-        content_references=content_references,
-        content_appendix=content_appendix,
-    )
-
-    # Save paper metadata to paper.yml
-    try:
-        from arxiv2md_beta.output.metadata import save_paper_metadata
-
-        metadata_dict = {
-            "title": result_title,
-            "authors": author_names,
-            "abstract": m.abstract_text,
+        arxiv_id=arxiv_id,
+        paper_output_dir=paper_output_dir,
+        paper_yml_data={
+            "title": doc.metadata.title or title,
+            "authors": [a.name for a in doc.metadata.authors],
+            "abstract": doc.metadata.abstract_text,
             "submission_date": query.submission_date,
             "source": source,
             "archive_path": str(query.archive_path),
-        }
-        save_paper_metadata(metadata_dict, paper_output_dir)
-    except Exception as e:
-        logger.warning(f"Failed to save paper.yml: {e}")
-
-    from arxiv2md_beta.ingestion.ir_finalize import run_structured_export
-
-    structured_export: dict[str, Any] = run_structured_export(
-        doc,
-        paper_output_dir,
-        mode=structured_output,
+        },
+        linked_citations=linked_citations,
+        remove_inline_citations=remove_inline_citations,
+        structured_output=structured_output,
         emit_graph_csv=emit_graph_csv,
         images_subdir=images_dir_name,
+        extra_metadata={
+            "submission_date": query.submission_date,
+            "archive_path": str(query.archive_path),
+        },
     )
-
-    metadata = {
-        "title": result_title,
-        "authors": author_names,
-        "abstract": m.abstract_text,
-        "submission_date": query.submission_date,
-        "paper_output_dir": paper_output_dir,
-        "archive_path": str(query.archive_path),
-        "arxiv_id": arxiv_id,
-        "structured_export": structured_export,
-    }
-
-    return result, metadata
 
 
 async def _ingest_html_archive(
@@ -322,8 +271,8 @@ async def _ingest_html_archive(
     short: str | None,
     no_images: bool,
     remove_refs: bool,
-    remove_toc: bool,
     remove_inline_citations: bool,
+    linked_citations: bool,
     section_filter_mode: str,
     sections: list[str],
     structured_output: str = "none",
@@ -344,7 +293,6 @@ async def _ingest_html_archive(
 
     # Use provided metadata if parsed is missing
     title = parsed.title or query.title or main_html_file.stem
-    authors = [a.name for a in parsed.authors] if parsed.authors else query.authors
 
     # Create paper-specific output directory
     paper_output_dir = create_paper_output_dir(
@@ -381,9 +329,7 @@ async def _ingest_html_archive(
         from arxiv2md_beta.ir.transforms import build_default_pipeline
         from arxiv2md_beta.settings import get_settings
 
-        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(
-            parsed, arxiv_id=arxiv_id
-        )
+        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(parsed, arxiv_id=arxiv_id)
         pipeline = build_default_pipeline(
             parser="html",
             section_filter_mode=section_filter_mode,
@@ -399,85 +345,32 @@ async def _ingest_html_archive(
     except Exception as e:
         raise LocalIngestionError(f"Failed to build IR: {e}") from e
 
-    # Emit markdown with reference/appendix split (shared finalization).
-    from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown
-    from arxiv2md_beta.output.markdown_utils import (
-        count_sections,
-        create_sections_tree,
-        format_token_count,
-    )
-    from arxiv2md_beta.settings import get_settings
+    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
+    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 
-    content, content_references, content_appendix = emit_split_markdown(
+    return await asyncio.to_thread(
+        finalize_ingestion_output,
         doc,
-        reference_section_titles=get_settings().ingestion.reference_section_titles,
-    )
-
-    m = doc.metadata
-    result_title = m.title or title
-    author_names = [a.name for a in m.authors] or (list(authors) if authors else [])
-    summary_lines: list[str] = []
-    if result_title:
-        summary_lines.append(f"# Title: {result_title}")
-    summary_lines.append(f"- ArXiv: {arxiv_id}")
-    if author_names:
-        summary_lines.append(f"- Authors: {', '.join(author_names)}")
-    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
-    tree_lines = ["Sections:"]
-    if m.abstract_text:
-        tree_lines.append("Abstract")
-    tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
-    sections_tree = "\n".join(tree_lines)
-    token_body = "\n".join(x for x in (content, content_references, content_appendix or "") if x)
-    token_estimate = format_token_count(sections_tree + "\n" + token_body)
-    if token_estimate:
-        summary_lines.append(f"- Estimated tokens: {token_estimate}")
-    result = IngestionResult(
-        summary="\n".join(summary_lines),
-        sections_tree=sections_tree,
-        content=content,
-        content_references=content_references,
-        content_appendix=content_appendix,
-    )
-
-    # Save metadata
-    try:
-        from arxiv2md_beta.output.metadata import save_paper_metadata
-
-        metadata_dict = {
-            "title": result_title,
-            "authors": author_names,
-            "abstract": m.abstract_text,
+        arxiv_id=arxiv_id,
+        paper_output_dir=paper_output_dir,
+        paper_yml_data={
+            "title": doc.metadata.title or title,
+            "authors": [a.name for a in doc.metadata.authors],
+            "abstract": doc.metadata.abstract_text,
             "submission_date": query.submission_date,
             "source": source,
             "archive_path": str(query.archive_path),
-        }
-        save_paper_metadata(metadata_dict, paper_output_dir)
-    except Exception as e:
-        logger.warning(f"Failed to save paper.yml: {e}")
-
-    from arxiv2md_beta.ingestion.ir_finalize import run_structured_export
-
-    structured_export: dict[str, Any] = run_structured_export(
-        doc,
-        paper_output_dir,
-        mode=structured_output,
+        },
+        linked_citations=linked_citations,
+        remove_inline_citations=remove_inline_citations,
+        structured_output=structured_output,
         emit_graph_csv=emit_graph_csv,
         images_subdir=images_dir_name,
+        extra_metadata={
+            "submission_date": query.submission_date,
+            "archive_path": str(query.archive_path),
+        },
     )
-
-    metadata = {
-        "title": result_title,
-        "authors": author_names,
-        "abstract": m.abstract_text,
-        "submission_date": query.submission_date,
-        "paper_output_dir": paper_output_dir,
-        "archive_path": str(query.archive_path),
-        "arxiv_id": arxiv_id,
-        "structured_export": structured_export,
-    }
-
-    return result, metadata
 
 
 def _find_main_html_file(extracted_dir: Path, html_files: list[Path]) -> Path:
@@ -501,16 +394,23 @@ def _find_main_html_file(extracted_dir: Path, html_files: list[Path]) -> Path:
 
 
 def _copy_local_images(extracted_dir: Path, images_dir: Path) -> None:
-    """Copy image files from extracted archive to output directory."""
+    """Copy image files from extracted archive to the output directory.
+
+    Names are flattened into ``images_dir``; same-named files from different
+    subdirectories get ``_1``/``_2`` suffixes instead of silently overwriting
+    each other (same policy as ``local_html._copy_associated_files``).
+    """
     image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"}
 
     for ext in image_extensions:
         for img_file in extracted_dir.rglob(f"*{ext}"):
             try:
-                # Maintain directory structure relative to extracted_dir
-                rel_path = img_file.relative_to(extracted_dir)
-                dest_path = images_dir / rel_path.name  # Flatten structure
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                dest_path = images_dir / img_file.name
+                counter = 1
+                original_dest = dest_path
+                while dest_path.exists():
+                    dest_path = images_dir / f"{original_dest.stem}_{counter}{original_dest.suffix}"
+                    counter += 1
                 shutil.copy2(img_file, dest_path)
                 logger.debug(f"Copied image: {img_file} -> {dest_path}")
             except OSError as e:

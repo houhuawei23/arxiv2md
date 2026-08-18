@@ -262,6 +262,8 @@ def apply_cli_overrides(settings: AppSettings, args: Any) -> AppSettings:
     output = settings.output.model_copy()
     if getattr(args, "include_anchors", None) is not None:
         output = output.model_copy(update={"include_anchors": args.include_anchors})
+    if getattr(args, "linked_citations", None) is not None:
+        output = output.model_copy(update={"linked_citations": args.linked_citations})
 
     output_naming = settings.output_naming.model_copy()
     if getattr(args, "naming_scheme", None) is not None:

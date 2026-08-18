@@ -18,6 +18,28 @@ from arxiv2md_beta.cli.convert_cli import (
     apply_convert_cli_settings,
     make_convert_params,
 )
+from arxiv2md_beta.cli.options import (
+    DOWNLOAD_PDF_OPT,
+    EMIT_GRAPH_CSV_OPT,
+    EMIT_RESULT_JSON_OPT,
+    INCLUDE_ANCHORS_OPT,
+    INCLUDE_TREE_OPT,
+    LINKED_CITATIONS_OPT,
+    NAMING_SCHEME_OPT,
+    NO_CACHE_OPT,
+    NO_IMAGES_OPT,
+    NO_PROGRESS_OPT,
+    OUTPUT_OPT,
+    PARSER_OPT,
+    REMOVE_INLINE_CITATIONS_OPT,
+    REMOVE_REFS_OPT,
+    SECTION_FILTER_MODE_OPT,
+    SECTION_OPT,
+    SECTIONS_OPT,
+    SHORT_OPT,
+    SOURCE_OPT,
+    STRUCTURED_OUTPUT_OPT,
+)
 from arxiv2md_beta.cli.runner import (
     ImagesParams,
     PaperYmlParams,
@@ -118,112 +140,26 @@ def convert_cmd(
         metavar="INPUT",
         help="arXiv ID, URL, local archive path, or local HTML file path.",
     ),
-    parser: str | None = typer.Option(
-        None,
-        "--parser",
-        help="Parser mode: html or latex.",
-    ),
-    output: str | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output directory; a subdirectory may be created inside.",
-    ),
-    source: str | None = typer.Option(
-        None,
-        "--source",
-        help="Article source (conference/journal name).",
-    ),
-    short: str | None = typer.Option(
-        None,
-        "--short",
-        help="Short name for the article.",
-    ),
-    no_images: bool = typer.Option(
-        False,
-        "--no-images",
-        help="Skip downloading and inserting images (HTML mode only).",
-    ),
-    remove_refs: bool = typer.Option(
-        False,
-        "--remove-refs",
-        help="Remove bibliography/references sections from output.",
-    ),
-    remove_toc: bool = typer.Option(
-        False,
-        "--remove-toc",
-        help="Remove table of contents from output.",
-    ),
-    remove_inline_citations: bool = typer.Option(
-        False,
-        "--remove-inline-citations",
-        help="Remove inline citation text from output.",
-    ),
-    section_filter_mode: str | None = typer.Option(
-        None,
-        "--section-filter-mode",
-        help="Section filtering: include or exclude.",
-    ),
-    sections: str | None = typer.Option(
-        None,
-        "--sections",
-        help='Comma-separated section titles (e.g. "Abstract,Introduction").',
-    ),
-    section: list[str] = typer.Option(
-        [],
-        "--section",
-        help="Repeatable section title filter.",
-    ),
-    include_tree: bool = typer.Option(
-        False,
-        "--include-tree",
-        help="Include the section tree before the Markdown content.",
-    ),
-    no_progress: bool = typer.Option(
-        False,
-        "--no-progress",
-        help="Disable Rich progress bars (downloads, images); logs still show milestones.",
-    ),
-    emit_result_json: bool = typer.Option(
-        False,
-        "--emit-result-json",
-        help="Print one line ARXIV2MD_RESULT_JSON={...} with paper_output_dir for scripting.",
-    ),
-    structured_output: str = typer.Option(
-        "none",
-        "--structured-output",
-        help="Emit versioned JSON next to Markdown: none | meta | document | full | all.",
-    ),
-    emit_graph_csv: bool = typer.Option(
-        False,
-        "--emit-graph-csv",
-        help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
-    ),
-    no_cache: bool = typer.Option(
-        False,
-        "--no-cache",
-        help="Disable download caching for TeX source, HTML, and PDF.",
-    ),
-    include_anchors: bool = typer.Option(
-        False,
-        "--include-anchors",
-        help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
-    ),
-    linked_citations: bool = typer.Option(
-        False,
-        "--linked-citations",
-        help="Render inline citations as linked [N](#ref-N) instead of plain [N].",
-    ),
-    naming_scheme: str | None = typer.Option(
-        None,
-        "--naming-scheme",
-        help="Output naming scheme: arxiv-ym (default), paper-pipeline, or classic.",
-    ),
-    download_pdf: bool = typer.Option(
-        True,
-        "--download-pdf/--skip-pdf-download",
-        help="Download the arXiv PDF into the output directory (default: True).",
-    ),
+    parser: str | None = PARSER_OPT,
+    output: str | None = OUTPUT_OPT,
+    source: str | None = SOURCE_OPT,
+    short: str | None = SHORT_OPT,
+    no_images: bool = NO_IMAGES_OPT,
+    remove_refs: bool = REMOVE_REFS_OPT,
+    remove_inline_citations: bool = REMOVE_INLINE_CITATIONS_OPT,
+    section_filter_mode: str | None = SECTION_FILTER_MODE_OPT,
+    sections: str | None = SECTIONS_OPT,
+    section: list[str] = SECTION_OPT,
+    include_tree: bool = INCLUDE_TREE_OPT,
+    no_progress: bool = NO_PROGRESS_OPT,
+    emit_result_json: bool = EMIT_RESULT_JSON_OPT,
+    structured_output: str = STRUCTURED_OUTPUT_OPT,
+    emit_graph_csv: bool = EMIT_GRAPH_CSV_OPT,
+    no_cache: bool = NO_CACHE_OPT,
+    include_anchors: bool | None = INCLUDE_ANCHORS_OPT,
+    linked_citations: bool | None = LINKED_CITATIONS_OPT,
+    naming_scheme: str | None = NAMING_SCHEME_OPT,
+    download_pdf: bool = DOWNLOAD_PDF_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -237,6 +173,9 @@ def convert_cmd(
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
     )
+    # Effective output flags live in settings after apply_convert_cli_settings
+    # merged CLI values (explicit only) over YAML/env defaults.
+    eff = get_settings().output
     params = make_convert_params(
         input_text.strip(),
         parser_mode=parser_mode,
@@ -245,7 +184,6 @@ def convert_cmd(
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
-        remove_toc=remove_toc,
         remove_inline_citations=remove_inline_citations,
         mode=mode,
         sections=sections,
@@ -255,9 +193,8 @@ def convert_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
-        naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
-        linked_citations=linked_citations,
+        linked_citations=eff.linked_citations,
     )
     try:
         run_convert_sync(params)
@@ -279,87 +216,21 @@ def batch_cmd(
             " file). Lines starting with # are ignored."
         ),
     ),
-    parser: str | None = typer.Option(
-        None,
-        "--parser",
-        help="Parser mode: html or latex.",
-    ),
-    output: str | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output directory; a subdirectory may be created inside.",
-    ),
-    source: str | None = typer.Option(
-        None,
-        "--source",
-        help="Article source (conference/journal name).",
-    ),
-    short: str | None = typer.Option(
-        None,
-        "--short",
-        help="Short name for the article.",
-    ),
-    no_images: bool = typer.Option(
-        False,
-        "--no-images",
-        help="Skip downloading and inserting images (HTML mode only).",
-    ),
-    remove_refs: bool = typer.Option(
-        False,
-        "--remove-refs",
-        help="Remove bibliography/references sections from output.",
-    ),
-    remove_toc: bool = typer.Option(
-        False,
-        "--remove-toc",
-        help="Remove table of contents from output.",
-    ),
-    remove_inline_citations: bool = typer.Option(
-        False,
-        "--remove-inline-citations",
-        help="Remove inline citation text from output.",
-    ),
-    section_filter_mode: str | None = typer.Option(
-        None,
-        "--section-filter-mode",
-        help="Section filtering: include or exclude.",
-    ),
-    sections: str | None = typer.Option(
-        None,
-        "--sections",
-        help='Comma-separated section titles (e.g. "Abstract,Introduction").',
-    ),
-    section: list[str] = typer.Option(
-        [],
-        "--section",
-        help="Repeatable section title filter.",
-    ),
-    include_tree: bool = typer.Option(
-        False,
-        "--include-tree",
-        help="Include the section tree before the Markdown content.",
-    ),
-    no_progress: bool = typer.Option(
-        False,
-        "--no-progress",
-        help="Disable Rich progress bars (downloads, images); logs still show milestones.",
-    ),
-    emit_result_json: bool = typer.Option(
-        False,
-        "--emit-result-json",
-        help="Print one line ARXIV2MD_RESULT_JSON={...} with paper_output_dir for scripting.",
-    ),
-    structured_output: str = typer.Option(
-        "none",
-        "--structured-output",
-        help="Emit versioned JSON next to Markdown: none | meta | document | full | all.",
-    ),
-    emit_graph_csv: bool = typer.Option(
-        False,
-        "--emit-graph-csv",
-        help="With --structured-output all, also write paper.graph.nodes.csv and paper.graph.edges.csv.",
-    ),
+    parser: str | None = PARSER_OPT,
+    output: str | None = OUTPUT_OPT,
+    source: str | None = SOURCE_OPT,
+    short: str | None = SHORT_OPT,
+    no_images: bool = NO_IMAGES_OPT,
+    remove_refs: bool = REMOVE_REFS_OPT,
+    remove_inline_citations: bool = REMOVE_INLINE_CITATIONS_OPT,
+    section_filter_mode: str | None = SECTION_FILTER_MODE_OPT,
+    sections: str | None = SECTIONS_OPT,
+    section: list[str] = SECTION_OPT,
+    include_tree: bool = INCLUDE_TREE_OPT,
+    no_progress: bool = NO_PROGRESS_OPT,
+    emit_result_json: bool = EMIT_RESULT_JSON_OPT,
+    structured_output: str = STRUCTURED_OUTPUT_OPT,
+    emit_graph_csv: bool = EMIT_GRAPH_CSV_OPT,
     max_concurrency: int = typer.Option(
         3,
         "--max-concurrency",
@@ -376,31 +247,11 @@ def batch_cmd(
         "--fail-fast",
         help="Stop on first error (default: process all lines and report failures).",
     ),
-    no_cache: bool = typer.Option(
-        False,
-        "--no-cache",
-        help="Disable download caching for batch conversions.",
-    ),
-    include_anchors: bool = typer.Option(
-        False,
-        "--include-anchors",
-        help='Emit <a id="..."></a> anchor tags in the generated Markdown.',
-    ),
-    linked_citations: bool = typer.Option(
-        False,
-        "--linked-citations",
-        help="Render inline citations as linked [N](#ref-N) instead of plain [N].",
-    ),
-    naming_scheme: str | None = typer.Option(
-        None,
-        "--naming-scheme",
-        help="Output naming scheme: arxiv-ym (default), paper-pipeline, or classic.",
-    ),
-    download_pdf: bool = typer.Option(
-        True,
-        "--download-pdf/--skip-pdf-download",
-        help="Download the arXiv PDF into the output directory (default: True).",
-    ),
+    no_cache: bool = NO_CACHE_OPT,
+    include_anchors: bool | None = INCLUDE_ANCHORS_OPT,
+    linked_citations: bool | None = LINKED_CITATIONS_OPT,
+    naming_scheme: str | None = NAMING_SCHEME_OPT,
+    download_pdf: bool = DOWNLOAD_PDF_OPT,
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -414,6 +265,7 @@ def batch_cmd(
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
     )
+    eff = get_settings().output
     template = make_convert_params(
         "",
         parser_mode=parser_mode,
@@ -422,7 +274,6 @@ def batch_cmd(
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
-        remove_toc=remove_toc,
         remove_inline_citations=remove_inline_citations,
         mode=mode,
         sections=sections,
@@ -432,9 +283,8 @@ def batch_cmd(
         so=so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
-        naming_scheme=naming_scheme or "classic",
         download_pdf=download_pdf,
-        linked_citations=linked_citations,
+        linked_citations=eff.linked_citations,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

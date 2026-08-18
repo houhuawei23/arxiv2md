@@ -7,6 +7,11 @@ from pathlib import Path
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 
+# Schemes that emit fixed internal filenames (paper.md, References.md,
+# Appendix.md, <dir>.pdf) instead of stem-prefixed ones. Single source of
+# truth for both directory layout and file finalization.
+FIXED_INTERNAL_SCHEMES = frozenset({"paper-pipeline", "arxiv-ym"})
+
 
 def determine_output_dir(output: str | None, settings: AppSettings | None = None) -> Path:
     """Resolve base output directory from CLI string or config default."""

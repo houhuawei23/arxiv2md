@@ -104,7 +104,6 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--output`, `-o` | 输出根目录 | 配置中 `cli_defaults.output_dir` |
 | `--no-images` | 不下载/插入图片（仅 HTML 模式） | False |
 | `--remove-refs` | 移除参考文献 | False |
-| `--remove-toc` | 移除目录 | False |
 | `--remove-inline-citations` | 移除内联引用 | False |
 | `--section-filter-mode` | 过滤模式：`include` 或 `exclude` | `exclude` |
 | `--sections` | 逗号分隔的 section 过滤 | - |
@@ -114,6 +113,9 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--structured-output` | 在论文目录旁写入版本化 JSON：`none` \| `meta` \| `document` \| `full` \| `all` (schema v2.0, 全类型 IR 块结构) | `none` |
 | `--emit-graph-csv` | 与 `all` 联用，额外输出 `paper.graph.nodes.csv` / `paper.graph.edges.csv` | False |
 | `--download-pdf` / `--skip-pdf-download` | 是否在输出目录下载 arXiv PDF | True |
+| `--include-anchors` / `--no-include-anchors` | 输出 `<a id="...">` 锚点（仅在显式传参时覆盖 YAML/env 配置） | 配置中 `output.include_anchors` |
+| `--linked-citations` / `--no-linked-citations` | 内联引用渲染为 `[N](#ref-N)` 链接 | 配置中 `output.linked_citations` |
+| `--naming-scheme` | 输出命名方案：`arxiv-ym` / `paper-pipeline` / `classic` | 配置中 `output_naming.naming_scheme` |
 
 ### 命令行参数（`batch`）
 
@@ -263,9 +265,9 @@ arxiv2md-beta/
 │       ├── images/               # 图片下载与处理
 │       ├── html/                 # HTML 解析（parser、markdown、sections）
 │       ├── latex/                # LaTeX 解析（parser、tex_source）
-│       ├── ingestion/            # 编排层（pipeline、html、latex、local）
-│       ├── cache/                # 下载缓存
+│       ├── ingestion/            # 编排层（pipeline、orchestrator、latex、local）
 │       ├── citations/            # 参考文献解析与 BibTeX
+│       ├── params.py             # ConvertParams（CLI 与编排层共享）
 │       ├── config/               # 默认配置 YAML
 │       ├── settings/             # Pydantic 配置加载
 │       ├── schemas/              # 数据模型与 JSON Schema
@@ -345,12 +347,11 @@ arxiv2md-beta/
 中端：`build_default_pipeline(parser=…)` 是**唯一**管线来源。顺序敏感：
 `[SectionFilter?] → Numbering → [SectionNumbering 仅 latex] → FigureReorder → Anchor`。
 
-### `ir/emitters/{markdown,json,plaintext}.py`
+### `ir/emitters/{markdown,json}.py`
 
 后端：`DocumentIR` → 目标格式。
 - `MarkdownEmitter`：GitHub-flavored Markdown（接 `linked_citations` / `remove_inline_citations`），未知类型 `raise EmitterError`。
 - `JsonEmitter`：`paper.{meta,document,assets,bib,graph}.json`，`SCHEMA_VERSION` 单一源。
-- `PlainTextEmitter`：token 计数 / 搜索，fail-fast。
 
 
 ## 测试
@@ -432,5 +433,6 @@ python demo/demo_arxiv2md_beta.py
 
 - **Hou Huawei** — 项目创建者与主要维护者
 - **Kimi (kimi-k2.7 via kimi-code)** — 共同开发者，参与架构重构、性能优化、CI/CD 建设、静态检查修复与文档更新
+- **GLM (GLM-5.3 via ZCode)** — 共同开发者，参与 0.14.0 全项目架构评审与重构（配置合并链修复、收尾代码收敛、网络重试统一、依赖倒置消除与边界 bug 修复）
 
-> 本项目的多个版本由 Kimi (kimi-k2.7 via kimi-code) 协助完成系统性重构与工程化改进。
+> 本项目的多个版本由 Kimi (kimi-k2.7 via kimi-code) 与 GLM (GLM-5.3 via ZCode) 协助完成系统性重构与工程化改进。

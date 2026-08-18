@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.ingestion.latex import ingest_paper_latex
 from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 
 
@@ -19,8 +19,8 @@ async def ingest_paper(
     ar5iv_url: str | None = None,
     parser: str = "html",
     remove_refs: bool = False,
-    remove_toc: bool = False,
     remove_inline_citations: bool = False,
+    linked_citations: bool = False,
     section_filter_mode: str = "exclude",
     sections: list[str] | None = None,
     base_output_dir: Path,
@@ -47,10 +47,10 @@ async def ingest_paper(
         Parser mode: "html" or "latex"
     remove_refs : bool
         Remove bibliography
-    remove_toc : bool
-        Remove table of contents
     remove_inline_citations : bool
         Remove inline citations
+    linked_citations : bool
+        Render inline citations as [N](#ref-N) links
     section_filter_mode : str
         "include" or "exclude"
     sections : list[str] | None
@@ -75,7 +75,8 @@ async def ingest_paper(
             version=version,
             base_output_dir=base_output_dir,
             remove_refs=remove_refs,
-            remove_toc=remove_toc,
+            remove_inline_citations=remove_inline_citations,
+            linked_citations=linked_citations,
             section_filter_mode=section_filter_mode,
             sections=sections,
             no_images=no_images,
@@ -94,8 +95,8 @@ async def ingest_paper(
             short=short,
             no_images=no_images,
             remove_refs=remove_refs,
-            remove_toc=remove_toc,
             remove_inline_citations=remove_inline_citations,
+            linked_citations=linked_citations,
             section_filter_mode=section_filter_mode,
             sections=",".join(sections) if sections else None,
             section=None,
@@ -104,7 +105,6 @@ async def ingest_paper(
             structured_output=structured_output,
             emit_graph_csv=emit_graph_csv,
             no_cache=not use_cache,
-            naming_scheme="classic",
             download_pdf=False,
         )
         result, metadata = await IngestionOrchestrator(params).run()

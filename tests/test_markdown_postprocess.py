@@ -75,6 +75,8 @@ def test_apply_markdown_postprocessing() -> None:
     )
     cleaned = apply_markdown_postprocessing(result, include_anchors=False)
     assert "<a id=" not in cleaned.content
-    assert cleaned.content == "$x$"
-    assert cleaned.content_references == ""
+    # Output is POSIX newline-terminated.
+    assert cleaned.content == "$x$\n"
+    # Output is POSIX newline-terminated.
+    assert cleaned.content_references == "\n"
     assert cleaned.content_appendix is None

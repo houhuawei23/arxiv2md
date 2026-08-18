@@ -146,7 +146,9 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
     text = _clean_math_and_spacing(text)
     # Ensure no excessive blank lines remain.
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    # Emit a single trailing newline (POSIX text convention; keeps written
+    # .md files and goldens stable under end-of-file-fixer).
+    return text.strip() + "\n"
 
 
 def apply_markdown_postprocessing(
