@@ -40,11 +40,17 @@ def _sha256_parts(parts: list[str]) -> str:
 
 
 def _assign_struct_ids(sections: list[SectionIR], prefix: str = "sec") -> None:
-    """Mutate *sections* with stable ``struct_id`` values in-place."""
+    """Fill in ``struct_id`` only where missing.
+
+    Sections that already carry an id (e.g. ``sec_1_2`` from
+    ``SectionNumberingPass``, which also anchors the Markdown links) keep it —
+    the JSON bundle must not silently renumber them to positional ids.
+    """
 
     def walk(secs: list[SectionIR], path: tuple[int, ...]) -> None:
         for i, sec in enumerate(secs):
-            sec.struct_id = prefix + "".join(f"_{p}" for p in (*path, i))
+            if not sec.struct_id:
+                sec.struct_id = prefix + "".join(f"_{p}" for p in (*path, i))
             walk(sec.children, (*path, i))
 
     walk(sections, ())
@@ -80,7 +86,10 @@ def _flatten_section_blocks(
                 d = blk.model_dump(exclude_none=True)
                 d["id"] = f"{sid}:b{bi}:{blk.type}"
                 d["section_id"] = sid
-                d["order_index"] = bi
+                # Keep the builder's document-wide order_index; only fill in
+                # the positional value when the block never got one.
+                if d.get("order_index") is None:
+                    d["order_index"] = bi
                 out.append(d)
             walk(sec.children)
 
@@ -91,15 +100,15 @@ def _flatten_section_blocks(
 def _section_to_dict(sec: SectionIR) -> dict[str, Any]:
     """Recursively convert a :class:`SectionIR` to a dict for JSON."""
     sid = sec.struct_id or "sec_unknown"
-    blocks = [
-        {
-            **b.model_dump(exclude_none=True),
-            "id": f"{sid}:b{i}:{b.type}",
-            "section_id": sid,
-            "order_index": i,
-        }
-        for i, b in enumerate(sec.blocks)
-    ]
+    blocks = []
+    for i, b in enumerate(sec.blocks):
+        d = b.model_dump(exclude_none=True)
+        d["id"] = f"{sid}:b{i}:{b.type}"
+        d["section_id"] = sid
+        # Keep the builder's document-wide order_index; fill only if missing.
+        if d.get("order_index") is None:
+            d["order_index"] = i
+        blocks.append(d)
     return {
         "title": sec.title,
         "level": sec.level,
@@ -299,6 +308,9 @@ class JsonEmitter(IREmitter):
         if mode in ("", "none", "off", "false"):
             return {}
 
+        # Work on a deep copy: struct_id backfill below must not leak into the
+        # caller's doc (the same doc feeds Markdown emission and later callers).
+        doc = doc.model_copy(deep=True)
         _assign_struct_ids(doc.sections)
 
         written: dict[str, str] = {}

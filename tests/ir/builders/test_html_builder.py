@@ -587,3 +587,37 @@ class TestAr5ivMarkup:
         eq = doc.sections[0].blocks[0]
         assert eq.type == "equation"
         assert "\n" not in eq.latex
+
+
+class TestSvgFigures:
+    """Inline <svg> figures: builder collects assets, no file I/O (R1.2)."""
+
+    SVG_BODY = """
+    <figure class="ltx_figure">
+      <svg width="100" height="50"><path d="M0 0"/></svg>
+      <figcaption>Figure 1: An inline SVG plot.</figcaption>
+    </figure>"""
+    SVG_HTML = "<article class='ltx_document'><section class='ltx_section'>" f"<h2>T</h2>{SVG_BODY}</section></article>"
+
+    def test_svg_figure_collected_as_asset_without_io(self) -> None:
+        from arxiv2md_beta.ir.assets import SvgAsset
+
+        doc = HTMLBuilder(images_subdir="imgs").build(self.SVG_HTML, arxiv_id="1234.5678")
+        svgs = [a for a in doc.assets if isinstance(a, SvgAsset)]
+        assert len(svgs) == 1
+        assert svgs[0].path == "imgs/figure-1.svg"
+        assert "<svg" in (svgs[0].content or "")
+        # The figure block itself survives (previously dropped without svg_output_dir).
+        fig = doc.sections[0].blocks[0]
+        assert fig.type == "figure"
+        assert fig.images[0].src == "imgs/figure-1.svg"
+
+    def test_persist_inline_svgs_writes_files(self, tmp_path) -> None:
+        from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
+
+        doc = HTMLBuilder(images_subdir="images").build(self.SVG_HTML, arxiv_id="1234.5678")
+        written = persist_inline_svgs(doc, tmp_path)
+        assert written == 1
+        out = tmp_path / "images" / "figure-1.svg"
+        assert out.is_file()
+        assert "<svg" in out.read_text(encoding="utf-8")

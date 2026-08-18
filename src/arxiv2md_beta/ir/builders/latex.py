@@ -138,6 +138,7 @@ class LaTeXBuilder(IRBuilder):
         # base_dir for extension probing when an image src is extensionless
         # (LaTeX ``\includegraphics`` allows omitting the extension).
         self._base_dir: Path | None = None
+        self._images_subdir = "images"
         # citation key → 1-based reference number, built from ``\bibitem{}``
         # order in the source. Populated in ``build()``.
         self._cite_key_to_num: dict[str, int] = {}
@@ -157,9 +158,11 @@ class LaTeXBuilder(IRBuilder):
             * ``arxiv_id``: str – arXiv identifier.
             * ``title``: str | None – pre-extracted title.
             * ``authors``: list[str] | None – pre-extracted author names.
-            * ``abstract``: str | None – pre-extracted abstract text.
-            * ``base_dir``: Path | None – directory for relative-path resolution
-              (forwarded to pandoc).
+         * ``abstract``: str | None – pre-extracted abstract text.
+         * ``base_dir``: Path | None – directory for relative-path resolution
+           (forwarded to pandoc).
+         * ``images_subdir``: str – output subdirectory for images (default
+           ``"images"``); used for extension-probe fallback paths.
 
         Returns:
         -------
@@ -173,6 +176,7 @@ class LaTeXBuilder(IRBuilder):
         tex_content = cast("str", source)
         base_dir = kwargs.get("base_dir")
         self._base_dir = Path(base_dir) if base_dir else None
+        self._images_subdir = str(kwargs.get("images_subdir") or "images")
 
         # Build citation key → reference-number map from ``\bibitem{key}`` order.
         # The bibliography environment lists entries in reference order, so the
@@ -1032,7 +1036,10 @@ class LaTeXBuilder(IRBuilder):
 
         When the resolver returns *src* unchanged (no match in the image map)
         and *src* has no extension, probe the *base_dir* for a file matching
-        the stem.  LaTeX ``\\includegraphics`` omits the extension by convention.
+        the stem.  LaTeX ``\\includegraphics`` omits the extension by
+        convention. Probed hits are reported as ``<images_subdir>/<name>``
+        relative paths — never absolute paths, which would make the emitted
+        Markdown non-portable (base_dir is a temporary extraction directory).
         """
         resolved = self._image_resolver.resolve(src)
         if resolved != src:
@@ -1042,7 +1049,7 @@ class LaTeXBuilder(IRBuilder):
             for ext in (".png", ".jpg", ".jpeg", ".pdf", ".svg", ".eps"):
                 candidate = self._base_dir / f"{src}{ext}"
                 if candidate.is_file():
-                    return str(candidate)
+                    return f"{self._images_subdir}/{candidate.name}"
         return src
 
     # ------------------------------------------------------------------

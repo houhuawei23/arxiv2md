@@ -396,3 +396,22 @@ class TestLaTeXBuilderContentCoverage:
         assert "0.95" in md and "0.92" in md
         assert "|" in md  # pipe table rendered
         assert "Comparison of methods" in md  # caption
+
+
+class TestExtensionProbeRelativePaths:
+    """R1.3: extension probing must emit portable relative paths."""
+
+    def test_probe_returns_images_relative_not_absolute(self, tmp_path, monkeypatch) -> None:
+        (tmp_path / "teaser.png").write_bytes(b"png")
+        tex = (
+            r"\documentclass{article}\begin{document}"
+            r"\begin{figure}\includegraphics{teaser}\caption{Fig 1: T}\end{figure}"
+            r"\end{document}"
+        )
+        builder = LaTeXBuilder()
+        doc = builder.build(tex, arxiv_id="t", base_dir=tmp_path, images_subdir="images")
+        srcs = [il.src for sec in doc.sections for blk in sec.blocks if blk.type == "figure" for il in blk.images]
+        assert srcs, "figure with probed image not found"
+        for src in srcs:
+            assert src == "images/teaser.png", f"non-portable src leaked: {src}"
+            assert not src.startswith("/")

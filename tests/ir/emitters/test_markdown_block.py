@@ -7,6 +7,7 @@ import pytest
 from arxiv2md_beta.ir import (
     AlgorithmIR,
     BlockQuoteIR,
+    BreakIR,
     CodeIR,
     EquationIR,
     FigureIR,
@@ -324,3 +325,22 @@ def test_markdown_emitter_raises_on_unknown_inline_type():
     bogus = SimpleNamespace(type="totally_unknown_inline")
     with pytest.raises(EmitterError):
         MarkdownEmitter()._emit_inline(bogus)
+
+
+class TestTableAndCaptionRendering:
+    """R2.4: cells stay on one line; multi-line captions keep '>' per line."""
+
+    def test_cell_with_break_stays_one_line(self) -> None:
+        cell = [TextIR(text="a"), BreakIR(), TextIR(text="b")]
+        tbl = TableIR(headers=[[TextIR(text="H")]], rows=[[cell]])
+        out = MarkdownEmitter()._emit_block(tbl)
+        row_lines = [ln for ln in out.split("\n") if ln.startswith("|") and "---" not in ln]
+        assert len(row_lines) == 2  # header + single row
+        assert "<br>" in row_lines[1]
+
+    def test_multiline_caption_gets_prefix_per_line(self) -> None:
+        cap = [TextIR(text="Line one."), BreakIR(), TextIR(text="Line two.")]
+        tbl = TableIR(headers=[[TextIR(text="H")]], rows=[], caption=cap)
+        out = MarkdownEmitter()._emit_block(tbl)
+        assert "> Line one." in out
+        assert "> Line two." in out

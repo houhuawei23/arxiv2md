@@ -271,11 +271,16 @@ class IngestionOrchestrator:
         assert self._paper_output_dir is not None
         builder = HTMLBuilder(
             image_resolver=self._image_resolver,
-            svg_output_dir=self._paper_output_dir / self._images_dir_name,
+            images_subdir=self._images_dir_name,
         )
         # 直接复用 parse_arxiv_html 的解析结果，避免 builder 再次解析完整 HTML
         self._doc = builder.build(self._parsed, arxiv_id=self._query.arxiv_id)
         self._populate_assets()
+        # Inline <svg> figures collected by the builder are persisted here
+        # (the builder itself performs no file I/O).
+        from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
+
+        persist_inline_svgs(self._doc, self._paper_output_dir)
 
     # ── Step 7a: Populate assets ───────────────────────────────────────
 

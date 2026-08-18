@@ -31,7 +31,10 @@ def _compile_tex_figures(tex_source_info: TexSourceInfo, images_dir: Path) -> li
     snippets = sorted(tex_source_info.extracted_dir.rglob("*.tex"))
     snippets = [p for p in snippets if p != main and ("tikzpicture" in p.read_text(encoding="utf-8", errors="ignore"))]
     results: list[Path] = []
+    pdflatex_available: bool | None = None  # probed once, then trusted
     for index, snippet in enumerate(snippets, 1):
+        if pdflatex_available is False:
+            break  # no point timing out on every remaining snippet
         with tempfile.TemporaryDirectory(prefix="arxiv2md-tikz-") as tmp:
             work = Path(tmp)
             wrapper = work / "figure.tex"
@@ -56,6 +59,7 @@ def _compile_tex_figures(tex_source_info: TexSourceInfo, images_dir: Path) -> li
                     timeout=45,
                     check=True,
                 )
+                pdflatex_available = True
                 png = images_dir / f"figure-{index}.png"
                 subprocess.run(
                     [
@@ -74,6 +78,12 @@ def _compile_tex_figures(tex_source_info: TexSourceInfo, images_dir: Path) -> li
                 )
                 if png.exists():
                     results.append(png)
+            except FileNotFoundError:
+                # pdflatex is not installed: fail fast instead of re-probing
+                # (and re-waiting) for every snippet.
+                pdflatex_available = False
+                logger.warning("pdflatex not found; skipping TikZ figure compilation")
+                break
             except (OSError, subprocess.SubprocessError):
                 logger.warning(f"Failed to compile TeX figure: {snippet.name}")
     return results
@@ -118,6 +128,8 @@ class ProcessedImages(NamedTuple):
     filename_map: dict[int, str]  # figure_index -> original_filename (for reference)
     # TeX source stem / output basename -> relative path (for HTML <img src> matching)
     stem_to_image_path: dict[str, Path]
+    # Source filenames that failed processing entirely (surfaces silent drops).
+    failed: list[str] = []
 
 
 async def process_images_async(
@@ -178,6 +190,7 @@ async def process_images_async(
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
     stem_to_image_path: dict[str, Path] = {}
+    failed: list[str] = []
     # source_path -> (relative_path, original_filename), used to rebuild the
     # figure-index map in float-figure order after concurrent processing.
     source_to_outcome: dict[Path, tuple[Path, str]] = {}
@@ -220,8 +233,10 @@ async def process_images_async(
                     stem_to_image_path[source_path.name] = relative_path
             except ImageProcessingError as e:
                 logger.error(f"Failed to process image {source_path}: {e}")
+                failed.append(source_path.name)
             except (OSError, ValueError, TypeError, RuntimeError) as e:
                 logger.error(f"Failed to process image {source_path}: {e}")
+                failed.append(source_path.name)
 
     try:
         with iterable_task_progress(
@@ -259,11 +274,15 @@ async def process_images_async(
             image_map = ordered_map
             filename_map = ordered_filenames
 
+    if failed:
+        logger.warning(f"{len(failed)} image(s) failed to process: {', '.join(failed)}")
+
     return ProcessedImages(
         image_map=image_map,
         images_dir=images_dir,
         filename_map=filename_map,
         stem_to_image_path=stem_to_image_path,
+        failed=failed,
     )
 
 

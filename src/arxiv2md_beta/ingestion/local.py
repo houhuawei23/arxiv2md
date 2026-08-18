@@ -216,6 +216,7 @@ async def _ingest_latex_archive(
             authors=list(authors) if authors else None,
             abstract=abstract,
             base_dir=tex_source_info.extracted_dir,
+            images_subdir=images_dir_name,
         )
         pipeline = build_default_pipeline(
             parser="latex",
@@ -324,12 +325,15 @@ async def _ingest_html_archive(
     # Build IR via HTMLBuilder (consumes the same ParsedArxivHtml as the remote
     # HTML orchestrator).
     def _build_ir() -> DocumentIR:
+        from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
         from arxiv2md_beta.ir import HTMLBuilder
         from arxiv2md_beta.ir.resolvers import ImageResolver
         from arxiv2md_beta.ir.transforms import build_default_pipeline
         from arxiv2md_beta.settings import get_settings
 
-        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map)).build(parsed, arxiv_id=arxiv_id)
+        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map), images_subdir=images_dir_name).build(
+            parsed, arxiv_id=arxiv_id
+        )
         pipeline = build_default_pipeline(
             parser="html",
             section_filter_mode=section_filter_mode,
@@ -338,6 +342,7 @@ async def _ingest_html_archive(
             reference_section_titles=get_settings().ingestion.reference_section_titles,
         )
         pipeline.run(doc)
+        persist_inline_svgs(doc, paper_output_dir)
         return doc
 
     try:

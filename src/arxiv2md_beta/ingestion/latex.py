@@ -174,6 +174,7 @@ async def _ingest_paper_latex_impl(
             authors=display_author_names or None,
             abstract=abstract_text,
             base_dir=tex_source_info.extracted_dir,
+            images_subdir=images_dir_name,
         )
         pipeline = build_default_pipeline(
             parser="latex",

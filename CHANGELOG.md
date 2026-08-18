@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-18
+
+图片链路正确性（R1）+ 编号单一事实来源（R2）。含两处输出格式变更（见 Changed）。
+
+### Fixed（R1 — 图片链路）
+
+- **ImageResolver 错配收紧**：stem 子串匹配降为最后一级 fallback 并加词边界约束（"fig" 不再错配 "fig2.png"，下划线包裹名仍可命中）；索引 fallback 不再"向前顺延"偷取其他 figure 的图片——同一 figure 的重复解析（多子图）按 base/base+1/base+2 连续分配，基索引被占则返回 None；1 基向后兼容分支仅在 map 无 0 键时生效。
+- **本地路径 SVG 不再丢失**：`ingestion/local.py` 与 `local_html.py` 此前不传 SVG 输出目录，内联 `<svg>` figure 整图被静默丢弃。
+- **LaTeX 无扩展名探测**不再把临时目录绝对路径写进 Markdown，改为 `<images_subdir>/<name>` 相对路径（`LaTeXBuilder` 新增 `images_subdir` build 参数）。
+- **图片失败可见化**：`ProcessedImages` 新增 `failed` 列表，处理失败的图片汇总 warning（此前逐条静默消失）。
+- **TikZ 快速失败**：pdflatex 不可用（FileNotFoundError）只探测一次并跳过全部 snippet，不再每个 snippet 等待 45s 超时。
+
+### Changed（R2 — 编号单一来源；⚠️ 输出格式变更）
+
+- **NumberingPass 成为唯一编号源**：HTMLBuilder 停止为无 caption figure 预写 `figure-N`；pass 预扫描全部 caption 派生 id，自动编号跳过已占用号；anchor 全局唯一——重复 caption id（附录 "Figure 1" 重现）时 `figure_id` 保留 caption 语义、anchor 去重为 `figure-1-2` 等；equation anchor 由公式自身编号驱动（`eq-3`，去括号），不再用位置计数。
+- **JSON bundle 不再改写语义**：`_assign_struct_ids` 只补缺失的 struct_id（不再把 `sec_1_2` 覆盖为 0 基 `sec_0_1`）；block 的 `order_index` 保留 builder 的文档级值（缺失才补）；`write_bundle` 深拷贝后工作，不再 mutate 输入 doc。
+- **图内链锚点表化**：figure/algorithm 携带 arXiv 元素 id（如 `S1.F1`）为 label，NumberingPass 构建 label→anchor 映射并把内部链接重定向到真实 anchor（替代 `S1.F1 → figure-全局计数` 的猜测）。
+- **Markdown emitter 转义**（⚠️ 输出格式变更）：链接文本 `[`/`]` 转义、URL 空格/括号百分号编码；表格单元格内换行转 `<br>`（不再撕开表格）；figure/table caption 多行时逐行加 `>` 前缀；上/下标由 `^1`/`_i` 改为 `<sup>1</sup>`/`<sub>i</sub>`（裸前缀与 Markdown 强调/数学符号冲突）。
+- SVG 持久化从 HTMLBuilder（文件 I/O 副作用）移至 ingestion 层 `persist_inline_svgs()`，文件名使用配置的 `images_subdir`（消灭硬编码 `images/`）。
+- `config init` 模板与 `default_config.yml` 的 user_agent 版本串统一为当前版本（此前分别为 0.6.1 / 0.1）。
+
+
 ## [0.14.0] - 2026-08-18
 
 全项目架构评审与重构：修复 11 个确定性 bug、收敛 4 份复制的收尾代码、消除 ingestion→cli 依赖倒置。评审由三位并行探索代理完成全面扫描后按 P0-P3 分阶段实施。

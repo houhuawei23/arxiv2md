@@ -8,7 +8,7 @@ http:
   fetch_timeout_s: 10.0
   fetch_max_retries: 3
   fetch_backoff_s: 3.0
-  user_agent: "arxiv2md-beta/0.1 (+https://github.com/arxiv2md-beta)"
+  user_agent: "arxiv2md-beta/0.15.0"
   retry_status_codes: [429, 500, 502, 503, 504]
   large_transfer_timeout_multiplier: 5.0
 

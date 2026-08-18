@@ -1,7 +1,12 @@
 """Unified image path resolution for HTML and LaTeX builders.
 
-Supports multi-strategy fallback:
-    exact path match → stem match → xN.png name → index match → original src
+Strategy chain (first hit wins):
+    exact path_map key → exact stem (case-insensitive) → path_map stem/name
+    → ar5iv xN.png name → figure index → path_map name/stem → loose stem
+    (word-boundary substring) → original src
+
+The loose substring match runs *last* so a short stem key ("fig") can never
+shadow a precise strategy for a sibling file ("fig2.png").
 """
 
 from __future__ import annotations
@@ -41,6 +46,8 @@ class ImageResolver:
         self._stem_map: dict[str, Path] = {k: Path(v) for k, v in (stem_map or {}).items()}
         self._path_map: dict[str, Path] = {k: Path(v) for k, v in (path_map or {}).items()}
         self._used_indices: set[int] = set()
+        # figure_index → next 0-based index to hand out (subfigure continuation)
+        self._figure_next: dict[int, int] = {}
         self._cache: dict[str, str] = {}
 
     # ── Public API ─────────────────────────────────────────────────────
@@ -57,6 +64,7 @@ class ImageResolver:
             or self._try_xname(src)
             or self._try_index(figure_index)
             or self._try_path_map(src)
+            or self._try_stem_loose(src)
         )
         result = str(resolved) if resolved else src
         self._cache[cache_key] = result
@@ -83,20 +91,14 @@ class ImageResolver:
         return None
 
     def _try_stem(self, src: str) -> Path | None:
-        """Match by filename stem (HTML *stem_map* + LaTeX *path_map* stems)."""
+        """Precise stem matching: exact (case-insensitive) stem + path_map stem/name."""
         src_basename = src.rsplit("/", 1)[-1] if "/" in src else src
         src_stem = src_basename.rsplit(".", 1)[0] if "." in src_basename else src_basename
 
-        # HTML stem_map: case-insensitive exact stem match first
+        # HTML stem_map: case-insensitive exact stem match
         for stem_key, local_path in self._stem_map.items():
             key_stem = stem_key.rsplit(".", 1)[0] if "." in stem_key else stem_key
             if key_stem.lower() == src_stem.lower():
-                return local_path
-
-        # Fallback: substring match in basename only (not full path)
-        for stem_key, local_path in self._stem_map.items():
-            key_stem = stem_key.rsplit(".", 1)[0] if "." in stem_key else stem_key
-            if key_stem.lower() in src_basename.lower():
                 return local_path
 
         # LaTeX path_map: stem / name match
@@ -105,6 +107,23 @@ class ImageResolver:
             if Path(key).stem == path_obj.stem or Path(key).name == path_obj.name:
                 return val
 
+        return None
+
+    def _try_stem_loose(self, src: str) -> Path | None:
+        """Last-resort stem match by word-boundary substring.
+
+        Only tried after every precise strategy failed. The boundary guards
+        (``(?<![A-Za-z0-9])key(?![A-Za-z0-9])``) keep a short key like ``fig``
+        from matching a sibling file like ``fig2.png`` while still matching
+        wrapped names like ``prefix_fig_suffix.png``.
+        """
+        src_basename = src.rsplit("/", 1)[-1] if "/" in src else src
+        lowered = src_basename.lower()
+        for stem_key, local_path in self._stem_map.items():
+            key_stem = stem_key.rsplit(".", 1)[0] if "." in stem_key else stem_key
+            pattern = rf"(?<![A-Za-z0-9]){re.escape(key_stem.lower())}(?![A-Za-z0-9])"
+            if re.search(pattern, lowered):
+                return local_path
         return None
 
     def _try_xname(self, src: str) -> Path | None:
@@ -130,25 +149,38 @@ class ImageResolver:
         """Match by figure index (HTML *index_map*).
 
         *index_map* is 0-based (the convention used by image processing), while
-        *figure_index* is 1-based (the HTML figure counter). A single HTML
-        figure may contain several subfigures, so once the base index for a
-        figure is consumed we continue with the next unused consecutive index.
+        *figure_index* is 1-based (the HTML figure counter). Repeated calls with
+        the same *figure_index* (a multi-subfigure figure) hand out consecutive
+        indices starting at ``figure_index - 1``. If that base index is missing
+        or already consumed by another figure, we return ``None`` and let the
+        later strategies decide — consuming a farther index would steal an
+        image that belongs to another figure.
         """
         if figure_index is None:
             return None
 
-        # Prefer 0-based lookup: figure N maps to base index N-1.
-        base = figure_index - 1
-        if base in self._index_map:
-            for idx in range(base, max(self._index_map.keys()) + 1):
-                if idx in self._index_map and idx not in self._used_indices:
-                    self._used_indices.add(idx)
-                    return self._index_map[idx]
+        # Subfigure continuation: same figure asking for its next image.
+        if figure_index in self._figure_next:
+            nxt = self._figure_next[figure_index]
+            if nxt in self._index_map and nxt not in self._used_indices:
+                self._used_indices.add(nxt)
+                self._figure_next[figure_index] = nxt + 1
+                return self._index_map[nxt]
             return None
 
-        # Backward-compatible 1-based lookup.
-        if figure_index in self._index_map and figure_index not in self._used_indices:
+        # First request for this figure: 0-based base index.
+        base = figure_index - 1
+        if base in self._index_map and base not in self._used_indices:
+            self._used_indices.add(base)
+            self._figure_next[figure_index] = base + 1
+            return self._index_map[base]
+
+        # Backward-compatible 1-based lookup — only for maps that actually
+        # look 1-based (no 0 key). Otherwise a dense 0-based map would let a
+        # failed base lookup steal the next figure's image.
+        if 0 not in self._index_map and figure_index in self._index_map and figure_index not in self._used_indices:
             self._used_indices.add(figure_index)
+            self._figure_next[figure_index] = figure_index + 1
             return self._index_map[figure_index]
 
         return None

@@ -119,13 +119,13 @@ class TestImageRefIR:
 class TestSuperscriptIR:
     def test_superscript(self, emitter):
         n = SuperscriptIR(inlines=[TextIR(text="1")])
-        assert emitter._emit_inline(n) == "^1"
+        assert emitter._emit_inline(n) == "<sup>1</sup>"
 
 
 class TestSubscriptIR:
     def test_subscript(self, emitter):
         n = SubscriptIR(inlines=[TextIR(text="i")])
-        assert emitter._emit_inline(n) == "_i"
+        assert emitter._emit_inline(n) == "<sub>i</sub>"
 
 
 class TestBreakIR:
@@ -149,3 +149,24 @@ class TestInlineComposition:
             ]
         )
         assert emitter._emit_block(p) == "Hello **world**!"
+
+
+class TestEscaping:
+    """R2.4: link/image syntax must survive special characters."""
+
+    def test_link_text_with_brackets(self, emitter) -> None:
+        n = LinkIR(kind="external", url="https://a.b/c", inlines=[TextIR(text="a [b] c")])
+        out = emitter._emit_inline(n)
+        assert out.startswith("[a \\[b\\] c](")
+        assert out.endswith("(https://a.b/c)".replace("(", "(")) or "(https://a.b/c)" in out
+
+    def test_url_with_spaces_and_parens(self, emitter) -> None:
+        n = LinkIR(kind="external", url="https://a.b/my file (1).pdf", inlines=[TextIR(text="doc")])
+        out = emitter._emit_inline(n)
+        assert "my%20file%20%281%29.pdf" in out
+        assert " " not in out.rsplit("(", 1)[1]
+
+    def test_image_alt_with_bracket(self, emitter) -> None:
+        n = ImageRefIR(src="fig 1.png", alt="[Fig]")
+        out = emitter._emit_inline(n)
+        assert out == "![\\[Fig\\]](fig%201.png)"

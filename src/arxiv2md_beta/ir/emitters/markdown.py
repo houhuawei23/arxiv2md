@@ -34,6 +34,21 @@ _EMPHASIS_CLOSERS: dict[str, str] = {
 _CITATION_NUM_RE = re.compile(r"^(?:ref-)?(\d+(?:\s*,\s*\d+)*)$")
 
 
+def _escape_md_text(text: str) -> str:
+    r"""Escape characters that would break ``[text](url)`` link/image syntax."""
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def _escape_url(url: str) -> str:
+    r"""Percent-encode whitespace/parens so they cannot terminate ``(url)``."""
+    return re.sub(r"([ ()])", lambda m: f"%{ord(m.group(1)):02X}", url)
+
+
+def _blockquote_lines(text: str) -> str:
+    """Prefix every line with ``> `` so multi-line captions stay one block."""
+    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.split("\n"))
+
+
 class MarkdownEmitter(IREmitter):
     """Serialize a :class:`DocumentIR` to GitHub-flavoured Markdown."""
 
@@ -170,12 +185,12 @@ class MarkdownEmitter(IREmitter):
                 # stripped ("vicuna ", "radford2021learning, " -> "[vicuna]").
                 cite_text = text.strip().rstrip(",").rstrip(";").strip()
                 if inline.target_id and self.linked_citations:
-                    return f"[{cite_text}](#{inline.target_id})"
-                return f"[{cite_text}]"
+                    return f"[{_escape_md_text(cite_text)}](#{_escape_url(inline.target_id)})"
+                return f"[{_escape_md_text(cite_text)}]"
             if inline.kind == "internal" and inline.target_id:
-                return f"[{text}](#{inline.target_id})"
+                return f"[{_escape_md_text(text)}](#{_escape_url(inline.target_id)})"
             elif inline.url:
-                return f"[{text}]({inline.url})"
+                return f"[{_escape_md_text(text)}]({_escape_url(inline.url)})"
             return text
         elif t == "math":
             if inline.display:
@@ -186,11 +201,13 @@ class MarkdownEmitter(IREmitter):
             src = inline.src or ""
             # GFM image syntax has no width/height inside the URL parens;
             # appending them there makes the path part of the link target.
-            return f"![{alt}]({src})"
+            return f"![{_escape_md_text(alt)}]({_escape_url(src)})"
         elif t == "superscript":
-            return f"^{self._emit_inlines(inline.inlines)}"
+            # HTML tags render reliably; bare ^/_ prefixes collide with
+            # Markdown emphasis and math shorthand.
+            return f"<sup>{self._emit_inlines(inline.inlines)}</sup>"
         elif t == "subscript":
-            return f"_{self._emit_inlines(inline.inlines)}"
+            return f"<sub>{self._emit_inlines(inline.inlines)}</sub>"
         elif t == "break":
             return "\n"
         elif t == "raw_inline":
@@ -229,7 +246,7 @@ class MarkdownEmitter(IREmitter):
         caption = self._emit_inlines(fig.caption)
         if caption:
             lines.append("")
-            lines.append(f"> {caption}")
+            lines.append(_blockquote_lines(caption))
 
         return "\n".join(lines)
 
@@ -242,9 +259,11 @@ class MarkdownEmitter(IREmitter):
             lines.append(f'<a id="{tid}"></a>')
             lines.append("")
 
-        # Headers & rows
-        headers = [_escape_pipe_cell(self._emit_inlines(h)) for h in tbl.headers]
-        rows = [[_escape_pipe_cell(self._emit_inlines(c)) for c in row] for row in tbl.rows]
+        # Headers & rows. Cell content is flattened to one line: a literal
+        # newline would tear the pipe table apart, so BreakIR-style breaks
+        # become <br>.
+        headers = [_escape_pipe_cell(_cell_text(self._emit_inlines(h))) for h in tbl.headers]
+        rows = [[_escape_pipe_cell(_cell_text(self._emit_inlines(c))) for c in row] for row in tbl.rows]
 
         all_rows = [headers] + rows if headers else rows
         if not all_rows:
@@ -263,7 +282,7 @@ class MarkdownEmitter(IREmitter):
         caption = self._emit_inlines(tbl.caption)
         if caption:
             lines.append("")
-            lines.append(f"> {caption}")
+            lines.append(_blockquote_lines(caption))
 
         return "\n".join(lines)
 
@@ -403,6 +422,11 @@ def _post_process(md: str) -> str:
     # (POSIX text-file convention; also keeps goldens stable under
     # pre-commit's end-of-file-fixer).
     return md.strip() + "\n"
+
+
+def _cell_text(rendered: str) -> str:
+    """Flatten rendered cell content to a single line (newlines → ``<br>``)."""
+    return rendered.replace("\n", "<br>")
 
 
 def _escape_pipe_cell(text: str) -> str:

@@ -104,6 +104,30 @@ def emit_split_markdown(
     return content, content_references, content_appendix
 
 
+def persist_inline_svgs(doc: DocumentIR, output_dir: Path) -> int:
+    """Write inline ``<svg>`` figures collected by the HTML builder to disk.
+
+    The builder carries raw SVG markup in :class:`SvgAsset` nodes (``content``)
+    instead of doing file I/O; this is the single persistence point. Returns
+    the number of files written.
+    """
+    from arxiv2md_beta.ir.assets import SvgAsset
+
+    written = 0
+    for asset in doc.assets:
+        if not isinstance(asset, SvgAsset) or not asset.content:
+            continue
+        path = output_dir / asset.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(asset.content, encoding="utf-8")
+        written += 1
+    if written:
+        from loguru import logger
+
+        logger.info(f"Persisted {written} inline SVG figure(s) under {output_dir}")
+    return written
+
+
 def finalize_ingestion_output(
     doc: DocumentIR,
     *,

@@ -118,3 +118,40 @@ class TestImageResolver:
         assert resolver.resolve("stemmed.jpg") == "/local/by_stem.png"
         assert resolver.resolve("other.png", figure_index=1) == "/local/by_index.png"
         assert resolver.resolve("none.png") == "none.png"
+
+
+class TestResolverMismatchRegressions:
+    """Regression tests for wrong-image pairing (2026-08 review, R1.1)."""
+
+    def test_short_stem_never_matches_numbered_sibling(self) -> None:
+        """Stem key "fig" must not match "fig2.png" (word boundary)."""
+        resolver = ImageResolver(stem_map={"fig": Path("/local/fig.png"), "fig2": Path("/local/fig2.png")})
+        assert resolver.resolve("fig2.png") == "/local/fig2.png"
+        assert resolver.resolve("fig.png") == "/local/fig.png"
+
+    def test_wrapped_name_still_matches_loosely(self) -> None:
+        """Underscore-wrapped names keep matching the loose fallback."""
+        resolver = ImageResolver(stem_map={"figure1": Path("/local/figure1.png")})
+        assert resolver.resolve("prefix_figure1_suffix.png") == "/local/figure1.png"
+
+    def test_index_fallback_does_not_steal_next_figure_image(self) -> None:
+        """A figure whose base index is already consumed gets None.
+
+        It must not steal the next figure's image.
+        """
+        resolver = ImageResolver(index_map={i: Path(f"/local/fig{i}.png") for i in range(5)})
+        # xname consumes index 1 (x2.png) before figure 2 asks for it.
+        assert resolver.resolve("x2.png") == "/local/fig1.png"
+        # Figure 2 expects base index 1 — already used → keep original src.
+        assert resolver.resolve("opaque.png", figure_index=2) == "opaque.png"
+        # Figure 3 still gets its own image untouched.
+        assert resolver.resolve("opaque3.png", figure_index=3) == "/local/fig2.png"
+
+    def test_multi_image_figure_gets_consecutive_indices(self) -> None:
+        """One figure resolved repeatedly hands out base, base+1, base+2."""
+        resolver = ImageResolver(index_map={i: Path(f"/local/fig{i}.png") for i in range(5)})
+        assert resolver.resolve("a.png", figure_index=3) == "/local/fig2.png"
+        assert resolver.resolve("b.png", figure_index=3) == "/local/fig3.png"
+        assert resolver.resolve("c.png", figure_index=3) == "/local/fig4.png"
+        # Exhausted: no stealing beyond the figure's own run.
+        assert resolver.resolve("d.png", figure_index=3) == "d.png"

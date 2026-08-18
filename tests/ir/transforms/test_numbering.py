@@ -9,7 +9,9 @@ from arxiv2md_beta.ir import (
     EquationIR,
     FigureIR,
     ImageRefIR,
+    LinkIR,
     PaperMetadata,
+    ParagraphIR,
     SectionIR,
     TableIR,
     TextIR,
@@ -140,3 +142,100 @@ class TestPassPipeline:
         fig = doc.sections[0].blocks[0]
         assert fig.figure_id == "figure-1"
         assert fig.anchor == "figure-1"
+
+
+class TestNumberingUniqueness:
+    """R2.1: NumberingPass is the single numbering source with unique anchors."""
+
+    def test_duplicate_caption_ids_get_unique_anchors(self) -> None:
+        # Body Figure 1 + appendix figure whose caption repeats "Figure 1":
+        # both keep figure_id "figure-1" (caption semantics), anchors differ.
+        f1 = FigureIR(figure_id="figure-1", anchor="figure-1", images=[])
+        f2 = FigureIR(figure_id="figure-1", anchor="figure-1", images=[])
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[f1, f2])],
+        )
+        NumberingPass().run(doc)
+        assert f1.figure_id == "figure-1" and f2.figure_id == "figure-1"
+        assert f1.anchor == "figure-1"
+        assert f2.anchor == "figure-1-2"
+
+    def test_auto_ids_skip_caption_claimed_numbers(self) -> None:
+        # A caption-derived "figure-5" must not be re-issued to an uncaptioned figure.
+        f1 = FigureIR(figure_id="figure-5", anchor="figure-5", images=[])
+        f2 = FigureIR(images=[])
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[f1, f2])],
+        )
+        NumberingPass().run(doc)
+        assert f2.figure_id == "figure-1"
+
+    def test_equation_number_drives_own_anchor(self) -> None:
+        # Appendix eq "(1)" after body eq 1: anchor follows the equation's own
+        # number and is deduplicated, not the positional counter.
+        e1 = EquationIR(latex="a=b", equation_number="(1)")
+        e2 = EquationIR(latex="c=d", equation_number="(1)")
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[e1, e2])],
+        )
+        NumberingPass().run(doc)
+        assert e1.anchor == "eq-1"
+        assert e2.anchor == "eq-1-2"
+        assert e2.equation_number == "(1)"
+
+    def test_all_anchors_unique_random_tree(self) -> None:
+        """Property-ish check: mixed caption/auto numbering yields unique anchors."""
+        import random
+
+        random.seed(7)
+        blocks = []
+        for i in range(20):
+            if i % 3 == 0:
+                n = random.randint(1, 4)  # caption numbers repeat heavily
+                blocks.append(FigureIR(figure_id=f"figure-{n}", anchor=f"figure-{n}", images=[]))
+            else:
+                blocks.append(FigureIR(images=[]))
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"), sections=[SectionIR(title="S", level=1, blocks=blocks)]
+        )
+        NumberingPass().run(doc)
+        anchors = [b.anchor for b in blocks]
+        assert len(anchors) == len(set(anchors)), "duplicate anchors produced"
+        # Auto-assigned ids (uncaptioned, i % 3 != 0) are unique and never
+        # collide with caption-derived ids.
+        caption_ids = {blocks[i].figure_id for i in range(20) if i % 3 == 0}
+        auto_ids = [blocks[i].figure_id for i in range(20) if i % 3 != 0]
+        assert len(auto_ids) == len(set(auto_ids))
+        assert not (set(auto_ids) & caption_ids)
+
+
+class TestFragmentLinkRepointing:
+    """R2.3: internal links to arXiv fragments resolve to real anchors."""
+
+    def test_link_to_labeled_figure_resolves(self) -> None:
+        # Figure carries the arXiv element id as label; an internal link that
+        # kept the raw fragment is re-pointed to the final anchor.
+        fig = FigureIR(label="S1.F1", images=[])
+        para = ParagraphIR(inlines=[LinkIR(kind="internal", target_id="S1.F1", inlines=[TextIR(text="see figure")])])
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[para, fig])],
+        )
+        NumberingPass().run(doc)
+        assert fig.figure_id == "figure-1" and fig.anchor == "figure-1"
+        assert para.inlines[0].target_id == "figure-1"
+
+    def test_appendix_label_numbering_stays_local(self) -> None:
+        # Supplementary id "A1.F1" with caption "Figure 1": link resolves to
+        # the caption anchor, not a guessed global counter.
+        fig = FigureIR(label="A1.F1", figure_id="figure-1", anchor="figure-1", images=[])
+        para = ParagraphIR(inlines=[LinkIR(kind="internal", target_id="A1.F1", inlines=[TextIR(text="x")])])
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[para, fig])],
+        )
+        NumberingPass().run(doc)
+        assert para.inlines[0].target_id == "figure-1"

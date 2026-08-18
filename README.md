@@ -346,11 +346,14 @@ arxiv2md-beta/
 
 中端：`build_default_pipeline(parser=…)` 是**唯一**管线来源。顺序敏感：
 `[SectionFilter?] → Numbering → [SectionNumbering 仅 latex] → FigureReorder → Anchor`。
+`NumberingPass` 是编号的**单一来源**：builder 只保留 caption 提取的 id，pass 统一分配自动编号
+（跳过 caption 已占用号）、保证 anchor 全局唯一（重复 caption id 去重为 `figure-1-2` 等），
+并按 label（arXiv 元素 id）重定向图内链到真实 anchor。
 
 ### `ir/emitters/{markdown,json}.py`
 
 后端：`DocumentIR` → 目标格式。
-- `MarkdownEmitter`：GitHub-flavored Markdown（接 `linked_citations` / `remove_inline_citations`），未知类型 `raise EmitterError`。
+- `MarkdownEmitter`：GitHub-flavored Markdown（接 `linked_citations` / `remove_inline_citations`），链接/图片语法转义、表格单元格 `<br>`、上下标 `<sup>`/`<sub>`，未知类型 `raise EmitterError`。
 - `JsonEmitter`：`paper.{meta,document,assets,bib,graph}.json`，`SCHEMA_VERSION` 单一源。
 
 
@@ -433,6 +436,6 @@ python demo/demo_arxiv2md_beta.py
 
 - **Hou Huawei** — 项目创建者与主要维护者
 - **Kimi (kimi-k2.7 via kimi-code)** — 共同开发者，参与架构重构、性能优化、CI/CD 建设、静态检查修复与文档更新
-- **GLM (GLM-5.3 via ZCode)** — 共同开发者，参与 0.14.0 全项目架构评审与重构（配置合并链修复、收尾代码收敛、网络重试统一、依赖倒置消除与边界 bug 修复）
+- **GLM (GLM-5.3 via ZCode)** — 共同开发者，参与 0.14.0 全项目架构评审与重构（配置合并链修复、收尾代码收敛、网络重试统一、依赖倒置消除与边界 bug 修复）及 0.15.0 图片链路正确性 / 编号单一事实来源重构
 
 > 本项目的多个版本由 Kimi (kimi-k2.7 via kimi-code) 与 GLM (GLM-5.3 via ZCode) 协助完成系统性重构与工程化改进。

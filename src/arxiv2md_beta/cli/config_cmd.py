@@ -116,7 +116,9 @@ def config_init(
         console.print("Use --force to overwrite.")
         raise typer.Exit(code=2)
 
-    starter_config = """# arxiv2md-beta Configuration File
+    from arxiv2md_beta import __version__
+
+    starter_config = f"""# arxiv2md-beta Configuration File
 # See documentation for all available options
 
 app:
@@ -127,7 +129,7 @@ http:
   fetch_timeout_s: 30.0
   fetch_max_retries: 3
   fetch_backoff_s: 1.0
-  user_agent: "arxiv2md-beta/0.6.1"
+  user_agent: "arxiv2md-beta/{__version__}"
   retry_status_codes: [429, 500, 502, 503, 504]
   large_transfer_timeout_multiplier: 3.0
   max_connections: 100

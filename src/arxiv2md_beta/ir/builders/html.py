@@ -16,6 +16,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from arxiv2md_beta.ir.assets import SvgAsset
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
     BlockQuoteIR,
@@ -68,7 +69,7 @@ class HTMLBuilder(IRBuilder):
         image_map: Mapping[int, Path | str] | None = None,
         image_stem_map: Mapping[str, Path | str] | None = None,
         image_resolver: ImageResolver | None = None,
-        svg_output_dir: Path | None = None,
+        images_subdir: str = "images",
     ):
         self.image_map = dict(image_map or {})
         self.image_stem_map = dict(image_stem_map or {})
@@ -78,8 +79,11 @@ class HTMLBuilder(IRBuilder):
         )
         self._figure_counter = 0
         self._pending_footnotes: deque[BlockUnion] = deque()
-        self._svg_output_dir = svg_output_dir
+        self._images_subdir = images_subdir
         self._svg_counter = 0
+        # Inline <svg> figures collected during build; persisted by the
+        # ingestion layer (builder performs no file I/O).
+        self._svg_assets: list[SvgAsset] = []
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -118,7 +122,7 @@ class HTMLBuilder(IRBuilder):
         sections = [self._build_section(sn) for sn in section_nodes]
         sections = self._filter_empty_sections(sections)
 
-        return DocumentIR(
+        doc = DocumentIR(
             metadata=PaperMetadata(
                 arxiv_id=arxiv_id,
                 title=parsed.title,
@@ -131,6 +135,8 @@ class HTMLBuilder(IRBuilder):
             front_matter=front_matter_blocks,
             sections=sections,
         )
+        doc.assets.extend(self._svg_assets)
+        return doc
 
     def _build_from_html(self, html: str, arxiv_id: str) -> DocumentIR:
         from arxiv2md_beta.html.parser import parse_arxiv_html
@@ -642,9 +648,14 @@ class HTMLBuilder(IRBuilder):
             caption = []
             caption_text = ""
 
-        # Extract figure number from caption (1-based fallback, matching the
-        # 1-based figure_index used for image_map lookup below).
-        fig_id = _extract_figure_id(caption_text) or f"figure-{self._figure_counter + 1}"
+        # Caption-extracted id only (e.g. "figure-3"). Uncaptioned figures get
+        # no id here — NumberingPass is the single numbering source and assigns
+        # one, avoiding builder/pass counter drift.
+        fig_id = _extract_figure_id(caption_text)
+        # Element id (e.g. "S1.F1") is kept as label; NumberingPass turns
+        # labels into a fragment→anchor map so internal links resolve to the
+        # final anchor instead of a guessed global counter.
+        tag_id = attr_optional(tag, "id")
 
         # Algorithm figure
         if "ltx_float_algorithm" in tag_classes or "ltx_algorithm" in tag_classes:
@@ -653,6 +664,7 @@ class HTMLBuilder(IRBuilder):
                 section_id=section_id,
                 order_index=base_idx,
                 anchor=fig_id,
+                label=tag_id,
                 caption=caption,
                 algorithm_number=alg_num,
             )
@@ -667,12 +679,14 @@ class HTMLBuilder(IRBuilder):
         imgs: list[Tag] = list(tag.find_all("img"))
         if not imgs:
             svg = tag.find("svg")
-            if isinstance(svg, Tag) and self._svg_output_dir is not None:
-                self._svg_output_dir.mkdir(parents=True, exist_ok=True)
+            if isinstance(svg, Tag):
+                # Inline SVG: no file I/O here. The raw markup is carried in a
+                # SvgAsset (content) and the ingestion layer persists it to
+                # <images_subdir>/figure-N.svg after the build.
                 self._svg_counter += 1
                 filename = f"figure-{self._svg_counter}.svg"
-                path = self._svg_output_dir / filename
-                path.write_text(str(svg), encoding="utf-8")
+                svg_src = f"{self._images_subdir}/{filename}"
+                self._svg_assets.append(SvgAsset(path=svg_src, content=str(svg)))
                 imgs.append(svg)
         # ar5iv sometimes renders a table as a vector <svg> inside
         # <figure class="ltx_table"> with no <table> and no <img>. With nothing
@@ -681,13 +695,10 @@ class HTMLBuilder(IRBuilder):
         if not imgs:
             return None
         figure_index = self._figure_counter + 1  # 1-based for image_map lookup
+        svg_src = f"{self._images_subdir}/figure-{self._svg_counter}.svg"
         images = [
             ImageRefIR(
-                src=(
-                    f"images/figure-{self._svg_counter}.svg"
-                    if img.name == "svg"
-                    else self._resolve_image_src(img, figure_index)
-                ),
+                src=(svg_src if img.name == "svg" else self._resolve_image_src(img, figure_index)),
                 alt=_clean_image_alt(attr_str(img, "alt")),
             )
             for img in imgs
@@ -699,6 +710,7 @@ class HTMLBuilder(IRBuilder):
             order_index=base_idx,
             figure_id=fig_id,
             anchor=fig_id,
+            label=tag_id,
             images=images,
             caption=caption,
             kind="image",
