@@ -318,6 +318,17 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                 else:
                     response.raise_for_status()
 
+                    # Some papers have no TeX source (PDF-only submission); arXiv
+                    # then serves the rendered PDF from /src/ with HTTP 200, not
+                    # 404. Detect it so callers take the no-TeX fallback path
+                    # instead of failing tar extraction later.
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "pdf" in content_type:
+                        raise TexSourceNotFoundError(
+                            f"TeX source not available for this paper (arXiv served a PDF from {url}); "
+                            "the paper was likely submitted as PDF-only."
+                        )
+
                     # Get content length for progress bar
                     total_size = int(response.headers.get("content-length", 0))
 
@@ -338,6 +349,18 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                         async for chunk in response.aiter_bytes():
                             await f.write(chunk)
                             advance(len(chunk))
+
+                    # Belt-and-suspenders: header-based check above can miss
+                    # PDF-only papers when content-type is generic. Sniff magic
+                    # bytes so the bogus file never lands in the cache.
+                    def _is_pdf(path: Path = tmp_path) -> bool:
+                        return path.read_bytes()[:5] == b"%PDF-"
+
+                    if await asyncio.to_thread(_is_pdf):
+                        raise TexSourceNotFoundError(
+                            f"TeX source not available for this paper "
+                            f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
+                        )
                     tmp_path.replace(output_path)
                     return
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-08-20
+
+PDF-only 论文（无 TeX 源、无 HTML 渲染）导致的两类失败。
+
+### Fixed
+
+- **TeX 下载崩溃**：arXiv `/src/` 端点对 PDF-only 提交返回 HTTP 200 + `application/pdf`（非 404），PDF 字节被当作 tar.gz 解包，报 `Invalid tar file: not a gzip file` 且 `ImageExtractionError` 直穿杀死整个 convert。现按 content-type + `%PDF-` magic bytes 双重检测，抛 `TexSourceNotFoundError` 走既有降级路径（无图继续转换），坏文件不再进缓存。
+- **占位页静默产出垃圾**：arXiv HTML 404 时 ar5iv 对 PDF-only 论文返回 HTTP 200 的 "No content available" 占位页，管线把它当正文，产出 0 sections、标题为 "No content available" 的空 `paper.md`。现检测占位页（主 URL / ar5iv 回退 / 缓存命中三条路径）并抛明确 `NetworkError`。
+
 ## [0.15.0] - 2026-08-18
 
 图片链路正确性（R1）+ 编号单一事实来源（R2）。含两处输出格式变更（见 Changed）。

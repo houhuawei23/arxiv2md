@@ -35,16 +35,20 @@ async def fetch_arxiv_html(
     html_path = cache_dir / "source.html"
 
     if use_cache and _is_cache_fresh(html_path):
-        return html_path.read_text(encoding="utf-8")
+        html_text = html_path.read_text(encoding="utf-8")
+        _reject_no_content_placeholder(html_text)
+        return html_text
 
     try:
         html_text = await _fetch_with_retries(html_url)
+        _reject_no_content_placeholder(html_text)
         await async_write_text(html_path, html_text, encoding="utf-8")
         return html_text
     except NetworkError as primary_error:
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
+                _reject_no_content_placeholder(html_text)
                 await async_write_text(html_path, html_text, encoding="utf-8")
                 return html_text
             except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError):
@@ -90,6 +94,22 @@ def _ensure_html_response(response: httpx.Response) -> None:
     content_type = response.headers.get("content-type", "")
     if "text/html" not in content_type:
         raise NetworkError(f"Unexpected content-type: {content_type}")
+
+
+def _reject_no_content_placeholder(html_text: str) -> None:
+    """Reject ar5iv/arXiv "No content available" placeholder pages.
+
+    PDF-only submissions have no HTML rendering; ar5iv then answers HTTP 200
+    with a placeholder page. Treating it as paper content produces an empty
+    document titled "No content available", so raise instead and let the
+    caller surface a clear error.
+    """
+    if "<title> No content available </title>" in html_text:
+        raise NetworkError(
+            "No HTML content available for this paper (ar5iv/arXiv returned a "
+            "placeholder page). The paper was likely submitted as PDF-only and "
+            "has no HTML rendering."
+        )
 
 
 def _is_cache_fresh(html_path: Path) -> bool:
