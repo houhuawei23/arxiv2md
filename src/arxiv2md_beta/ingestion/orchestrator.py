@@ -13,6 +13,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
@@ -32,7 +33,7 @@ from arxiv2md_beta.network.arxiv_api import (
     fill_arxiv_metadata_defaults,
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
-from arxiv2md_beta.output.layout import create_paper_output_dir
+from arxiv2md_beta.output.layout import create_paper_output_dir, determine_output_dir
 from arxiv2md_beta.output.markdown_utils import (
     count_sections,
     create_sections_tree,
@@ -67,6 +68,7 @@ class IngestionOrchestrator:
 
         # Mutable pipeline state
         self._html: str = ""
+        self._html_error: str | None = None
         self._parsed: ParsedArxivHtml | None = None
         self._api_metadata: dict[str, Any] = {}
         self._display_author_names: list[str] = []
@@ -95,6 +97,11 @@ class IngestionOrchestrator:
         self._parse_query()
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
         await self._fetch_html_and_metadata()
+        if self._parsed is None:
+            # PDF-only paper (no HTML rendering anywhere): still produce the
+            # output directory, paper.yml, a stub paper.md, and let finalize
+            # download the PDF — a minimal record beats aborting with nothing.
+            return self._run_pdf_only_fallback()
         self._filter_sections()
         self._setup_output_dir()
         await self._fetch_tex_and_images()
@@ -112,6 +119,67 @@ class IngestionOrchestrator:
         return result, metadata
 
     # ── Step 0: Parse query ────────────────────────────────────────────
+
+    def _run_pdf_only_fallback(self) -> tuple[IngestionResult, dict[str, Any]]:
+        """Minimal-output path for papers without HTML rendering.
+
+        Creates the output directory (named from API metadata), saves
+        ``paper.yml``, and returns a stub result so ``finalize_convert_output``
+        writes ``paper.md`` and downloads the PDF. Content conversion is
+        impossible — there is nothing to parse.
+        """
+        self._submission_date = self._api_metadata.get("submission_date")
+        self._display_author_names = author_display_names_from_metadata(self._api_metadata)
+        title = self._api_metadata.get("title") or strip_version(self._query.arxiv_id)
+
+        base_output_dir = determine_output_dir(self.params.output)
+        base_output_dir.mkdir(parents=True, exist_ok=True)
+        self._paper_output_dir = create_paper_output_dir(
+            base_output_dir,
+            self._submission_date,
+            title,
+            source=self.params.source,
+            short=self.params.short,
+        )
+
+        summary_lines = [f"# Title: {title}", f"- ArXiv: {self._query.arxiv_id}"]
+        if self._query.version:
+            summary_lines.append(f"- Version: {self._query.version}")
+        if self._display_author_names:
+            summary_lines.append("- Authors:")
+            summary_lines.extend(f"  - {name}" for name in self._display_author_names)
+        summary_lines.append("- Sections: 0")
+        summary_lines.append("- Estimated tokens: 1")
+        summary = "\n".join(summary_lines)
+
+        note = (
+            "No HTML rendering or TeX source available for this paper "
+            "(likely a PDF-only submission). Only metadata and the PDF were saved.\n"
+        )
+        result = IngestionResult(
+            summary=summary,
+            sections_tree="Sections:",
+            content=note,
+        )
+
+        paper_meta = dict(self._api_metadata)
+        paper_meta.setdefault("title", title)
+        paper_meta = fill_arxiv_metadata_defaults(paper_meta, strip_version(self._query.arxiv_id))
+        try:
+            save_paper_metadata(paper_meta, self._paper_output_dir)
+        except (OSError, ValueError, TypeError) as e:
+            logger.warning(f"Failed to save paper.yml: {e}")
+
+        metadata: dict[str, Any] = {
+            "title": title,
+            "authors": self._display_author_names,
+            "abstract": self._api_metadata.get("summary"),
+            "submission_date": self._submission_date,
+            "paper_output_dir": self._paper_output_dir,
+            "arxiv_id": self._query.arxiv_id,
+            "structured_export": {},
+        }
+        return result, metadata
 
     def _parse_query(self) -> None:
         from arxiv2md_beta.query.parser import parse_arxiv_input
@@ -140,7 +208,11 @@ class IngestionOrchestrator:
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
 
     async def _fetch_html_and_metadata(self) -> None:
-        """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。."""
+        """并行下载 HTML 与获取 API 元数据；HTML 解析后合并作者/日期信息。
+
+        HTML 拉取失败（无 HTML 渲染的 PDF-only 论文）不终止流程：
+        ``self._parsed`` 留空，后续走 ``_run_pdf_only_fallback`` 最小产物路径。
+        """  # noqa: D415
         html_task = asyncio.create_task(self._fetch_html())
         metadata_task = asyncio.create_task(self._fetch_api_metadata())
         try:
@@ -155,7 +227,13 @@ class IngestionOrchestrator:
             # HTML-parsed authors/date instead of failing the whole conversion.
             logger.warning(f"arXiv API metadata fetch failed; falling back to HTML metadata: {exc}")
             self._api_metadata = {}
-        await html_task
+        try:
+            await html_task
+        except NetworkError as exc:
+            logger.warning(f"No usable HTML rendering for {self._query.arxiv_id}: {exc}")
+            logger.warning("Falling back to PDF-only minimal output (paper.yml + stub paper.md + PDF).")
+            self._html_error = str(exc)
+            return
         await asyncio.to_thread(self._parse_html)
 
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
@@ -202,6 +280,7 @@ class IngestionOrchestrator:
         from arxiv2md_beta.output.layout import determine_output_dir
 
         assert self._parsed is not None
+
         base_output_dir = determine_output_dir(self.params.output)
         base_output_dir.mkdir(parents=True, exist_ok=True)
         self._paper_output_dir = create_paper_output_dir(
