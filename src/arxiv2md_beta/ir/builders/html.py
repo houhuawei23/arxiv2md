@@ -954,7 +954,58 @@ def _normalize_math_latex(latex: str) -> str:
     latex = re.sub(r"[\n\r\t]+", " ", latex)
     latex = re.sub(r" {2,}", " ", latex)
     # Tidy brace-space artifacts left by '%' removal, e.g. '{ \bf Z}'.
-    latex = re.sub(r"\{\s+", "{", latex)
+    # Only strip when the space precedes a backslash command — a plain
+    # leading space inside '\text{ ... }' / '\mbox{ ... }' is a word
+    # separator and must survive (e.g. '\gamma_{k}=0\text{ if }').
+    latex = re.sub(r"\{\s+(?=\\)", "{", latex)
+
+    # ── macro translation ────────────────────────────────────────────────
+    # ar5iv annotations keep TeX-only macros that break Markdown math renderers.
+
+    # MathJax/ar5iv serializes \begin{array} (and other environments) as
+    # '\begin{array}[] {cl}' — an empty optional position argument that KaTeX
+    # rejects ("Unknown column alignment"). Only EMPTY '[]' is dropped; a real
+    # positional arg like '\begin{array}[t]' is valid LaTeX and is kept.
+    latex = re.sub(r"\\begin\{([a-zA-Z*]+)\}\s*\[\s*\]\s*", r"\\begin{\1}", latex)
+
+    # Independence symbol: \mbox{${}\perp\mkern-11.0mu\perp{}$} -> \perp \!\!\! \perp.
+    # \mkern is math-mode-only but sits inside the text-mode \mbox, so the box
+    # never renders. Run this BEFORE the generic \mbox->\text rule below: the
+    # symbol's inner '{}' groups would defeat the single-level brace regex.
+    # The optional '$' covers the pre-simplify annotation ('${}' / '{}') — the
+    # real ar5iv form has both a leading and a trailing '$' inside the box.
+    latex = re.sub(
+        r"\\mbox\{\$?\{\}\\perp(?:\\mkern-[0-9]+(?:\.[0-9]+)?mu|\\!+)\\perp\{\}\$?\}",
+        r"\\perp \\!\\!\\! \\perp ",
+        latex,
+    )
+    # The replacement ends with a space so a symbol glued to its successor
+    # (e.g. "...\perp{}X^e") still reads as "...\perp X^e"; collapse any
+    # double space where the source already had one.
+    latex = re.sub(r" {2,}", " ", latex)
+    # \mbox{text} -> \text{text} (text-mode \mbox breaks math renderers).
+    latex = re.sub(r"\\mbox(\s*)\{([^{}]*)\}", r"\\text\1{\2}", latex)
+
+    # KaTeX rejects math macros directly inside \text{...} (e.g. the annotation
+    # '\mbox{ can be rejected at level $\alpha$}' becomes '\text{...\alpha...}'
+    # after the above rule and the later '$'-stripping). Split any '$...$'
+    # sub-expressions in text groups back into math mode:
+    #   \text{ can be rejected at level $\alpha$}  ->  \text{ can be rejected at level } \alpha
+    def _split_math_from_text(m: re.Match) -> str:
+        parts = re.split(r"\$([^$]*)\$", m.group(1))
+        out: list[str] = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                if part:
+                    out.append(f"\\text{{{part}}}")
+            else:
+                out.append(part)
+        return "".join(out)
+
+    latex = re.sub(r"\\text\{([^{}]*\$[^{}]*)\}", _split_math_from_text, latex)
+    # TeX line-break hints (\nolinebreak) are unsupported by some renderers
+    # and visually no-ops in display math; drop them.
+    latex = re.sub(r"\\nolinebreak(?:\s*\[[^\]]*\])?", "", latex)
     return latex.strip()
 
 

@@ -4,13 +4,77 @@ from __future__ import annotations
 
 import pytest
 
-from arxiv2md_beta.ir.builders.html import HTMLBuilder
+from arxiv2md_beta.ir.builders.html import HTMLBuilder, _normalize_math_latex
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 
 
 @pytest.fixture
 def builder() -> HTMLBuilder:
     return HTMLBuilder()
+
+
+class TestNormalizeMathLatex:
+    """Math macro normalization: ar5iv TeX-only macros -> renderer-safe LaTeX."""
+
+    def test_mbox_becomes_text(self):
+        assert _normalize_math_latex(r"\mbox{such that for all } e") == r"\text{such that for all } e"
+
+    def test_mbox_argmin_keeps_subscript(self):
+        assert (
+            _normalize_math_latex(r"\beta(S):=\mbox{argmin}_{\beta\in\mathbb{R}^{p}} E")
+            == r"\beta(S):=\text{argmin}_{\beta\in\mathbb{R}^{p}} E"
+        )
+
+    def test_perpendicular_independence_symbol(self):
+        # Real ar5iv annotation carries '$' inside the box on both sides.
+        assert _normalize_math_latex(r"X \mbox{${}\perp\mkern-11.0mu\perp{}$} Y") == r"X \perp \!\!\! \perp Y"
+
+    def test_perpendicular_independence_symbol_without_dollar(self):
+        # Same symbol after simplify_display_math already stripped the '$'.
+        assert (
+            _normalize_math_latex(r"\varepsilon^{e}\mbox{{}\perp\mkern-11.0mu\perp{}}X^{e}_{S}")
+            == r"\varepsilon^{e}\perp \!\!\! \perp X^{e}_{S}"
+        )
+
+    def test_array_empty_position_brackets_stripped(self):
+        # ar5iv serializes \begin{array} as '\begin{array}[] {cl}' (empty
+        # optional position arg); KaTeX rejects the empty '[]'.
+        assert (
+            _normalize_math_latex(r"\left\{\begin{array}[] {cl}a&b\\c&d\end{array}\right.")
+            == r"\left\{\begin{array}{cl}a&b\\c&d\end{array}\right."
+        )
+
+    def test_math_macro_split_out_of_text(self):
+        # \alpha (and any $...$ math) must live in math mode, not inside
+        # \text{...}; KaTeX rejects '\text{ level \alpha}'. The space before the
+        # macro stays inside the text group ('...level }'), so words don't glue.
+        assert (
+            _normalize_math_latex(r"\emptyset&H_{0,S}\mbox{ can be rejected at level $\alpha$}")
+            == r"\emptyset&H_{0,S}\text{ can be rejected at level }\alpha"
+        )
+
+    def test_nolinebreak_stripped(self):
+        assert (
+            _normalize_math_latex(r"P[H_{0,S}\text{ rejected}]\leq\nolinebreak\alpha")
+            == r"P[H_{0,S}\text{ rejected}]\leq\alpha"
+        )
+
+    def test_real_s2e4_annotation(self):
+        # The actual <annotation> from source.html line 771 (S2.E4).
+        latex = (
+            r"H_{0,\gamma,S}({\mathcal{E}}):\quad\gamma_{k}=0\text{ if }k\notin S"
+            r"\;\;\text{ and }\;\;\left\{\begin{array}{l}\exists F_{\varepsilon}"
+            r"\mbox{ such that for all }{e}\in{\mathcal{E}}\\"
+            r"Y^{e}=X^{e}\gamma+\varepsilon^{e},\mbox{ where }\varepsilon^{e}"
+            r"\mbox{${}\perp\mkern-11.0mu\perp{}$}X^{e}_{S}\mbox{ and }\varepsilon^{e}\sim F_{\varepsilon}."
+            r"\end{array}\right."
+        )
+        out = _normalize_math_latex(latex)
+        assert r"\mbox" not in out
+        assert r"\mkern" not in out
+        assert r"\perp \!\!\! \perp" in out
+        assert r"\text{ such that for all }" in out
+        assert r"\text{ and }" in out
 
 
 class TestBasicConversion:
@@ -377,8 +441,9 @@ class TestRoundTrip:
 
         assert "Abstract" in md
         assert "Section 1" in md
-        assert "*emphasis*" in md
-        # Make sure it is italic, not bold
+        # Italic emphasis flattens to plain text; no '*' or '**' delimiters.
+        assert "emphasis" in md
+        assert "*emphasis*" not in md
         assert "**emphasis**" not in md
 
 

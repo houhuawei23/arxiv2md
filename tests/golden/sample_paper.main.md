@@ -4,9 +4,10 @@ This is a sample abstract for testing the arxiv2md-beta converter.
 
 ## Introduction
 
-This is the introduction section. We present our main equation: $$
-E = mc^2
-    \label{eq:emc2}
+This is the introduction section. We present our main equation:
+
+$$
+E = mc^2 \tag{1}
 $$
 
 ## Methods

@@ -415,3 +415,218 @@ class TestExtensionProbeRelativePaths:
         for src in srcs:
             assert src == "images/teaser.png", f"non-portable src leaked: {src}"
             assert not src.startswith("/")
+
+
+class TestSanitizeTeXForPandoc:
+    """Fixes for constructs Pandoc's LaTeX reader rejects but LaTeX accepts."""
+
+    def test_vskip_glue_stripped(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"\newenvironment{proof}[1][. ]{{\bf Proof#1}}{\hfill$\square$\vskip\baselineskip}"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert r"\vskip" not in out
+
+    def test_hskip_mskip_glue_stripped(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"\hskip 1em\mskip\thinmuskip"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert r"\hskip" not in out and r"\mskip" not in out
+
+    def test_if0_block_stripped_with_else_branch_kept(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"before \if0 hidden \else shown \fi after"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert r"\if0" not in out and r"\fi" not in out
+        assert "hidden" not in out
+        assert "shown" in out
+
+    def test_if0_nested_blocks_stripped(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"\if0 a \ifgamma x \fi b \else c \fi d"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert "c" in out and "d" in out
+        assert "a" not in out and "b" not in out
+
+    def test_iffalse_block_stripped(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"a \iffalse gone \fi b"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert "gone" not in out
+        assert "a" in out and "b" in out
+
+    def test_build_succeeds_on_vskip_in_proof_def(self):
+        """End-to-end: the exact failing construct from arXiv 1501.01332."""
+        tex = r"""\documentclass{article}
+\newenvironment{proof}[1][. ]{{\bf Proof#1}}{\hfill$\square$\vskip\baselineskip}
+\begin{document}
+\begin{proof}
+A short proof.
+\end{proof}
+\end{document}"""
+        doc = LaTeXBuilder().build(tex, arxiv_id="t")
+        md = MarkdownEmitter().emit(doc)
+        assert "A short proof." in md
+
+
+class TestUnclosedGroupRecovery:
+    """A stray unclosed ``{`` group must not abort the whole parse."""
+
+    def test_build_recovers_from_unclosed_brace(self):
+        tex = r"\documentclass{article}\begin{document}Hello {world\end{document}"
+        doc = LaTeXBuilder().build(tex, arxiv_id="t")
+        md = MarkdownEmitter().emit(doc)
+        assert "Hello" in md
+        assert "world" in md
+
+
+class TestDisplayMathSplitting:
+    """Display math is lifted out of paragraphs into EquationIR blocks."""
+
+    def _emitted(self, tex: str) -> str:
+        doc = LaTeXBuilder().build(tex, arxiv_id="t")
+        return MarkdownEmitter().emit(doc)
+
+    def test_display_math_not_inline_in_paragraph(self):
+        tex = r"\documentclass{article}\begin{document}We have\begin{align}a&=b\end{align}where $x$ is.\end{document}"
+        md = self._emitted(tex)
+        # display math must be on its own line, not glued to prose
+        assert "\n$$\n" in md
+
+    def test_display_math_nested_in_emphasis_is_lifted(self):
+        # pandoc wraps theorem-like content in an emphasis container; display
+        # math inside it must still become its own $$ block.
+        tex = (
+            r"\documentclass{article}\begin{document}"
+            r"\newtheorem{assumption}{Assumption}"
+            r"\begin{assumption}There exists $v$ such that"
+            r"\begin{align}a&=b\end{align}"
+            r"holds.\end{assumption}"
+            r"\end{document}"
+        )
+        md = self._emitted(tex)
+        assert "$$\n" in md
+        assert "\n$$\n" in md  # block-isolated, not inline
+        assert "There exists" in md
+        assert "holds" in md
+
+    def test_label_stripped_from_display_math(self):
+        tex = r"\documentclass{article}\begin{document}" r"\begin{align}a&=b\label{eq:x}\end{align}" r"\end{document}"
+        md = self._emitted(tex)
+        assert r"\label{eq:x}" not in md
+
+    def test_perp_and_mbox_normalized_in_math(self):
+        tex = (
+            r"\documentclass{article}\begin{document}"
+            r"\newcommand{\independent}{\mbox{${}\perp\mkern-11mu\perp{}$}}"
+            r"$A \independent B$ and $\operatorname{argmin}_x f(x)$."
+            r"\end{document}"
+        )
+        md = self._emitted(tex)
+        assert r"\mbox{${}\perp" not in md
+        assert r"\perp \!\!\! \perp" in md
+        assert r"\mbox{argmin}" not in md
+
+
+class TestBblBibliographyResolution:
+    r"""``\bibliography{X}`` must inline the arXiv-shipped ``.bbl``."""
+
+    def test_bbl_inlined_and_preamble_stripped(self, tmp_path):
+        from arxiv2md_beta.latex.includes import resolve_latex_includes
+
+        (tmp_path / "main.tex").write_text(
+            "\\documentclass{article}\n\\begin{document}\n"
+            "See \\cite{key1}.\n"
+            "\\bibliographystyle{plainnat}\n\\bibliography{bibliography}\n"
+            "\\end{document}\n"
+        )
+        (tmp_path / "main.bbl").write_text(
+            "\\begin{thebibliography}{72}\n"
+            "\\providecommand{\\natexlab}[1]{#1}\n"
+            "\\providecommand{\\url}[1]{\\texttt{#1}}\n"
+            "\\expandafter\\ifx\\csname urlstyle\\endcsname\\relax\n"
+            "\\providecommand{\\doi}[1]{doi: #1}\\else\n"
+            "\\providecommand{\\doi}{doi: \\begingroup \\urlstyle{rm}\\Url}\\fi\n"
+            "\n"
+            "\\bibitem[Aldrich(1989)]{key1}\nJ.~Aldrich.\n\\newblock Autonomy.\n"
+            "\\end{thebibliography}\n"
+        )
+        resolved = resolve_latex_includes(tmp_path / "main.tex", tmp_path)
+        assert r"\begin{thebibliography}" in resolved
+        assert r"\bibitem[Aldrich(1989)]{key1}" in resolved
+        # Preamble plumbing must be gone, and the {72} width arg with it.
+        assert r"\providecommand" not in resolved
+        assert "72" not in resolved.replace("thebibliography", "")
+
+    def test_missing_bbl_replaced_with_empty(self, tmp_path):
+        from arxiv2md_beta.latex.includes import resolve_latex_includes
+
+        (tmp_path / "main.tex").write_text("\\begin{document}x\\bibliography{nope}\\end{document}\n")
+        resolved = resolve_latex_includes(tmp_path / "main.tex", tmp_path)
+        assert r"\bibliography" not in resolved
+
+    def test_cites_render_as_numbers_with_bbl(self, tmp_path):
+        from arxiv2md_beta.latex.includes import resolve_latex_includes
+
+        tex = (
+            "\\documentclass{article}\n\\begin{document}\n"
+            "\\section{Intro}\n"
+            "See \\cite{key1} and \\citep{key2}.\n"
+            "\\bibliography{bibliography}\n"
+            "\\end{document}\n"
+        )
+        (tmp_path / "main.tex").write_text(tex)
+        (tmp_path / "main.bbl").write_text(
+            "\\begin{thebibliography}{9}\n"
+            "\\bibitem[A(1)]{key1}\nA. Author.\n\\newblock Title One.\n"
+            "\\bibitem[B(2)]{key2}\nB. Author.\n\\newblock Title Two.\n"
+            "\\end{thebibliography}\n"
+        )
+        resolved = resolve_latex_includes(tmp_path / "main.tex", tmp_path)
+        doc = LaTeXBuilder().build(resolved, arxiv_id="t", base_dir=tmp_path)
+        md = MarkdownEmitter().emit(doc)
+        assert "[1]" in md and "[2]" in md
+
+
+class TestMathNormalizationRegressions:
+    """Math fixes ported from the HTML builder + pandoc-specific artifacts."""
+
+    def _build_md(self, tex: str) -> str:
+        doc = LaTeXBuilder().build(tex, arxiv_id="t")
+        return MarkdownEmitter().emit(doc)
+
+    def test_perp_replacement_has_trailing_space(self):
+        tex = (
+            r"\documentclass{article}\begin{document}"
+            r"\newcommand{\independent}{\mbox{${}\perp\mkern-11mu\perp{}$}}"
+            r"$\varepsilon \independent X_{S}^{e}$"
+            r"\end{document}"
+        )
+        md = self._build_md(tex)
+        # The replacement must not glue to the next token (\perpX).
+        assert r"\perpX" not in md
+        assert r"\perp \!\!\! \perp" in md
+
+    def test_alpha_split_out_of_text(self):
+        tex = (
+            r"\documentclass{article}\begin{document}" r"$\mbox{ can be rejected at level $\alpha$}$" r"\end{document}"
+        )
+        md = self._build_md(tex)
+        # \alpha must end up in math mode, outside \text{}.
+        import re as _re
+
+        m = _re.search(r"\\text\{[^}]*\\alpha", md)
+        assert m is None, f"\\alpha still inside \\text: {m.group(0) if m else ''}"
+
+    def test_nolinebreak_stripped(self):
+        tex = (
+            r"\documentclass{article}\begin{document}"
+            r"$P[H_{0,S} \text{ rejected}] \leq \nolinebreak \alpha$"
+            r"\end{document}"
+        )
+        md = self._build_md(tex)
+        assert r"\nolinebreak" not in md

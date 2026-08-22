@@ -16,6 +16,7 @@ from loguru import logger
 
 _INCLUDE_PATTERN = re.compile(r"\\(?:input|include)\{([^}]+)\}")
 _LSTINPUT_PATTERN = re.compile(r"\\lstinputlisting(?:\[[^\]]*\])?\{([^}]+)\}")
+_BIBLIOGRAPHY_PATTERN = re.compile(r"\\bibliography\{([^}]+)\}")
 _ENV_PATTERN = re.compile(r"\\(begin|end)\{([a-zA-Z*]+)\}")
 
 
@@ -114,8 +115,76 @@ def _resolve_includes_recursive(
 
     content = _INCLUDE_PATTERN.sub(replace_include, content)
     content = _LSTINPUT_PATTERN.sub(replace_lstinputlisting, content)
+    content = _resolve_bibliography(content, base_dir, tex_file)
     content = _fix_orphan_ends(content)
     return content
+
+
+def _resolve_bibliography(content: str, base_dir: Path, tex_file: Path) -> str:
+    r"""Inline ``.bbl`` content at the ``\bibliography{...}`` call site.
+
+    arXiv LaTeX sources ship the BibTeX-generated ``.bbl`` (a
+    ``thebibliography`` environment) but not the ``.bib`` database. Without
+    this, ``\bibliography{X}`` resolves to nothing, Pandoc sees no references,
+    and every ``\cite{key}`` renders as the raw key instead of ``[N]``.
+    """
+    stem = tex_file.stem
+
+    def replace_bib(match: re.Match[str]) -> str:
+        # Skip commented-out \bibliography (line starts with %)
+        start = content.rfind("\n", 0, match.start()) + 1
+        line_start = content[start : match.start()]
+        if line_start.strip().startswith("%"):
+            return match.group(0)
+        bib_str = match.group(1).strip().split(",")[0].strip()
+        candidates = [
+            base_dir / f"{stem}.bbl",  # arXiv convention: main .bbl alongside .tex
+            base_dir / f"{bib_str}.bbl",
+        ]
+        for cand in candidates:
+            if cand.exists() and cand.is_file():
+                try:
+                    body = cand.read_text(encoding="utf-8", errors="ignore")
+                    return "\n" + _strip_bbl_preamble(body) + "\n"
+                except (OSError, UnicodeDecodeError):
+                    pass
+        logger.warning(f"Bibliography .bbl not found for \\bibliography{{{bib_str}}}")
+        return ""
+
+    return _BIBLIOGRAPHY_PATTERN.sub(replace_bib, content)
+
+
+# .bbl preamble lines between ``\begin{thebibliography}`` and the first
+# ``\bibitem``: ``\providecommand``, ``\expandafter\ifx ... \fi`` guards etc.
+# Pandoc renders some of their argument tokens as literal text ("72 urlstyle").
+_BBL_PREAMBLE_LINE_RE = re.compile(
+    r"^(?:\\providecommand\b|\\expandafter\b|\\newcommand\b|\\ifx\b|\\fi\b|\\else\b|\\begingroup\b|\\endgroup\b|\\Url\b)"
+)
+
+
+def _strip_bbl_preamble(body: str) -> str:
+    r"""Drop the guard-macro preamble lines BibTeX emits before the first ``\bibitem``.
+
+    Keeps ``\begin{thebibliography}{N}`` (the ``{N}`` width arg is dropped by
+    Pandoc's reader) intact so the environment stays balanced; only the
+    ``\providecommand``/``\expandafter`` plumbing lines are removed.
+    """
+    lines = body.split("\n")
+    first_bibitem = next((i for i, ln in enumerate(lines) if ln.lstrip().startswith(r"\bibitem")), None)
+    if first_bibitem is None or first_bibitem == 0:
+        return body
+    # Find the \begin{thebibliography} line to preserve it.
+    begin_idx = next(
+        (i for i, ln in enumerate(lines[:first_bibitem]) if r"\begin{thebibliography}" in ln),
+        None,
+    )
+    if begin_idx is None:
+        return body
+    head = [lines[begin_idx]]  # keep only the \begin line
+    # Drop the {N} widest-label argument: Pandoc's reader renders it as
+    # literal text ("72") at the top of the reference list.
+    head[0] = re.sub(r"(\\begin\{thebibliography\})\{[^}]*\}", r"\1", head[0])
+    return "\n".join(head + lines[first_bibitem:])
 
 
 def _fix_orphan_ends(tex_content: str) -> str:

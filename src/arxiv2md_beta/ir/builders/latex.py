@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from collections import deque
@@ -13,6 +14,7 @@ from arxiv2md_beta.ir.blocks import (
     BlockQuoteIR,
     BlockUnion,
     CodeIR,
+    EquationIR,
     FigureIR,
     HeadingIR,
     ListIR,
@@ -87,15 +89,142 @@ _DEF_KEYWORDS = (
 )
 _SPLIT_DEF_NAME_RE = re.compile(r"(\\(?:" + _DEF_KEYWORDS + r")\*?)[ \t]*\n[ \t]*(?=[\\{])")
 
+# How many trailing ``}`` we'll append before ``\end{document}`` to close stray
+# groups Pandoc can't recover from (see the retry loop in ``LaTeXBuilder.build``).
+_MAX_UNCLOSED_GROUP_RETRIES = 25
+
+# ``\label{eq:foo}`` leaked into a display-math string by Pandoc (align/equation
+# environments). KaTeX treats it as an undefined control sequence.
+_LABEL_IN_MATH_RE = re.compile(r"\\label\{[^}]*\}")
+
+# Independence symbol from ``\newcommand{\independent}{\mbox{${}\perp\mkern-11mu\perp{}$}}``
+# — Pandoc expands it inside math, leaving literal ``$`` characters that unbalance
+# the emitted ``$...$`` delimiters. Same normalization as the HTML builder.
+_PERP_IN_MATH_RE = re.compile(r"\\mbox\{\$?\{\}\\perp(?:\\mkern-[0-9]+(?:\.[0-9]+)?mu|\\!+)\\perp\{\}\$?\}")
+
+# ``\text{... math ...}`` after \mbox→\text translation may still contain math
+# macros (\alpha etc.) when the source was ``\mbox{... at level $\alpha$}`` and
+# Pandoc dropped the inner ``$``. KaTeX rejects math macros inside \text{}.
+# Split the former ``$...$`` sub-expression back into math mode — mirrors the
+# HTML builder's ``_split_math_from_text``.
+_SPLIT_MATH_FROM_TEXT_RE = re.compile(r"\\text\{([^{}]*\\[a-zA-Z]+[^{}]*)\}")
+
+
+def _split_math_from_text(m: re.Match[str]) -> str:
+    r"""Re-split escaped ``$...$`` math out of ``\text{...}``.
+
+    Only moves tokens that are math-mode macros (backslash commands) outside the
+    ``\text{}`` run; plain words stay inside.
+    """
+    inner = m.group(1)
+    # Partition on math macros: keep text runs in \text{}, macros outside.
+    parts = re.split(r"(\\[a-zA-Z]+)", inner)
+    out: list[str] = []
+    buf: list[str] = []
+    for p in parts:
+        if p.startswith("\\") and len(p) > 1 and p[1].isalpha():
+            if buf:
+                out.append("\\text{" + "".join(buf) + "}")
+                buf = []
+            out.append(p)
+        else:
+            buf.append(p)
+    if buf:
+        out.append("\\text{" + "".join(buf) + "}")
+    return "".join(out)
+
+
+# TeX glue primitives Pandoc's LaTeX reader aborts on (e.g. the end-part of a
+# ``\newenvironment{proof}`` definition ``...\hfill$\square$\vskip\baselineskip``
+# expands to ``\vskip`` inside the body, killing the whole parse with
+# "unexpected \vskip expecting \end{document}"). ``\vskip``/``\hskip``/``\mskip``
+# are spacing-only — dropping the token plus an optional ``{...}`` group is
+# lossless. A bare trailing length/control-sequence (``\baselineskip``) is fine:
+# Pandoc ignores unknown control sequences.
+_GLUE_STRIP_RE = re.compile(r"\\(?:v|h|m)skip(?:\s*\{[^{}]*\})?")
+
+# TeX conditionals with a statically-false literal condition. Pandoc does NOT
+# evaluate ``\if0...\fi`` / ``\iffalse...\fi`` (it keeps BOTH branches), so a
+# disabled block that carries unbalanced ``\begin{enumerate}``/``\end{...}``
+# makes Pandoc report a bogus ``\end{document}`` error at the end of the file.
+# arXiv sources use ``\if0`` as the "comment out this chunk" idiom (verified on
+# 1501.01332). We strip the whole false block (keeping the ``\else``/``\or``
+# branch, which is what real TeX would typeset).
+_IF_TOKEN_RE = re.compile(r"\\unless\s*\\if[a-zA-Z@0-9]*|\\if[a-zA-Z@0-9]*")
+_SCAN_TOKEN_RE = re.compile(r"\\unless\s*\\if[a-zA-Z@0-9]*|\\if[a-zA-Z@0-9]*|\\else|\\or|\\fi")
+
+
+def _is_false_conditional(token: str, pos: int, tex: str) -> bool:
+    r"""True when *token* is a conditional Pandoc can't evaluate and TeX reads as false.
+
+    ``\if0<X>`` for X != 0 is false (compares "0" with X); ``\if00`` compares
+    0==0 (true) and is left alone.
+    """
+    if token == r"\iffalse":
+        return True
+    return token.startswith(r"\if0") and not token.startswith(r"\if00")
+
+
+def _strip_false_conditionals(tex: str) -> str:
+    r"""Remove ``\\if0 ... [\\else ...] \fi`` / ``\\iffalse ... \fi`` blocks.
+
+    Nesting-aware (any ``\\if`` variant increments the depth, matching ``\fi``
+    decrements it) and keeps the ``\\else``/``\\or`` branch when present, since
+    real TeX would typeset exactly that. Blocks whose condition is not a
+    statically-false literal are left untouched (Pandoc evaluates ``\newif``
+    conditionals itself).
+    """
+    out: list[str] = []
+    i, n = 0, len(tex)
+    while i < n:
+        m = _IF_TOKEN_RE.match(tex, i)
+        if m and _is_false_conditional(m.group(0), m.end(), tex):
+            depth = 1
+            j = m.end()
+            else_start: int | None = None
+            block_end: int | None = None  # position just past the closing ``\fi``
+            while depth > 0 and j < n:
+                mm = _SCAN_TOKEN_RE.match(tex, j)
+                if mm:
+                    tok = mm.group(0)
+                    if tok in (r"\else", r"\or"):
+                        if depth == 1:
+                            else_start = j + len(tok)
+                    elif tok == r"\fi":
+                        depth -= 1
+                        if depth == 0:
+                            block_end = mm.end()
+                            break
+                    else:
+                        depth += 1
+                    j = mm.end()
+                else:
+                    j += 1
+            if block_end is not None:
+                if else_start is not None:
+                    # Keep only the ``\else``/``\or`` branch, minus the ``\fi``.
+                    out.append(tex[else_start : block_end - len(r"\fi")])
+                i = block_end
+            else:
+                i = n  # unterminated conditional — drop the rest
+        else:
+            out.append(tex[i])
+            i += 1
+    return "".join(out)
+
 
 def _sanitize_tex_for_pandoc(tex_content: str) -> str:
     r"""Normalize LaTeX that Pandoc's reader rejects but LaTeX accepts.
 
-    Currently fixes macro-definition families whose name token sits on the line
-    *after* the keyword (``\DeclareRobustCommand\n  \foo{...}``). Without this,
-    Pandoc aborts the entire conversion with a misleading
-    "expecting end of input" at line 1. Applied after ``\input`` resolution,
-    immediately before the Pandoc call in :meth:`LaTeXBuilder.build`.
+    Applied after ``\input`` resolution, immediately before the Pandoc call in
+    :meth:`LaTeXBuilder.build`. Current fix-ups:
+
+    * Macro-definition families whose name token sits on the line *after* the
+      keyword (``\DeclareRobustCommand\n  \foo{...}``) — otherwise Pandoc aborts
+      with a misleading "expecting end of input" at line 1.
+    * TeX glue primitives ``\vskip``/``\hskip``/``\mskip`` (see ``_GLUE_STRIP_RE``).
+    * Statically-false conditionals ``\if0``/``\iffalse`` (see
+      ``_strip_false_conditionals``).
 
     Parameters
     ----------
@@ -107,7 +236,10 @@ def _sanitize_tex_for_pandoc(tex_content: str) -> str:
     str
         Sanitized content (same text unless a fix-up applied).
     """
-    return _SPLIT_DEF_NAME_RE.sub(r"\1 ", tex_content)
+    tex = _SPLIT_DEF_NAME_RE.sub(r"\1 ", tex_content)
+    tex = _GLUE_STRIP_RE.sub("", tex)
+    tex = _strip_false_conditionals(tex)
+    return tex
 
 
 class LaTeXBuilder(IRBuilder):
@@ -199,12 +331,30 @@ class LaTeXBuilder(IRBuilder):
                 "pypandoc is required for LaTeX parsing. Install it with: pip install pypandoc"
             ) from e
 
-        try:
-            json_str = pypandoc.convert_text(tex_content, "json", format="latex", extra_args=["--wrap=none"])
-        except RuntimeError as e:
-            raise BuilderError(f"Failed to convert LaTeX to Pandoc AST: {e}") from e
-        except OSError as e:
-            raise BuilderError(f"Failed to convert LaTeX (pandoc not found?): {e}") from e
+        # Convert LaTeX → Pandoc JSON AST. arXiv sources sometimes carry an
+        # unclosed ``{`` group (LaTeX only warns "\end occurred inside a group";
+        # Pandoc aborts with "unexpected \end" at ``\end{document}``). The group
+        # is transparent to Pandoc's block output, so closing it with a ``}``
+        # before ``\end{document}`` recovers the whole document. Retry a few
+        # times; 25 balances any real paper.
+        json_str: str | None = None
+        last_error: Exception | None = None
+        for _ in range(_MAX_UNCLOSED_GROUP_RETRIES):
+            try:
+                json_str = pypandoc.convert_text(tex_content, "json", format="latex", extra_args=["--wrap=none"])
+                break
+            except RuntimeError as e:
+                last_error = e
+                if "unexpected \\end" not in str(e):
+                    break  # not the unclosed-group failure mode; surface as-is
+                if r"\end{document}" not in tex_content:
+                    break  # nothing to anchor the closing brace to
+                tex_content = tex_content.replace(r"\end{document}", "}" + r"\end{document}", 1)
+            except OSError as e:
+                raise BuilderError(f"Failed to convert LaTeX (pandoc not found?): {e}") from e
+
+        if json_str is None:
+            raise BuilderError(f"Failed to convert LaTeX to Pandoc AST: {last_error}") from last_error
 
         ast = json.loads(json_str)
         blocks: list[dict] = ast.get("blocks", [])
@@ -564,6 +714,91 @@ class LaTeXBuilder(IRBuilder):
                     result.append(b)
         return result
 
+    def _contains_display_math(self, inlines: list[InlineUnion]) -> bool:
+        """True if any inline (recursively, through container inlines) is display math."""
+        for il in inlines:
+            if isinstance(il, MathIR) and il.display:
+                return True
+            if hasattr(il, "inlines") and self._contains_display_math(il.inlines):
+                return True
+        return False
+
+    def _partition_display_math(self, inlines: list[InlineUnion]) -> list[tuple[str, list[InlineUnion] | str]]:
+        r"""Partition *inlines* into ``("text", inlines)`` / ``("eq", latex)`` segments.
+
+        Display math inside container inlines (e.g. an italic ``EmphasisIR`` wrapping
+        a ``\begin{assumption}`` body) is lifted out; the surrounding text is
+        re-wrapped in a clone of the container so styling is preserved.
+        """
+        segments: list[tuple[str, list[InlineUnion] | str]] = []
+        current: list[InlineUnion] = []
+
+        def flush() -> None:
+            if current:
+                segments.append(("text", list(current)))
+                current.clear()
+
+        for il in inlines:
+            if isinstance(il, MathIR) and il.display:
+                flush()
+                segments.append(("eq", il.latex))
+            elif hasattr(il, "inlines") and self._contains_display_math(il.inlines):
+                sub = self._partition_display_math(il.inlines)
+                for kind, val in sub:
+                    if kind == "eq":
+                        flush()
+                        segments.append(("eq", val))
+                    else:
+                        cloned = copy.deepcopy(il)
+                        cloned.inlines = list(val)  # type: ignore[attr-defined]
+                        current.append(cloned)
+            else:
+                current.append(il)
+        flush()
+        return segments
+
+    def _split_display_math_paragraph(
+        self, inlines: list[InlineUnion], section_id: str, order: int
+    ) -> BlockUnion | list[BlockUnion]:
+        r"""Split a paragraph's inlines at display-math inlines.
+
+        Pandoc places ``\begin{align}``/``$$`` display math INSIDE a Para as a
+        DisplayMath inline (possibly nested inside an emphasis container); the
+        HTML builder routes display equations to ``EquationIR`` blocks instead.
+        Splitting here keeps both parser paths' IR shape consistent so the
+        shared MarkdownEmitter renders display math on its own ``$$...$$`` block
+        rather than mid-paragraph — mid-paragraph ``$$`` is absorbed into the
+        surrounding text and breaks KaTeX/MathJax.
+        """
+        if not self._contains_display_math(inlines):
+            return ParagraphIR(
+                inlines=inlines,
+                source=_SHARED_SOURCE,
+                section_id=section_id,
+                order_index=order,
+            )
+        blocks: list[BlockUnion] = []
+        for kind, val in self._partition_display_math(inlines):
+            if kind == "eq":
+                blocks.append(
+                    EquationIR(
+                        latex=cast(str, val),
+                        source=_SHARED_SOURCE,
+                        section_id=section_id,
+                        order_index=order,
+                    )
+                )
+            else:
+                blocks.append(
+                    ParagraphIR(
+                        inlines=cast(list[InlineUnion], val),
+                        source=_SHARED_SOURCE,
+                        section_id=section_id,
+                        order_index=order,
+                    )
+                )
+        return blocks
+
     def _block_from_pandoc(
         self, blk: dict, section_id: str = "", order: int = 0
     ) -> BlockUnion | list[BlockUnion] | None:
@@ -573,12 +808,7 @@ class LaTeXBuilder(IRBuilder):
 
         if t == "Para" or t == "Plain":
             inlines = self._inlines_from_pandoc(c) if isinstance(c, list) else []
-            return ParagraphIR(
-                inlines=inlines,
-                source=_SHARED_SOURCE,
-                section_id=section_id,
-                order_index=order,
-            )
+            return self._split_display_math_paragraph(inlines, section_id=section_id, order=order)
         elif t == "Header":
             c_list = c if isinstance(c, list) else [1, ["", [], []], []]
             level = c_list[0] if len(c_list) > 0 else 1
@@ -763,6 +993,27 @@ class LaTeXBuilder(IRBuilder):
             mathtype = c_list[0] if len(c_list) > 0 else {}
             latex = str(c_list[1]) if len(c_list) > 1 else ""
             display = mathtype.get("t") == "DisplayMath" if isinstance(mathtype, dict) else False
+            # Pandoc keeps \label{...} inside display-math strings (align/
+            # equation environments). KaTeX rejects it as an undefined control
+            # sequence; the label is a cross-reference artifact, not content.
+            latex = _LABEL_IN_MATH_RE.sub("", latex)
+            # \mbox{${}\perp...\perp{}$} (from a \newcommand{\independent})
+            # nests literal $ inside the math string, unbalancing the emitted
+            # $...$ delimiters — normalize to the same \perp \!\!\! \perp form
+            # the HTML path produces. Trailing space is load-bearing: without
+            # it the replacement glues to the next token (\perpX).
+            latex = _PERP_IN_MATH_RE.sub(r"\\perp \\!\\!\\! \\perp ", latex)
+            # \mbox{argmin} (from \DeclareMathOperator{\argmin}{argmin}):
+            # text-mode \mbox breaks KaTeX; \text renders.
+            latex = re.sub(r"\\mbox(\s*)\{([^{}]*)\}", r"\\text\1{\2}", latex)
+            # KaTeX rejects math macros directly inside \text{...} (e.g.
+            # \mbox{... at level $\alpha$} expanded by Pandoc loses the inner
+            # $...$). Split the math back out (same as the HTML builder).
+            latex = _SPLIT_MATH_FROM_TEXT_RE.sub(_split_math_from_text, latex)
+            # TeX line-break hints unsupported by some renderers (same as the
+            # HTML builder's normalization).
+            latex = re.sub(r"\\nolinebreak(?:\s*\[[^\]]*\])?", "", latex)
+            latex = re.sub(r" {2,}", " ", latex).strip()
             return MathIR(latex=latex, display=display)
         elif t == "RawInline":
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"

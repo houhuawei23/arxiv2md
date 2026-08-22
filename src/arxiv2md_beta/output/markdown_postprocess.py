@@ -80,9 +80,17 @@ def _clean_math_and_spacing(text: str) -> str:
         elif text[i] == "$":
             flush()
             j = text.find("$", i + 1)
-            if j == -1 or "\n" in text[i + 1 : j]:
+            if j == -1:
                 buf.append("$")
                 i += 1
+            elif "\n" in text[i + 1 : j]:
+                # Inline math spanning a newline (pandoc SoftBreak inside
+                # ``$...$``). A literal newline inside ``$...$`` breaks most
+                # Markdown math renderers and unbalances every later ``$``
+                # pair in the file — collapse it to a space and keep the math.
+                inner = re.sub(r"\s*\n\s*", " ", text[i + 1 : j]).strip()
+                tokens.append(("inline", inner))
+                i = j + 1
             else:
                 tokens.append(("inline", text[i + 1 : j]))
                 i = j + 1

@@ -18,7 +18,11 @@ from arxiv2md_beta.ir.emitters.base import IREmitter
 # ── inline delimiter map ──────────────────────────────────────────────
 
 _EMPHASIS_DELIMITERS: dict[str, str] = {
-    "italic": "*",
+    # Italic emphasis is intentionally plain text: ar5iv wraps large spans in
+    # <em>/<span class="ltx_font_italic">, and the resulting *...* runs (nested
+    # inside **bold** as ***, and around inline math/underscores) break Markdown
+    # rendering. Only **bold** survives.
+    "italic": "",
     "bold": "**",
     "code": "`",
     "underline": "<u>",
@@ -159,6 +163,10 @@ class MarkdownEmitter(IREmitter):
         if t == "text":
             return inline.text
         elif t == "emphasis":
+            # Empty emphasis spans (ar5iv emits bare <span class="ltx_font_italic">
+            # wrappers) would otherwise serialize as a stray '**'/'****' line.
+            if not inline.inlines:
+                return ""
             style = inline.style
             d = _EMPHASIS_DELIMITERS.get(style, "")
             c = _EMPHASIS_CLOSERS.get(style, d)

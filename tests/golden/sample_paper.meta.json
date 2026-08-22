@@ -20,12 +20,12 @@
       "type": "author"
     }
   ],
-  "content_sha256": "e5d23dbe32a85c9f5aa2fccad5ff43d646c3a9eba3960e9b6eb5a2a2bd61d984",
+  "content_sha256": "56db229f4ea6bf9fb6842afc3d3cfe0af8d3a629660dfb027e8ccfcef296e409",
   "parser": "latex",
   "schema_version": "2.0",
   "source_url": null,
   "submission_date": null,
   "title": "A Sample Paper for Testing",
   "tool_name": "arxiv2md-beta",
-  "tool_version": "0.13.1"
+  "tool_version": "0.15.1"
 }

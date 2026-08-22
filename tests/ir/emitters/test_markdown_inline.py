@@ -34,8 +34,10 @@ class TestTextIR:
 
 class TestEmphasisIR:
     def test_italic(self, emitter):
+        # Italic emphasis emits as plain text: ar5iv's *...* runs (nested inside
+        # **bold** as ***) break Markdown rendering, so only bold survives.
         n = EmphasisIR(style="italic", inlines=[TextIR(text="hi")])
-        assert emitter._emit_inline(n) == "*hi*"
+        assert emitter._emit_inline(n) == "hi"
 
     def test_bold(self, emitter):
         n = EmphasisIR(style="bold", inlines=[TextIR(text="hi")])
@@ -46,6 +48,7 @@ class TestEmphasisIR:
         assert emitter._emit_inline(n) == "`hi`"
 
     def test_nested(self, emitter):
+        # Italic inside bold flattens to plain text; no stray '*' delimiters.
         n = EmphasisIR(
             style="bold",
             inlines=[
@@ -53,7 +56,13 @@ class TestEmphasisIR:
                 EmphasisIR(style="italic", inlines=[TextIR(text="b")]),
             ],
         )
-        assert emitter._emit_inline(n) == "**a*b***"
+        assert emitter._emit_inline(n) == "**ab**"
+
+    def test_empty_emphasis_is_dropped(self, emitter):
+        # ar5iv emits bare <span class="ltx_font_italic"></span> wrappers; an
+        # empty emphasis must not serialize as a stray '**'/'****' marker.
+        assert emitter._emit_inline(EmphasisIR(style="italic", inlines=[])) == ""
+        assert emitter._emit_inline(EmphasisIR(style="bold", inlines=[])) == ""
 
 
 class TestLinkIR:
