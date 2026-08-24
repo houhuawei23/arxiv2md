@@ -247,6 +247,12 @@ class HTMLBuilder(IRBuilder):
 
         classes = set(css_classes(tag))
 
+        # ar5iv bibliography "Cited by: §N, §M ..." cross-reference block.
+        # It lists where in this paper the reference is cited — layout noise
+        # for a standalone Markdown reference list; drop it.
+        if "ltx_bib_cited" in classes:
+            return None
+
         # ar5iv paragraph wrappers (span.ltx_p / span.ltx_para) should be treated
         # as paragraphs so that inline math inside them is not emitted as raw HTML.
         if tag_name == "p" or (tag_name == "span" and _is_ar5iv_paragraph(classes)):
@@ -293,16 +299,19 @@ class HTMLBuilder(IRBuilder):
         # Headings
         if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
             level = int(tag_name[1])
-            text = self._get_text(tag)
             anchor = attr_optional(tag, "id") or ""
-            if not text:
+            # Use inline conversion (not _get_text) so <math> renders as a
+            # MathIR; get_text would concatenate the MathML unicode render AND
+            # the application/x-tex annotation (e.g. "𝒙 \bm{x}").
+            inlines = self._tag_to_inlines(tag)
+            if not inlines:
                 return None
             return HeadingIR(
                 section_id=section_id,
                 order_index=base_idx,
                 level=level,
                 anchor=anchor,
-                inlines=[TextIR(text=text)],
+                inlines=inlines,
             )
 
         # Figures
@@ -521,6 +530,12 @@ class HTMLBuilder(IRBuilder):
             is_display = tag.get("display") == "block"
             return MathIR(latex=latex, display=is_display)
 
+        # Skip inline SVG elements — these are typographic/decorative renderings
+        # (e.g. LaTeXML's colored-highlight boxes around math) and would leak
+        # raw <svg> markup into the Markdown if emitted as fallback HTML.
+        if tag_name == "svg":
+            return None
+
         # Images
         if tag_name == "img":
             src = self._image_resolver.resolve(attr_str(tag, "src"))
@@ -595,8 +610,20 @@ class HTMLBuilder(IRBuilder):
         return SuperscriptIR(inlines=[TextIR(text=marker_text)])
 
     def _get_text(self, tag: Tag) -> str:
-        """Get normalized text content from a tag."""
-        return re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+        r"""Get normalized text content from a tag.
+
+        ``<annotation encoding="application/x-tex">`` nodes duplicate the
+        MathML rendering (the unicode glyph) with the raw LaTeX source; drop
+        them so ``get_text`` yields e.g. ``𝒙`` instead of ``𝒙 \bm{x}``.
+        """
+        source = re.sub(
+            r"<annotation[^>]*>.*?</annotation>",
+            "",
+            str(tag),
+            flags=re.DOTALL,
+        )
+        text = BeautifulSoup(source, "html.parser").get_text(" ", strip=True)
+        return re.sub(r"\s+", " ", text).strip()
 
     def _extract_equation_latex(self, tag: Tag) -> str:
         r"""Extract LaTeX from an equation table, preferring <math> annotations.
@@ -618,7 +645,14 @@ class HTMLBuilder(IRBuilder):
             if annotation and annotation.text:
                 latex_parts.append(annotation.text.strip())
         latex = " ".join(latex_parts) if latex_parts else self._get_text(tag)
+        # Recover TikZ boxed symbols from the sibling <svg> foreignobjects.
+        if _PICTURE_HBOX_RE.search(latex):
+            symbols = [_svg_foreignobject_latex(s) for s in tag.find_all("svg")]
+            latex = _substitute_picture_boxes(latex, symbols)
         latex = _normalize_math_latex(latex)
+        # Drop any surviving picture fragment (no recoverable symbol).
+        latex = _PICTURE_HBOX_RE.sub(" ", latex)
+        latex = _PICTURE_BARE_RE.sub(" ", latex)
         # Strip outer display-math delimiters if present
         if latex.startswith("$$") and latex.endswith("$$"):
             latex = latex[2:-2]
@@ -694,6 +728,27 @@ class HTMLBuilder(IRBuilder):
         # "> Table N: ..." block; skip it (the rendered table lives in the PDF).
         if not imgs:
             return None
+
+        # Preserve table-layout figures: ar5iv encodes multi-row panel grids
+        # (e.g. a 4x4 toy-experiment figure) as an inner <table> with one
+        # <td> per panel. Without this the rows collapse into a flat image
+        # strip and the grid is lost.
+        grid: list[list[list[InlineUnion]]] | None = None
+        inner_table = tag.find("table")
+        if isinstance(inner_table, Tag) and any(tr.find("img") for tr in inner_table.find_all("tr")):
+            rows: list[list[list[InlineUnion]]] = []
+            for tr in inner_table.find_all("tr"):
+                cells = tr.find_all(["td", "th"], recursive=False)
+                if not cells:
+                    continue
+                rows.append([self._tag_to_inlines(cell) for cell in cells])
+            if rows:
+                width = max(len(r) for r in rows)
+                for r in rows:
+                    while len(r) < width:
+                        r.append([])  # pad short rows so the grid stays rectangular
+                grid = rows
+
         figure_index = self._figure_counter + 1  # 1-based for image_map lookup
         svg_src = f"{self._images_subdir}/figure-{self._svg_counter}.svg"
         images = [
@@ -703,6 +758,21 @@ class HTMLBuilder(IRBuilder):
             )
             for img in imgs
         ]
+
+        # Grid cells were built through the generic inline path, which resolves
+        # by stem only. Re-map their srcs to the flat-list resolution above,
+        # which carries figure_index (handles ar5iv's opaque ``xN.png`` names
+        # that have no stem match).
+        if grid:
+            resolved_by_src: dict[str, str] = {}
+            for img_tag, img_ref in zip(imgs, images, strict=False):
+                resolved_by_src.setdefault(attr_str(img_tag, "src"), img_ref.src)
+            if resolved_by_src:
+                for row in grid:
+                    for cell in row:
+                        for inline in cell:
+                            if isinstance(inline, ImageRefIR) and inline.src in resolved_by_src:
+                                inline.src = resolved_by_src[inline.src]
 
         self._figure_counter += 1
         return FigureIR(
@@ -714,6 +784,7 @@ class HTMLBuilder(IRBuilder):
             images=images,
             caption=caption,
             kind="image",
+            grid=grid,
         )
 
     def _resolve_image_src(self, img_tag: Tag, figure_index: int) -> str:
@@ -822,6 +893,9 @@ class HTMLBuilder(IRBuilder):
                     child_classes = set(css_classes(child))
                     if "ltx_tag" in child_classes:
                         continue
+                    # ar5iv bibliography "Cited by:" cross-reference — noise.
+                    if "ltx_bib_cited" in child_classes:
+                        continue
                     if child.name in ("ul", "ol"):
                         # Nested list
                         nested = self._build_list_items(child)
@@ -862,6 +936,9 @@ class HTMLBuilder(IRBuilder):
                     child_classes = set(css_classes(child))
                     # Skip item markers
                     if "ltx_tag" in child_classes or "ltx_tag_item" in child_classes:
+                        continue
+                    # ar5iv bibliography "Cited by:" cross-reference — noise.
+                    if "ltx_bib_cited" in child_classes:
                         continue
                     # Nested ar5iv list
                     if child.name == "span" and _is_ar5iv_list(child_classes):
@@ -924,11 +1001,158 @@ def _is_equation_table(tag: Tag) -> bool:
     return bool(_EQUATION_TABLE_RE.search(classes))
 
 
+# LaTeXML degrades TikZ-based math (e.g. ar5iv "\mathhl" colored highlight
+# boxes around a symbol) into picture-box code:
+#   \hbox to12.15pt{\vbox to7.28pt{\pgfpicture\makeatletter...\endpgfpicture}}
+# The box's inner symbol is replaced with \pgfsys@hbox{<id>}, so the
+# annotation alone is not math. The symbol is recoverable from the sibling
+# <svg> foreignobject MathML (see _svg_foreignobject_latex). These patterns
+# identify the fragments; every such fragment ends with "\endpgfpicture}"
+# plus the closing braces of the \vbox/\hbox groups.
+_PICTURE_HBOX_RE = re.compile(r"\\hbox\s+to\s*[\d.]*\s*pt\s*\{.*?\\endpgfpicture\}\}", re.DOTALL)
+_PICTURE_BARE_RE = re.compile(r"\\pgfpicture.*?\\endpgfpicture\}\}", re.DOTALL)
+
+
+def _svg_foreignobject_latex(svg_tag: Tag) -> str:
+    r"""Clean LaTeX for a LaTeXML picture ``<svg>``'s boxed symbol.
+
+    LaTeXML renders TikZ math (``\mathhl`` colored boxes) as an ``<svg
+    class="ltx_picture ltx_markedasmath">`` whose ``<foreignobject>`` holds the
+    boxed symbol as MathML. Prefer a nested ``<math alttext=...>`` (carries the
+    original LaTeX); otherwise convert the small MathML to LaTeX.
+    """
+    fo = svg_tag.find("foreignobject")
+    if not isinstance(fo, Tag):
+        return ""
+    math = fo.find("math", attrs={"alttext": True})
+    if isinstance(math, Tag):
+        return _normalize_math_latex(str(math["alttext"]))
+    content = fo.find("span", class_="ltx_foreignobject_content") or fo
+    return _mathml_node_latex(content)
+
+
+def _mathml_node_latex(el: Any) -> str:
+    """Convert a small MathML fragment (boxed symbol) to LaTeX.
+
+    Handles the subset ar5iv emits for inline math rendered as SVG pictures:
+    ``<msub>``/``<msubsup>``, ``<mi>`` (with bold-italic variants), ``<mo>``,
+    ``<mn>``, ``<mtext>``, ``<mrow>`` and container elements. Anything it
+    cannot map degrades to its text content.
+    """
+    if not isinstance(el, Tag):
+        return str(el)
+    name = el.name
+    if name in ("math", "semantics", "mrow", "mstyle", "span"):
+        return "".join(_mathml_node_latex(c) for c in el.contents if isinstance(c, Tag))
+    if name == "msub":
+        children = [c for c in el.contents if isinstance(c, Tag)]
+        if len(children) == 2:
+            return f"{_mathml_node_latex(children[0])}_{{{_mathml_node_latex(children[1])}}}"
+        return ""
+    if name == "msubsup":
+        children = [c for c in el.contents if isinstance(c, Tag)]
+        if len(children) == 3:
+            return (
+                f"{_mathml_node_latex(children[0])}"
+                f"_{{{_mathml_node_latex(children[1])}}}"
+                f"^{{{_mathml_node_latex(children[2])}}}"
+            )
+        return ""
+    if name == "mi":
+        text = el.get_text()
+        base, bold = _MATHML_GLYPH_MAP.get(text, (text, False))
+        if "bold" in (el.get("mathvariant") or "") or bold:
+            base = f"\\bm{{{base}}}"
+        return base
+    if name in ("mo", "mn", "mtext"):
+        return el.get_text()
+    if name in ("annotation", "annotation-xml"):
+        return ""
+    return "".join(_mathml_node_latex(c) for c in el.contents if isinstance(c, Tag))
+
+
+# Unicode math glyphs LaTeXML emits for \bm{...} (pre-bolded script letters)
+# and plain Greek; maps to (LaTeX base, is_bold).
+_MATHML_GLYPH_MAP: dict[str, tuple[str, bool]] = {
+    "𝒙": ("x", True),
+    "𝒗": ("v", True),
+    "𝒛": ("z", True),
+    "𝒆": ("e", True),
+    "𝒘": ("w", True),
+    "𝒚": ("y", True),
+    "𝒖": ("u", True),
+    "𝒕": ("t", True),
+    "𝒊": ("i", True),
+    "𝒋": ("j", True),
+    "𝒌": ("k", True),
+    "𝒑": ("p", True),
+    "𝒒": ("q", True),
+    "𝒓": ("r", True),
+    "𝒂": ("a", True),
+    "𝒃": ("b", True),
+    "𝒄": ("c", True),
+    "𝒅": ("d", True),
+    "𝒇": ("f", True),
+    "𝒈": ("g", True),
+    "𝒉": ("h", True),
+    "𝒔": ("s", True),
+    "ϵ": ("\\epsilon", False),
+    "ε": ("\\varepsilon", False),
+    "θ": ("\\theta", False),
+    "α": ("\\alpha", False),
+    "β": ("\\beta", False),
+    "γ": ("\\gamma", False),
+    "δ": ("\\delta", False),
+    "ζ": ("\\zeta", False),
+    "η": ("\\eta", False),
+    "ι": ("\\iota", False),
+    "κ": ("\\kappa", False),
+    "λ": ("\\lambda", False),
+    "μ": ("\\mu", False),
+    "ν": ("\\nu", False),
+    "ξ": ("\\xi", False),
+    "π": ("\\pi", False),
+    "ρ": ("\\rho", False),
+    "σ": ("\\sigma", False),
+    "τ": ("\\tau", False),
+    "φ": ("\\varphi", False),
+    "χ": ("\\chi", False),
+    "ψ": ("\\psi", False),
+    "ω": ("\\omega", False),
+}
+
+
+def _substitute_picture_boxes(latex: str, symbols: list[str]) -> str:
+    r"""Replace each ``\hbox to...pt{...\endpgfpicture}`` fragment with the matching recovered symbol.
+
+    The svg picture elements and the ``\hbox`` fragments appear in the same
+    order, so substitution is position-based.
+    """
+    it = iter(symbols)
+
+    def _repl(_m: re.Match) -> str:
+        return next(it, "")
+
+    return _PICTURE_HBOX_RE.sub(_repl, latex)
+
+
 def _extract_math_latex(tag: Tag) -> str:
-    """Extract LaTeX from a <math> tag, normalizing whitespace."""
+    """Extract LaTeX from a <math> tag, normalizing whitespace.
+
+    When the annotation contains LaTeXML picture-box code (a degraded TikZ
+    highlight), substitute the boxed symbol recovered from the sibling
+    ``<svg>`` foreignobject MathML so the formula keeps its meaning.
+    """
     annotation = tag.find("annotation", attrs={"encoding": "application/x-tex"})
     latex = annotation.text.strip() if annotation and annotation.text else tag.get_text(" ", strip=True)
-    return _normalize_math_latex(latex)
+    if _PICTURE_HBOX_RE.search(latex):
+        symbols = [_svg_foreignobject_latex(s) for s in tag.find_all("svg")]
+        latex = _substitute_picture_boxes(latex, symbols)
+    latex = _normalize_math_latex(latex)
+    # Drop any surviving picture fragment (no recoverable symbol) — not math.
+    latex = _PICTURE_HBOX_RE.sub(" ", latex)
+    latex = _PICTURE_BARE_RE.sub(" ", latex)
+    return latex
 
 
 def _normalize_math_latex(latex: str) -> str:

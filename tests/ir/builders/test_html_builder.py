@@ -193,6 +193,53 @@ class TestBlockConversion:
         assert figures[0].figure_id == "figure-1"
         assert len(figures[0].images) == 1
 
+    def test_table_grid_figure(self, builder):
+        # ar5iv multi-row panel figures carry their grid as an inner <table>;
+        # the builder must keep the rows/columns instead of flattening panels.
+        cell = '<td><img src="{s}" alt="Refer to caption" /></td>'
+        html = f"""
+        <figure class="ltx_figure">
+        <table>
+        <tr><td></td><td>gt</td><td>x-pred</td></tr>
+        <tr><td>D=2</td>{cell.format(s='./a.png')}{cell.format(s='./b.png')}</tr>
+        <tr><td>D=8</td>{cell.format(s='./c.png')}{cell.format(s='./d.png')}</tr>
+        </table>
+        <figcaption>Figure 2: Panels</figcaption>
+        </figure>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        figures = [b for b in doc.sections[0].blocks if b.type == "figure"]
+        assert len(figures) == 1
+        fig = figures[0]
+        assert fig.grid is not None
+        assert len(fig.grid) == 3
+        assert [len(r) for r in fig.grid] == [3, 3, 3]
+        # row labels / headers preserved as text cells, panels as image cells
+        assert fig.grid[0][1][0].text == "gt"
+        assert fig.grid[1][0][0].text == "D=2"
+        assert fig.grid[1][1][0].type == "image_ref"
+        # flat list still populated for downstream consumers
+        assert len(fig.images) == 4
+
+    def test_flat_multi_figure_no_grid(self, builder):
+        # Plain multi-panel figure without an inner table stays a flat strip.
+        html = """
+        <figure class="ltx_figure">
+        <img src="./a.png" alt="Refer to caption" />
+        <img src="./b.png" alt="Refer to caption" />
+        <figcaption>Figure 5: Panels</figcaption>
+        </figure>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        figures = [b for b in doc.sections[0].blocks if b.type == "figure"]
+        assert len(figures) == 1
+        assert figures[0].grid is None
+        assert len(figures[0].images) == 2
+
     def test_table(self, builder):
         html = """
         <table>

@@ -14,6 +14,7 @@ from arxiv2md_beta.ir.blocks import (
 )
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
+from arxiv2md_beta.ir.inlines import ImageRefIR, InlineUnion
 
 # ── inline delimiter map ──────────────────────────────────────────────
 
@@ -235,7 +236,9 @@ class MarkdownEmitter(IREmitter):
 
         # Images
         images = fig.images
-        if len(images) == 1:
+        if fig.grid:
+            lines.append(self._emit_figure_grid(fig.grid))
+        elif len(images) == 1:
             img = images[0]
             alt = img.alt or ""
             src = img.src or ""
@@ -257,6 +260,31 @@ class MarkdownEmitter(IREmitter):
             lines.append(_blockquote_lines(caption))
 
         return "\n".join(lines)
+
+    def _emit_figure_grid(self, grid: list[list[list[InlineUnion]]]) -> str:
+        """Render a table-layout figure as raw HTML, preserving row/column grid.
+
+        Each cell is a list of inlines: ``ImageRefIR`` nodes render as ``<img>``
+        (scaled to the cell via ``width="100%"``), everything else through the
+        normal inline emitter. Kept as HTML so the layout survives in Markdown
+        viewers that render inline HTML (same convention as the flat multi-image
+        strip).
+        """
+        rows: list[str] = []
+        for row in grid:
+            cells: list[str] = []
+            for cell in row:
+                parts: list[str] = []
+                for inline in cell:
+                    if isinstance(inline, ImageRefIR):
+                        src = _escape_url(inline.src or "")
+                        alt = _escape_md_text(inline.alt or "Figure panel")
+                        parts.append(f'<img src="{src}" width="100%" alt="{alt}" />')
+                    else:
+                        parts.append(self._emit_inlines([inline]))
+                cells.append(f"<td>{''.join(parts)}</td>")
+            rows.append("<tr>" + "".join(cells) + "</tr>")
+        return "\n".join(["<table>", *rows, "</table>"])
 
     def _emit_table(self, tbl: TableIR) -> str:
         lines: list[str] = []

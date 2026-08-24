@@ -14,6 +14,7 @@ from arxiv2md_beta.ir import (
     HeadingIR,
     ImageRefIR,
     ListIR,
+    MathIR,
     ParagraphIR,
     RawBlockIR,
     RuleIR,
@@ -93,6 +94,29 @@ class TestFigure:
         b = FigureIR(images=[], caption=[TextIR(text="no img")])
         result = emitter._emit_block(b)
         assert "no img" in result
+
+    def test_table_grid(self, emitter):
+        # A table-layout figure (ar5iv multi-row panels) keeps its grid: row
+        # labels and column headers in cells, images in data cells.
+        b = FigureIR(
+            figure_id="figure-2",
+            images=[ImageRefIR(src="./a.png"), ImageRefIR(src="./b.png")],
+            grid=[
+                [[], [TextIR(text="gt")], [TextIR(text="x-pred")]],
+                [[MathIR(latex="D{=}2")], [ImageRefIR(src="./a.png")], [ImageRefIR(src="./b.png")]],
+            ],
+            caption=[TextIR(text="Figure 2: Panels")],
+        )
+        result = emitter._emit_block(b)
+        assert "<table>" in result
+        assert "</table>" in result
+        assert "<td>gt</td>" in result
+        assert "<td>$D{=}2$</td>" in result
+        assert '<img src="./a.png" width="100%"' in result
+        assert '<img src="./b.png" width="100%"' in result
+        # no flat image strip for grid figures
+        assert '<div align="center">' not in result
+        assert "> Figure 2: Panels" in result
 
 
 # ── TableIR ────────────────────────────────────────────────────────────

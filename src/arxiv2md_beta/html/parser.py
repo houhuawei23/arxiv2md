@@ -619,12 +619,19 @@ def _looks_like_affiliation(text: str) -> bool:
 
 
 def _get_clean_text(tag: Tag) -> str:
-    """Get normalized text from a tag, removing footnote markers."""
+    r"""Get normalized text from a tag, removing footnote markers.
+
+    ``<annotation encoding="application/x-tex">`` nodes duplicate the MathML
+    unicode rendering with the raw LaTeX source (e.g. ``𝒙`` + ``\bm{x}``);
+    drop them so headings/titles render only the clean math glyph.
+    """
     clone = BeautifulSoup(str(tag), "html.parser")
     for sup in clone.find_all("sup"):
         sup.decompose()
     for note in clone.find_all(class_=re.compile(r"ltx_note|ltx_role_footnote")):
         note.decompose()
+    for annotation in clone.find_all("annotation"):
+        annotation.decompose()
     text = clone.get_text(" ", strip=True)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -811,6 +818,30 @@ def _parse_date_string(date_str: str) -> str | None:
     return None
 
 
+def _heading_title_text(heading: Tag) -> str:
+    r"""Section-title text with ``<math>`` rendered as inline LaTeX.
+
+    A bare ``get_text()`` would concatenate the MathML unicode glyph and the
+    ``application/x-tex`` annotation (``𝒙 \bm{x}``). Instead swap each
+    ``<math>`` for its LaTeX annotation wrapped in ``$...$`` so heading math
+    matches inline math in the body (``$\bm{x}$``). Re-parsing the clone
+    (rather than iterating children) preserves the source whitespace between
+    nodes, e.g. ``<span class="ltx_tag">3 </span>On Prediction`` still yields
+    ``3 On Prediction``.
+    """
+    clone = BeautifulSoup(str(heading), "html.parser")
+    for math in clone.find_all("math"):
+        annotation = math.find("annotation", attrs={"encoding": "application/x-tex"})
+        latex = annotation.text.strip() if annotation and annotation.text else ""
+        math.replace_with(f"${latex}$" if latex else "")
+    for annotation in clone.find_all("annotation"):
+        annotation.decompose()
+    # Empty separator preserves the source's own whitespace (e.g. a trailing
+    # space after a section-number tag) without injecting spaces where the
+    # original glued elements together (``\bm{x}-prediction``).
+    return re.sub(r"\s+", " ", clone.get_text("", strip=False)).strip()
+
+
 def _extract_sections(root: Tag) -> list[SectionNode]:
     headings = [heading for heading in _iter_headings(root) if not _is_title_heading(heading)]
     sections: list[SectionNode] = []
@@ -818,7 +849,7 @@ def _extract_sections(root: Tag) -> list[SectionNode]:
 
     for heading in headings:
         level = int(heading.name[1])
-        title = heading.get_text(" ", strip=True)
+        title = _heading_title_text(heading)
         anchor = attr_optional(heading, "id")
         if not anchor and isinstance(heading.parent, Tag):
             anchor = attr_optional(heading.parent, "id")

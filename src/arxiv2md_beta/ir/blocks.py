@@ -107,6 +107,11 @@ class FigureIR(BlockIR):
     figure_id: str | None = None  # e.g. "figure-2"
     kind: Literal["image", "table", "algorithm"] = "image"
     width: str | None = None
+    # Grid layout (rows of cells) preserved from an HTML table inside the
+    # figure, e.g. ar5iv's multi-row panel figures. Each cell is a list of
+    # inlines (ImageRefIR for images, text/math for row/column labels). When
+    # set, the emitter renders a table instead of the flat image strip.
+    grid: list[list[list[InlineUnion]]] | None = None
 
 
 class TableIR(BlockIR):

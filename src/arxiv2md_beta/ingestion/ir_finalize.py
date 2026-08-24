@@ -26,12 +26,15 @@ from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
 _REF_ENTRY_RE = re.compile(r"^(?P<marker>- |\* )(?P<rest>\S)")
 
 
-def _number_reference_entries(markdown: str) -> str:
+def _number_reference_entries(markdown: str, *, include_anchors: bool) -> str:
     r"""Number reference entries ``[1]``, ``[2]``, ... and add ``ref-N`` anchors.
 
     ar5iv numbers bibitems in bibliography order, which equals the order entries
     appear here, so the Nth entry corresponds to inline ``[N]`` citations and
     the ``#ref-N`` anchors that ``_fix_citation_links`` points at.
+
+    The ``<a id="ref-N"></a>`` anchors are only emitted when *include_anchors*
+    is set; otherwise the reference list carries no HTML tags at all.
     """
     lines = markdown.split("\n")
     out: list[str] = []
@@ -41,7 +44,8 @@ def _number_reference_entries(markdown: str) -> str:
         if m:
             n += 1
             marker = m.group("marker")
-            out.append(f'<a id="ref-{n}"></a>')
+            if include_anchors:
+                out.append(f'<a id="ref-{n}"></a>')
             out.append(f"{marker}[{n}] " + line[len(marker) :])
         else:
             out.append(line)
@@ -91,7 +95,7 @@ def emit_split_markdown(
     ref_raw = emitter.emit(doc) if ref_irs else ""
     if ref_raw.strip():
         ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
-        content_references = _number_reference_entries(ref_final)
+        content_references = _number_reference_entries(ref_final, include_anchors=include_anchors)
     else:
         content_references = None
 
