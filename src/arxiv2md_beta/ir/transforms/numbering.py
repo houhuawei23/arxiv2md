@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import re
+
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
-from arxiv2md_beta.ir.transforms._anchors import unique_slug
+from arxiv2md_beta.ir.transforms._anchors import slugify, unique_slug
 from arxiv2md_beta.ir.transforms.base import IRPass
+
+# arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"). The HTML
+# builder leaves these raw in link target_ids because real section anchors
+# are title slugs that only exist after this pass.
+_SECTION_FRAGMENT_RE = re.compile(r"^S\d+(?:\.S{2,3}\d+)*$")
 
 
 class SectionNumberingPass(IRPass):
@@ -78,12 +85,16 @@ class NumberingPass(IRPass):
     """
 
     name = "numbering"
-    description = "Assign sequential numbers to figures, tables, equations, and algorithms."
+    description = (
+        "Assign sequential numbers and unique anchors to figures, tables, "
+        "equations, algorithms, and sections (absorbs the former AnchorPass)."
+    )
 
     def run(self, doc: DocumentIR) -> DocumentIR:
         ctx = {"figure": 0, "table": 0, "equation": 0, "algorithm": 0}
         self._claimed: set[str] = set()
         self._used_anchors: set[str] = set()
+        self._eq_counter = 0
         # arXiv fragment ids (e.g. "S1.F1") → final anchor. Internal links
         # carrying a raw fragment are re-pointed to the real anchor after
         # numbering, replacing the builder's global-counter guess.
@@ -98,8 +109,174 @@ class NumberingPass(IRPass):
         for section in doc.sections:
             self._number_section(section, ctx)
 
+        # Register every anchor now present on the document so the slugs
+        # assigned below cannot collide with an existing one.
+        self._prescan_anchors(doc)
+
+        # Section anchors + remaining block anchors (absorbed AnchorPass).
+        self._anchor_front_matter(doc)
+        self._anchor_sections(doc)
+
         self._repoint_fragment_links(doc)
+        self._repoint_section_fragments(doc)
         return doc
+
+    # ── anchor assignment (absorbed AnchorPass) ────────────────────────
+
+    def _prescan_anchors(self, doc: DocumentIR) -> None:
+        def scan_block(block) -> None:
+            anchor = getattr(block, "anchor", None)
+            if anchor:
+                self._used_anchors.add(anchor)
+            t = block.type
+            if t == "blockquote":
+                for child in block.blocks:
+                    scan_block(child)
+            elif t == "list":
+                for item in block.items:
+                    for child in item:
+                        scan_block(child)
+
+        def scan_section(section: SectionIR) -> None:
+            if section.anchor:
+                self._used_anchors.add(section.anchor)
+            for block in section.blocks:
+                scan_block(block)
+            for child in section.children:
+                scan_section(child)
+
+        for block in doc.abstract:
+            scan_block(block)
+        for block in doc.front_matter:
+            scan_block(block)
+        for section in doc.sections:
+            scan_section(section)
+
+    def _anchor_front_matter(self, doc: DocumentIR) -> None:
+        for block in doc.front_matter:
+            self._anchor_block(block)
+
+    def _anchor_sections(self, doc: DocumentIR) -> None:
+        for section in doc.sections:
+            self._anchor_section(section)
+
+    def _anchor_section(self, section: SectionIR) -> None:
+        if not section.anchor:
+            base = section.struct_id or slugify(section.title)
+            section.anchor = unique_slug(base, self._used_anchors)
+
+        for block in section.blocks:
+            self._anchor_block(block)
+
+        for child in section.children:
+            self._anchor_section(child)
+
+    def _anchor_block(self, block) -> None:
+        """Give any still-unanchored numbered block a unique anchor."""
+        t = block.type
+        if t == "figure":
+            if not block.anchor:
+                block.anchor = unique_slug(block.figure_id or block.label or "figure", self._used_anchors)
+        elif t == "table":
+            if not block.anchor:
+                block.anchor = unique_slug(block.table_id or block.label or "table", self._used_anchors)
+        elif t == "equation":
+            if not block.anchor:
+                # Equation numbers arrive parenthesized ("(3)"); anchors must
+                # be bare digits ("eq-3") to stay valid HTML ids.
+                num = str(block.equation_number or "").strip().strip("()[]")
+                if not num:
+                    # Unnumbered equation: fall back to a document-ordinal id
+                    # ("eq-?" is not a valid HTML id).
+                    self._eq_counter += 1
+                    while f"eq-{self._eq_counter}" in self._used_anchors:
+                        self._eq_counter += 1
+                    num = str(self._eq_counter)
+                block.anchor = unique_slug(block.label or f"eq-{num}", self._used_anchors)
+        elif t == "algorithm":
+            if not block.anchor:
+                num = str(block.algorithm_number or "").strip()
+                base = block.label or (f"alg-{num}" if num else "algorithm")
+                block.anchor = unique_slug(base, self._used_anchors)
+        elif t == "heading":
+            if not block.anchor and block.label:
+                block.anchor = unique_slug(block.label, self._used_anchors)
+        elif t == "blockquote":
+            for child in block.blocks:
+                self._anchor_block(child)
+        elif t == "list":
+            for item in block.items:
+                for child in item:
+                    self._anchor_block(child)
+
+    def _repoint_section_fragments(self, doc: DocumentIR) -> None:
+        """Repoint raw arXiv section fragments (``S4``, ``S4.SS1``) to real anchors.
+
+        The builder's old positional guess (``section-4-1``) never matched the
+        slugified anchors actually emitted, so in-document section links were
+        dead. Figure/table/algorithm fragments keep their build-time mapping
+        (those ids coincide with NumberingPass ids).
+        """
+        fragment_map: dict[str, str] = {}
+
+        def index_section(section: SectionIR, path: list[int]) -> None:
+            key = ".".join(("S" if i == 0 else "SS" if i == 1 else "SSS") + str(n) for i, n in enumerate(path))
+            if section.anchor:
+                fragment_map[key] = section.anchor
+            for j, child in enumerate(section.children, start=1):
+                index_section(child, [*path, j])
+
+        for i, section in enumerate(doc.sections, start=1):
+            index_section(section, [i])
+
+        if not fragment_map:
+            return
+
+        for block in doc.abstract:
+            self._sweep_block_links([block], fragment_map)
+        for block in doc.front_matter:
+            self._sweep_block_links([block], fragment_map)
+        for section in doc.sections:
+            self._sweep_section_links(section, fragment_map)
+
+    def _sweep_section_links(self, section: SectionIR, fragment_map: dict[str, str]) -> None:
+        self._sweep_block_links(section.blocks, fragment_map)
+        for child in section.children:
+            self._sweep_section_links(child, fragment_map)
+
+    def _sweep_block_links(self, blocks: list, fragment_map: dict[str, str]) -> None:
+        for block in blocks:
+            t = block.type
+            if t in ("paragraph", "heading"):
+                self._sweep_inline_links(getattr(block, "inlines", []), fragment_map)
+            elif t in ("figure", "algorithm"):
+                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
+            elif t == "table":
+                for cell in getattr(block, "headers", []):
+                    self._sweep_inline_links(cell, fragment_map)
+                for row in getattr(block, "rows", []):
+                    for cell in row:
+                        self._sweep_inline_links(cell, fragment_map)
+                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
+            elif t == "list":
+                for item in block.items:
+                    self._sweep_block_links(item, fragment_map)
+            elif t == "blockquote":
+                self._sweep_block_links(block.blocks, fragment_map)
+
+    def _sweep_inline_links(self, inlines: list, fragment_map: dict[str, str]) -> None:
+        for il in inlines:
+            if (
+                getattr(il, "type", None) == "link"
+                and getattr(il, "kind", None) == "internal"
+                and _SECTION_FRAGMENT_RE.match(il.target_id or "")
+            ):
+                mapped = fragment_map.get(il.target_id or "")
+                if mapped:
+                    il.target_id = mapped
+            nested = getattr(il, "inlines", None)
+            if nested:
+                self._sweep_inline_links(nested, fragment_map)
 
     def _collect_claimed(self, doc: DocumentIR) -> None:
         def walk(blocks: list) -> None:

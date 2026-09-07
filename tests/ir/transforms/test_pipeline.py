@@ -46,9 +46,13 @@ def test_remove_refs_adds_exclude_filter():
 
 
 def test_canonical_order_preserved():
-    """Numbering before FigureReorder before Anchor; SectionNumbering after Numbering."""
+    """Lock canonical pass order.
+
+    SectionNumbering after Numbering; FigureReorder last (anchors merged into
+    NumberingPass).
+    """
     pipeline = build_default_pipeline(parser="latex", selected_sections=["X"])
     types = _types(pipeline)
     assert types.index("NumberingPass") < types.index("SectionNumberingPass")
     assert types.index("SectionNumberingPass") < types.index("FigureReorderPass")
-    assert types.index("FigureReorderPass") < types.index("AnchorPass")
+    assert "AnchorPass" not in types
