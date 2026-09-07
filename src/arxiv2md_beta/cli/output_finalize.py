@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -166,22 +167,32 @@ async def finalize_convert_output(
     # Citation links are kept as #ref-N format (no file prefix)
     # If References are split, links will point to anchors in the separate file
 
+    # PDF download is independent of the markdown writes — run concurrently
+    # and re-raise-safely below before the summary.
+    pdf_task: asyncio.Task | None = None
+    if pdf_fetch is not None and params.download_pdf:
+        arxiv_id, version = pdf_fetch
+        if naming_scheme in FIXED_INTERNAL_SCHEMES:
+            pdf_filename = f"{paper_output_dir.name}.pdf"
+        else:
+            pdf_filename = Path(output_filename).with_suffix(".pdf").name
+        pdf_path = paper_output_dir / pdf_filename
+
+        async def _download_pdf() -> None:
+            try:
+                await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
+                logger.info(f"PDF downloaded to: {pdf_path}")
+            except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
+                logger.warning(f"Failed to download PDF: {e}")
+
+        pdf_task = asyncio.create_task(_download_pdf())
+
     await async_write_text(output_path, output_text, encoding="utf-8")
     logger.info(f"Output written to: {output_path}")
     await write_split_markdown_sidecars(paper_output_dir, output_filename, result, naming_scheme=naming_scheme)
 
-    if pdf_fetch is not None and params.download_pdf:
-        arxiv_id, version = pdf_fetch
-        try:
-            if naming_scheme in FIXED_INTERNAL_SCHEMES:
-                pdf_filename = f"{paper_output_dir.name}.pdf"
-            else:
-                pdf_filename = Path(output_filename).with_suffix(".pdf").name
-            pdf_path = paper_output_dir / pdf_filename
-            await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
-            logger.info(f"PDF downloaded to: {pdf_path}")
-        except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
-            logger.warning(f"Failed to download PDF: {e}")
+    if pdf_task is not None:
+        await pdf_task
 
     if log_local_success:
         logger.info("Local archive processed successfully (no PDF download for local archives)")

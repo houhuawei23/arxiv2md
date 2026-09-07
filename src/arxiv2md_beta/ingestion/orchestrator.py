@@ -90,6 +90,7 @@ class IngestionOrchestrator:
         self._content: str = ""
         self._content_references: str | None = None
         self._content_appendix: str | None = None
+        self._structured_export_result: dict = {}
         self._performance = PerformanceMonitor()
 
     # ── Public entry point ─────────────────────────────────────────────
@@ -98,16 +99,24 @@ class IngestionOrchestrator:
         """Execute the full pipeline and return (result, metadata)."""
         with self._performance.stage("parse_query"):
             self._parse_query()
+        # The TeX download depends only on the arXiv id — start it now so it
+        # overlaps the HTML fetch + parse phase instead of serializing after it.
+        tex_task = self._start_tex_fetch()
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
         await self._fetch_html_and_metadata()
         if self._parsed is None:
             # PDF-only paper (no HTML rendering anywhere): still produce the
             # output directory, paper.yml, a stub paper.md, and let finalize
             # download the PDF — a minimal record beats aborting with nothing.
+            # The in-flight TeX download is irrelevant here.
+            if tex_task is not None:
+                tex_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await tex_task
             return self._run_pdf_only_fallback()
         self._filter_sections()
         self._setup_output_dir()
-        await self._fetch_tex_and_images()
+        await self._fetch_tex_and_images(tex_task)
         # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
         # offloaded so the event loop can advance other papers in batch mode.
         logger.info(f"[{self._query.arxiv_id}] Building IR from HTML (CPU-bound, may take a while)...")
@@ -124,12 +133,16 @@ class IngestionOrchestrator:
         with self._performance.stage("emit_markdown"):
             await asyncio.to_thread(self._emit_markdown)
         result = self._build_result()
-        await self._save_paper_yml()
-        structured_export = await self._structured_export()
-        metadata = self._build_metadata(structured_export)
+        # paper.yml and the structured JSON export are independent — run them
+        # concurrently.
+        await asyncio.gather(self._save_paper_yml(), self._structured_export_wrap())
+        metadata = self._build_metadata(self._structured_export_result)
         result.performance = self._performance.snapshot()
         metadata["performance"] = result.performance
         return result, metadata
+
+    async def _structured_export_wrap(self) -> None:
+        self._structured_export_result = await self._structured_export()
 
     # ── Step 0: Parse query ────────────────────────────────────────────
 
@@ -316,21 +329,52 @@ class IngestionOrchestrator:
 
     # ── Step 6: Fetch TeX source and process images ────────────────────
 
-    async def _fetch_tex_and_images(self) -> None:
+    def _wants_tex_source(self) -> bool:
+        """True when the TeX source will be fetched (images or affiliations)."""
+        if not self.params.no_images:
+            return True
+        return bool(
+            self._ingestion_cfg.enrich_affiliations_from_tex
+            and self._ingestion_cfg.fetch_tex_for_affiliations_when_no_images
+        )
+
+    def _start_tex_fetch(self) -> asyncio.Task | None:
+        """Start the TeX download concurrently with the HTML/metadata phase.
+
+        The download depends only on the arXiv id, so it can run while the
+        HTML is being fetched and parsed; the result is consumed later by
+        ``_fetch_tex_and_images``.
+        """
+        if not self._wants_tex_source():
+            return None
+        return asyncio.create_task(
+            fetch_and_extract_tex_source(
+                self._query.arxiv_id,
+                version=self._query.version,
+                use_cache=not self.params.no_cache,
+            )
+        )
+
+    async def _fetch_tex_and_images(self, tex_task: asyncio.Task | None = None) -> None:
         assert self._paper_output_dir is not None
         image_map: dict[int, Path] = {}
         image_stem_map: dict[str, Path] = {}
 
         if not self.params.no_images:
             try:
-                self._tex_source_info = await fetch_and_extract_tex_source(
-                    self._query.arxiv_id,
-                    version=self._query.version,
-                    use_cache=not self.params.no_cache,
-                )
+                tex: TexSourceInfo
+                if tex_task is not None:
+                    tex = await tex_task
+                else:
+                    tex = await fetch_and_extract_tex_source(
+                        self._query.arxiv_id,
+                        version=self._query.version,
+                        use_cache=not self.params.no_cache,
+                    )
+                self._tex_source_info = tex
                 # 使用异步并行图像处理（CPU-bound 任务卸载到进程池）
                 processed = await process_images_async(
-                    self._tex_source_info,
+                    tex,
                     self._paper_output_dir,
                     self._images_dir_name,
                 )
@@ -349,11 +393,14 @@ class IngestionOrchestrator:
             and self._ingestion_cfg.fetch_tex_for_affiliations_when_no_images
         ):
             try:
-                self._tex_source_info = await fetch_and_extract_tex_source(
-                    self._query.arxiv_id,
-                    version=self._query.version,
-                    use_cache=not self.params.no_cache,
-                )
+                if tex_task is not None:
+                    self._tex_source_info = await tex_task
+                else:
+                    self._tex_source_info = await fetch_and_extract_tex_source(
+                        self._query.arxiv_id,
+                        version=self._query.version,
+                        use_cache=not self.params.no_cache,
+                    )
             except TexSourceNotFoundError as e:
                 logger.debug(f"No TeX source available for affiliation enrichment: {e}")
             except (OSError, ValueError, TypeError, RuntimeError) as e:
