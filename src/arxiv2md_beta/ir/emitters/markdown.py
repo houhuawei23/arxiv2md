@@ -367,18 +367,24 @@ class MarkdownEmitter(IREmitter):
         headers = [_escape_pipe_cell(_cell_text(self._emit_inlines(h))) for h in tbl.headers]
         rows = [[_escape_pipe_cell(_cell_text(self._emit_inlines(c))) for c in row] for row in tbl.rows]
 
-        all_rows = [headers] + rows if headers else rows
-        if not all_rows:
+        if not headers and not rows:
             return ""
 
-        max_cols = max(len(r) for r in all_rows)
-        normalized = [r + [""] * (max_cols - len(r)) for r in all_rows]
+        max_cols = max([len(headers)] + [len(r) for r in rows])
 
-        # Header row + separator
-        lines.append("| " + " | ".join(normalized[0]) + " |")
-        lines.append("| " + " | ".join("---" for _ in normalized[0]) + " |")
-        for row in normalized[1:]:
-            lines.append("| " + " | ".join(row) + " |")
+        if headers:
+            # Header row + separator
+            lines.append("| " + " | ".join(headers + [""] * (max_cols - len(headers))) + " |")
+            lines.append("| " + " | ".join("---" for _ in range(max_cols)) + " |")
+            for row in rows:
+                lines.append("| " + " | ".join(row + [""] * (max_cols - len(row))) + " |")
+        else:
+            # Headerless table: Markdown requires a header line, so emit a
+            # blank one — every data row is preserved.
+            lines.append("| " + " | ".join("" for _ in range(max_cols)) + " |")
+            lines.append("| " + " | ".join("---" for _ in range(max_cols)) + " |")
+            for row in rows:
+                lines.append("| " + " | ".join(row + [""] * (max_cols - len(row))) + " |")
 
         # Caption
         caption = self._emit_inlines(tbl.caption)

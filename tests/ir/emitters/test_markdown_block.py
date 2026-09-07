@@ -368,3 +368,44 @@ class TestTableAndCaptionRendering:
         out = MarkdownEmitter()._emit_block(tbl)
         assert "> Line one." in out
         assert "> Line two." in out
+
+
+class TestHeaderlessTable:
+    """Headerless tables keep every data row.
+
+    R-bug: first row was promoted to the header line and lost from the data.
+    """
+
+    def test_all_rows_preserved(self, emitter) -> None:
+        b = TableIR(
+            headers=[],
+            rows=[
+                [[TextIR(text="r1c1")], [TextIR(text="r1c2")]],
+                [[TextIR(text="r2c1")], [TextIR(text="r2c2")]],
+                [[TextIR(text="r3c1")], [TextIR(text="r3c2")]],
+            ],
+        )
+        out = emitter._emit_block(b)
+        data_lines = [ln for ln in out.split("\n") if ln.startswith("|") and "---" not in ln and ln.strip("| ")]
+        assert len(data_lines) == 3
+        assert "r1c1" in out and "r3c2" in out
+
+    def test_blank_header_line_emitted(self, emitter) -> None:
+        b = TableIR(headers=[], rows=[[[TextIR(text="x")]]])
+        out = emitter._emit_block(b)
+        lines = out.split("\n")
+        sep_idx = next(i for i, ln in enumerate(lines) if "---" in ln)
+        assert sep_idx == 1
+        assert lines[0].strip("| ") == ""
+
+    def test_ragged_rows_padded_to_max_cols(self, emitter) -> None:
+        b = TableIR(
+            headers=[],
+            rows=[
+                [[TextIR(text="a")], [TextIR(text="b")]],
+                [[TextIR(text="c")]],
+            ],
+        )
+        out = emitter._emit_block(b)
+        row_lines = [ln for ln in out.split("\n") if ln.startswith("|") and "---" not in ln]
+        assert all(ln.count("|") == 3 for ln in row_lines)  # 2 cols each
