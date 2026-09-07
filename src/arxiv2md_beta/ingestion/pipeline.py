@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from arxiv2md_beta.ingestion.latex import ingest_paper_latex
-from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
-from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 
 
@@ -44,7 +42,9 @@ async def ingest_paper(
     ar5iv_url : str | None
         ar5iv fallback URL
     parser : str
-        Parser mode: "html" or "latex"
+        Parser mode: only "latex" is supported here (remote HTML goes through
+        :class:`~arxiv2md_beta.ingestion.orchestrator.IngestionOrchestrator`,
+        routed by the CLI layer)
     remove_refs : bool
         Remove bibliography
     remove_inline_citations : bool
@@ -69,44 +69,24 @@ async def ingest_paper(
     """
     sections = sections or []
 
-    if parser == "latex":
-        result, metadata = await ingest_paper_latex(
-            arxiv_id=arxiv_id,
-            version=version,
-            base_output_dir=base_output_dir,
-            remove_refs=remove_refs,
-            remove_inline_citations=remove_inline_citations,
-            linked_citations=linked_citations,
-            section_filter_mode=section_filter_mode,
-            sections=sections,
-            no_images=no_images,
-            source=source,
-            short=short,
-            structured_output=structured_output,
-            emit_graph_csv=emit_graph_csv,
-            use_cache=use_cache,
+    if parser != "latex":
+        raise ValueError(
+            "ingest_paper only supports the LaTeX parser; the remote HTML path "
+            "is IngestionOrchestrator (routed by cli.runner.convert)."
         )
-    else:  # html
-        params = ConvertParams(
-            input_text=arxiv_id,
-            parser=parser,
-            output=str(base_output_dir),
-            source=source,
-            short=short,
-            no_images=no_images,
-            remove_refs=remove_refs,
-            remove_inline_citations=remove_inline_citations,
-            linked_citations=linked_citations,
-            section_filter_mode=section_filter_mode,
-            sections=",".join(sections) if sections else None,
-            section=None,
-            include_tree=False,
-            emit_result_json=False,
-            structured_output=structured_output,
-            emit_graph_csv=emit_graph_csv,
-            no_cache=not use_cache,
-            download_pdf=False,
-        )
-        result, metadata = await IngestionOrchestrator(params).run()
-
-    return result, metadata
+    return await ingest_paper_latex(
+        arxiv_id=arxiv_id,
+        version=version,
+        base_output_dir=base_output_dir,
+        remove_refs=remove_refs,
+        remove_inline_citations=remove_inline_citations,
+        linked_citations=linked_citations,
+        section_filter_mode=section_filter_mode,
+        sections=sections,
+        no_images=no_images,
+        source=source,
+        short=short,
+        structured_output=structured_output,
+        emit_graph_csv=emit_graph_csv,
+        use_cache=use_cache,
+    )
