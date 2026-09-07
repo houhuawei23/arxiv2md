@@ -436,8 +436,8 @@ def _extract_title_from_tex(tex_content: str) -> str | None:
                 return title_text.strip()
     except ImportError:
         pass
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - TexSoup raises varied parse errors
+        logger.debug(f"TexSoup title extraction failed; falling back to regex: {e}")
 
     # Fallback to regex with balanced brace matching
     pattern = r"\\title\s*\{"
@@ -486,8 +486,8 @@ def _extract_authors_from_tex(tex_content: str) -> list[str]:
                 return authors
     except ImportError:
         pass
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - TexSoup raises varied parse errors
+        logger.debug(f"TexSoup author extraction failed; falling back to regex: {e}")
 
     # Fallback to regex
     pattern = r"\\author\s*\{"

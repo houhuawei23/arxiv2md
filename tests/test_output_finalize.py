@@ -151,3 +151,36 @@ async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
     assert out.is_dir()
     mds = list(out.glob("*.md"))
     assert mds and mds[0].read_text(encoding="utf-8")
+
+
+def test_save_paper_metadata_failure_logs_exactly_once(tmp_path, caplog):
+    """paper.yml save failure warns once (inside save_paper_metadata), not per wrapper."""
+    import loguru
+
+    from arxiv2md_beta.output.metadata import save_paper_metadata
+
+    records: list[loguru.Record] = []
+
+    def sink(message):
+        records.append(message.record)
+
+    handler_id = loguru.logger.add(sink, level="WARNING")
+    try:
+        with (
+            patch(
+                "arxiv2md_beta.output.metadata._metadata_to_paper_yml",
+                return_value={"title": "T"},
+            ),
+            patch(
+                "arxiv2md_beta.output.metadata.write_paper_yml_file",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            # Must not raise; the failure is best-effort by design.
+            save_paper_metadata({"title": "T"}, tmp_path)
+    finally:
+        loguru.logger.remove(handler_id)
+
+    warnings = [r for r in records if r["level"].name == "WARNING"]
+    assert len(warnings) == 1
+    assert "Failed to save paper.yml" in warnings[0]["message"]

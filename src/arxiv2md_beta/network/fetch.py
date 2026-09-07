@@ -51,8 +51,9 @@ async def fetch_arxiv_html(
                 _reject_no_content_placeholder(html_text)
                 await async_write_text(html_path, html_text, encoding="utf-8")
                 return html_text
-            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError):
-                pass
+            except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError) as fallback_error:
+                logger.warning(f"ar5iv fallback also failed: {fallback_error}")
+                raise primary_error from fallback_error
         raise primary_error
 
 

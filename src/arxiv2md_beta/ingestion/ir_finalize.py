@@ -160,8 +160,6 @@ def finalize_ingestion_output(
     """
     from typing import cast
 
-    from loguru import logger
-
     from arxiv2md_beta.output.markdown_utils import (
         count_sections,
         create_sections_tree,
@@ -207,12 +205,11 @@ def finalize_ingestion_output(
         content_appendix=content_appendix,
     )
 
-    try:
-        from arxiv2md_beta.output.metadata import save_paper_metadata
+    # save_paper_metadata is best-effort and swallows+warns internally
+    # (output/metadata.py) — no wrapper needed here.
+    from arxiv2md_beta.output.metadata import save_paper_metadata
 
-        save_paper_metadata(paper_yml_data, paper_output_dir)
-    except Exception as e:  # noqa: BLE001 - paper.yml is best-effort by design
-        logger.warning(f"Failed to save paper.yml: {e}")
+    save_paper_metadata(paper_yml_data, paper_output_dir)
 
     structured_export = run_structured_export(
         doc,

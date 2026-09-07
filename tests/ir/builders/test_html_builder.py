@@ -201,8 +201,8 @@ class TestBlockConversion:
         <figure class="ltx_figure">
         <table>
         <tr><td></td><td>gt</td><td>x-pred</td></tr>
-        <tr><td>D=2</td>{cell.format(s='./a.png')}{cell.format(s='./b.png')}</tr>
-        <tr><td>D=8</td>{cell.format(s='./c.png')}{cell.format(s='./d.png')}</tr>
+        <tr><td>D=2</td>{cell.format(s="./a.png")}{cell.format(s="./b.png")}</tr>
+        <tr><td>D=8</td>{cell.format(s="./c.png")}{cell.format(s="./d.png")}</tr>
         </table>
         <figcaption>Figure 2: Panels</figcaption>
         </figure>"""
@@ -709,7 +709,7 @@ class TestSvgFigures:
       <svg width="100" height="50"><path d="M0 0"/></svg>
       <figcaption>Figure 1: An inline SVG plot.</figcaption>
     </figure>"""
-    SVG_HTML = "<article class='ltx_document'><section class='ltx_section'>" f"<h2>T</h2>{SVG_BODY}</section></article>"
+    SVG_HTML = f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{SVG_BODY}</section></article>"
 
     def test_svg_figure_collected_as_asset_without_io(self) -> None:
         from arxiv2md_beta.ir.assets import SvgAsset

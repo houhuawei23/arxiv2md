@@ -140,7 +140,7 @@ class OutputSection(BaseModel):
     )
     linked_citations: bool = Field(
         default=False,
-        description="If True, render inline citations as linked [N](#ref-N); " "otherwise render them as plain [N].",
+        description="If True, render inline citations as linked [N](#ref-N); otherwise render them as plain [N].",
     )
 
 

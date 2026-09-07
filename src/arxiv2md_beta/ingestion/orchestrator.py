@@ -237,7 +237,7 @@ class IngestionOrchestrator:
             await metadata_task
         except asyncio.CancelledError:
             html_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(asyncio.CancelledError, NetworkError, OSError):
                 await html_task
             raise
         except Exception as exc:
@@ -336,8 +336,8 @@ class IngestionOrchestrator:
                 )
                 image_map = processed.image_map
                 image_stem_map = processed.stem_to_image_path
-            except TexSourceNotFoundError:
-                pass
+            except TexSourceNotFoundError as e:
+                logger.debug(f"No TeX source available for image processing: {e}")
             except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired) as e:
                 logger.warning(f"Failed to process images: {e}")
 
@@ -354,8 +354,8 @@ class IngestionOrchestrator:
                     version=self._query.version,
                     use_cache=not self.params.no_cache,
                 )
-            except TexSourceNotFoundError:
-                pass
+            except TexSourceNotFoundError as e:
+                logger.debug(f"No TeX source available for affiliation enrichment: {e}")
             except (OSError, ValueError, TypeError, RuntimeError) as e:
                 logger.warning(f"TeX fetch for affiliations failed: {e}")
 
@@ -540,34 +540,34 @@ class IngestionOrchestrator:
     # ── Step 13: Save paper.yml ────────────────────────────────────────
 
     async def _save_paper_yml(self) -> None:
-        try:
-            assert self._parsed is not None
-            assert self._paper_output_dir is not None
-            base_id = strip_version(self._query.arxiv_id)
-            paper_meta = dict(self._api_metadata)
-            if not paper_meta.get("title") and self._parsed.title:
-                paper_meta["title"] = self._parsed.title
-            if not paper_meta.get("summary") and self._parsed.abstract:
-                paper_meta["summary"] = self._parsed.abstract
-            if self._parsed.authors:
-                html_affil_map: dict[str, list[str]] = {}
-                for a in self._parsed.authors:
-                    html_affil_map[a.name.lower().strip()] = a.affiliations
-                if paper_meta.get("authors"):
-                    for pa in paper_meta["authors"]:
-                        if isinstance(pa, dict) and "name" in pa and not pa.get("affiliations"):
-                            affs = html_affil_map.get(pa["name"].lower().strip(), [])
-                            if affs:
-                                pa["affiliations"] = affs
-                else:
-                    paper_meta["authors"] = [
-                        {"name": a.name, "affiliations": a.affiliations} for a in self._parsed.authors if a.name
-                    ]
-            paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
-            merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
-            await asyncio.to_thread(save_paper_metadata, paper_meta, self._paper_output_dir)
-        except (OSError, ValueError, TypeError) as e:
-            logger.warning(f"Failed to save paper.yml: {e}")
+        # No try/except here: save_paper_metadata is best-effort and already
+        # swallows+warns internally (output/metadata.py). Assembly errors are
+        # programming bugs and should fail fast.
+        assert self._parsed is not None
+        assert self._paper_output_dir is not None
+        base_id = strip_version(self._query.arxiv_id)
+        paper_meta = dict(self._api_metadata)
+        if not paper_meta.get("title") and self._parsed.title:
+            paper_meta["title"] = self._parsed.title
+        if not paper_meta.get("summary") and self._parsed.abstract:
+            paper_meta["summary"] = self._parsed.abstract
+        if self._parsed.authors:
+            html_affil_map: dict[str, list[str]] = {}
+            for a in self._parsed.authors:
+                html_affil_map[a.name.lower().strip()] = a.affiliations
+            if paper_meta.get("authors"):
+                for pa in paper_meta["authors"]:
+                    if isinstance(pa, dict) and "name" in pa and not pa.get("affiliations"):
+                        affs = html_affil_map.get(pa["name"].lower().strip(), [])
+                        if affs:
+                            pa["affiliations"] = affs
+            else:
+                paper_meta["authors"] = [
+                    {"name": a.name, "affiliations": a.affiliations} for a in self._parsed.authors if a.name
+                ]
+        paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
+        merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
+        await asyncio.to_thread(save_paper_metadata, paper_meta, self._paper_output_dir)
 
     # ── Step 14: Structured JSON export ────────────────────────────────
 
