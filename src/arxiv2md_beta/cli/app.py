@@ -248,7 +248,10 @@ def batch_cmd(
     fail_fast: bool = typer.Option(
         False,
         "--fail-fast",
-        help="Stop on first error (default: process all lines and report failures).",
+        help=(
+            "Stop scheduling new conversions after the first failure; in-flight "
+            "conversions still finish (default: process all lines and report failures)."
+        ),
     ),
     no_cache: bool = NO_CACHE_OPT,
     include_anchors: bool | None = INCLUDE_ANCHORS_OPT,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -118,10 +119,18 @@ async def test_run_batch_flow_continue_on_error_collects() -> None:
 
 @pytest.mark.asyncio
 async def test_run_batch_flow_fail_fast_stops() -> None:
+    """--fail-fast keeps concurrency: no serial for-loop.
+
+    After the first failure, unstarted lines are skipped (reported with a
+    skip marker) and no exception escapes gather(). With max_concurrency=1
+    the ordering is deterministic: good1, bad, then good2 is skipped.
+    """
     calls: list[str] = []
 
     async def side_effect(params: ConvertParams) -> Path:
         calls.append(params.input_text)
+        if params.input_text == "good1":
+            await asyncio.sleep(0.05)  # hold the single slot
         if params.input_text == "bad":
             raise UserInputError("fail")
         return Path("/ok")
@@ -131,9 +140,38 @@ async def test_run_batch_flow_fail_fast_stops() -> None:
         out = await run_batch_flow(
             lines,
             params_template=_template(),
-            max_concurrency=2,
+            max_concurrency=1,
             continue_on_error=False,
             delay_seconds=0.0,
         )
-    assert len(out) == 2
-    assert calls == ["good1", "bad"]
+    assert len(out) == 3  # every line yields a result
+    assert calls == ["good1", "bad"]  # good2 never started
+    assert out[0] == ("good1", None, "/ok")
+    assert out[1] == ("bad", "fail", None)
+    assert "skipped" in out[2][1]
+
+
+@pytest.mark.asyncio
+async def test_run_batch_flow_fail_fast_skips_before_admission() -> None:
+    """Lines queued behind a failure are skipped without touching the semaphore."""
+    calls: list[str] = []
+
+    async def side_effect(params: ConvertParams) -> Path:
+        calls.append(params.input_text)
+        if params.input_text == "bad":
+            raise UserInputError("fail")
+        return Path("/ok")
+
+    lines = ["bad", "a", "b", "c"]
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        out = await run_batch_flow(
+            lines,
+            params_template=_template(),
+            max_concurrency=4,
+            continue_on_error=False,
+            delay_seconds=0.0,
+        )
+    assert calls == ["bad"]
+    assert out[0] == ("bad", "fail", None)
+    for _line, err, _path in out[1:]:
+        assert "skipped" in (err or "")
