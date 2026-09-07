@@ -13,6 +13,8 @@ http:
   large_transfer_timeout_multiplier: 5.0
   # Overall wall-clock budget per metadata fetch (retries + enrichment included).
   metadata_timeout_s: 90.0
+  # Global client-side request rate limit. 0 disables client-side throttling.
+  max_requests_per_second: 0.0
 
 cache:
   # User-wide cache (not cwd); default ~/.cache/arxiv2md-beta. Relative values resolve under XDG cache.

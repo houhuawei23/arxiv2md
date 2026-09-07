@@ -40,6 +40,10 @@ class CitationResolver:
     def __init__(self) -> None:
         """Initialize the resolver."""
         self._cache: dict[str, CitationEntry] = {}
+        # Single-flight coalescing: duplicate identifiers in flight resolve
+        # once and share the result (two references to the same DOI used to
+        # each hit Crossref).
+        self._inflight: dict[str, asyncio.Task] = {}
 
     async def resolve_citation(self, parsed: ParsedCitation, index: int = 0) -> CitationEntry:
         """Resolve a parsed citation to a full entry.
@@ -63,16 +67,34 @@ class CitationResolver:
                 logger.debug(f"Cache hit for DOI: {doi}")
                 return self._cache[doi]
 
-        # Try to resolve via DOI first
+        # Try to resolve via DOI first (coalesced per DOI)
         if parsed.identifiers.get("doi"):
-            entry = await self._resolve_by_doi(parsed, index)
+            doi = parsed.identifiers["doi"]
+            if doi in self._inflight:
+                entry = await self._inflight[doi]
+            else:
+                task = asyncio.create_task(self._resolve_by_doi(parsed, index))
+                self._inflight[doi] = task
+                try:
+                    entry = await task
+                finally:
+                    self._inflight.pop(doi, None)
             if entry:
-                self._cache[parsed.identifiers["doi"]] = entry
+                self._cache[doi] = entry
                 return entry
 
-        # Try arXiv ID
+        # Try arXiv ID (coalesced per id)
         if parsed.identifiers.get("arxiv_id"):
-            entry = await self._resolve_by_arxiv(parsed, index)
+            arxiv_id = parsed.identifiers["arxiv_id"]
+            if arxiv_id in self._inflight:
+                entry = await self._inflight[arxiv_id]
+            else:
+                task = asyncio.create_task(self._resolve_by_arxiv(parsed, index))
+                self._inflight[arxiv_id] = task
+                try:
+                    entry = await task
+                finally:
+                    self._inflight.pop(arxiv_id, None)
             if entry:
                 return entry
 

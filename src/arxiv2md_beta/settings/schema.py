@@ -32,6 +32,12 @@ class HttpSection(BaseModel):
         description="Overall wall-clock budget for one metadata fetch (retries included), "
         "so a slow enrichment chain cannot hold a batch slot indefinitely.",
     )
+    max_requests_per_second: float = Field(
+        default=0.0,
+        ge=0,
+        description="Global client-side rate limit for HTTP requests. 0 disables "
+        "client-side throttling (server-side retry/backoff still applies).",
+    )
 
 
 class CacheSection(BaseModel):

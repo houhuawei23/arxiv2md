@@ -12,7 +12,7 @@ from aiofiles import open as aio_open
 from loguru import logger
 
 from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
-from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -82,6 +82,7 @@ async def _fetch_with_retries(url: str) -> str:
     client = get_http_client()
     for attempt in range(h.fetch_max_retries + 1):
         try:
+            await acquire_rate_slot()
             response = await client.get(url)
 
             if response.status_code == 404:
@@ -183,6 +184,7 @@ async def fetch_arxiv_pdf(
     client = get_http_client()
     for attempt in range(h.fetch_max_retries + 1):
         try:
+            await acquire_rate_slot()
             async with client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
                 if response.status_code == 404:
                     # Deterministic: retrying cannot conjure the PDF.

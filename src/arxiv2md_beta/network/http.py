@@ -13,6 +13,10 @@ import httpx
 from arxiv2md_beta.settings import get_settings
 
 _client: httpx.AsyncClient | None = None
+# Global client-side token bucket (single token per interval). Created lazily
+# per rate value; disabled (0.0 default) means acquire() is a no-op.
+_rate_lock: asyncio.Lock | None = None
+_rate_next_slot: float = 0.0
 # Event loop the shared client was created on. If a later caller runs on a
 # different loop (e.g. a second asyncio.run in the same process, or a test),
 # we rebuild so the client is never bound to a dead loop.
@@ -82,6 +86,28 @@ async def _await_then_close(coro: Awaitable[T]) -> T:
         return await coro
     finally:
         await close_http_client()
+
+
+async def acquire_rate_slot() -> None:
+    """Reserve one global request slot when ``http.max_requests_per_second`` > 0.
+
+    Called by fetch sites right before issuing a request so every HTTP call in
+    the process inherits the same client-side throttling.
+    """
+    global _rate_lock, _rate_next_slot
+    rate = get_settings().http.max_requests_per_second
+    if rate <= 0:
+        return
+    if _rate_lock is None:
+        _rate_lock = asyncio.Lock()
+    async with _rate_lock:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        interval = 1.0 / rate
+        wait = _rate_next_slot - now
+        _rate_next_slot = max(now, _rate_next_slot) + interval
+    if wait > 0:
+        await asyncio.sleep(wait)
 
 
 def run_async(coro: Awaitable[T]) -> T:

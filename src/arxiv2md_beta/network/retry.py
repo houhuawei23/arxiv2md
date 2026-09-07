@@ -7,7 +7,7 @@ import asyncio
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client
 from arxiv2md_beta.settings import get_settings
 
 
@@ -41,6 +41,7 @@ async def request_with_retries(
 
     for attempt in range(h.fetch_max_retries + 1):
         try:
+            await acquire_rate_slot()
             r = await client.get(url, headers=headers, timeout=timeout)
             if r.status_code == 404:
                 return None

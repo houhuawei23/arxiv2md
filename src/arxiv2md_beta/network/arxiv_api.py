@@ -10,7 +10,7 @@ from typing import Any, cast
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.html_attrs import attr_str
@@ -169,6 +169,7 @@ async def _fetch_arxiv_metadata_impl(arxiv_id: str) -> dict[str, str | list | di
         response: httpx.Response | None = None
         try:
             client = get_http_client()
+            await acquire_rate_slot()
             response = await client.get(api_url, headers=headers)
 
             # Check if status needs retry (429, 5xx)

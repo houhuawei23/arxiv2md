@@ -208,3 +208,36 @@ class TestCitationResolver:
         )
         assert "smith" in key.lower()
         assert "2024" in key
+
+
+class TestSingleFlightCoalescing:
+    """Duplicate identifiers in flight resolve once (one HTTP call)."""
+
+    def test_coalesced_doi_resolves_once(self) -> None:
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import CitationEntry, ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+
+        async def run() -> tuple[int, list]:
+            resolver = CitationResolver()
+            calls = {"n": 0}
+
+            async def fake_resolve(parsed: ParsedCitation, index: int):
+                calls["n"] += 1
+                await asyncio.sleep(0.01)
+                return CitationEntry(key=f"k{index}", title="T", authors=[], year=2024)
+
+            parsed1 = ParsedCitation(key="a", text="a", identifiers={"doi": "10.1000/x"})
+            parsed2 = ParsedCitation(key="b", text="b", identifiers={"doi": "10.1000/x"})
+            with patch.object(resolver, "_resolve_by_doi", side_effect=fake_resolve):
+                results = await asyncio.gather(
+                    resolver.resolve_citation(parsed1, 0),
+                    resolver.resolve_citation(parsed2, 1),
+                )
+            return calls["n"], results
+
+        n, results = asyncio.run(run())
+        assert n == 1  # second caller joined the in-flight task
+        assert all(r is not None for r in results)
