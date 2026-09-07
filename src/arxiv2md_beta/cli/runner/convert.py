@@ -1,8 +1,16 @@
-"""Convert command runner."""
+"""Convert command runner.
+
+The four input modes share one handler shape: parse input -> prepare output
+dir -> ingest -> finalize. A per-mode spec table drives the shared handler so
+the four paths cannot drift.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from arxiv2md_beta.cli.helpers import collect_sections
 from arxiv2md_beta.cli.output_finalize import finalize_convert_output
@@ -19,6 +27,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_archive,
     parse_local_html,
 )
+from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
@@ -26,43 +35,20 @@ from arxiv2md_beta.utils.timing import async_timed_operation
 logger = get_logger()
 
 
-async def run_convert_flow(params: ConvertParams) -> Path:
-    """Route to local HTML, local archive, or arXiv ingestion; returns paper output directory."""
-    async with async_timed_operation("run_convert_flow"):
-        input_text = params.input_text.strip()
-        if not input_text:
-            raise UserInputError("INPUT cannot be empty")
-        if is_local_html_path(input_text):  # Check HTML first (more specific)
-            return await _process_local_html(params)
-        if is_local_archive_path(input_text):
-            return await _process_local_archive(params)
-        # IR pipeline currently only supports HTML parsing for content;
-        # route LaTeX parser requests to the legacy pipeline.
-        if params.parser == "latex":
-            return await _process_arxiv_paper(params)
-        return await _process_arxiv_paper_ir(params)
+@dataclass(frozen=True)
+class _ModeSpec:
+    """Per-input-mode wiring for the shared convert handler."""
+
+    parse: Callable[[str], Any]
+    ingest: Callable[..., Awaitable[tuple[IngestionResult, dict]]]
+    fallback_stem: Callable[[Any], str]
+    pdf_fetch: Callable[[Any], tuple[str, str | None] | None]
+    log_local_success: bool
+    log_extra: Callable[[Any], None]
 
 
-def run_convert_sync(params: ConvertParams) -> None:
-    """Run convert flow in a fresh event loop (Typer entry)."""
-    from arxiv2md_beta.network.http import run_async
-
-    run_async(run_convert_flow(params))
-
-
-async def _process_arxiv_paper(params: ConvertParams) -> Path:
-    """Process an arXiv paper (HTML or LaTeX parser)."""
-    query = parse_arxiv_input(params.input_text.strip())
-
-    sections = collect_sections(params.sections, params.section)
-
-    base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Processing arXiv paper: {query.arxiv_id}")
-    logger.info(f"Parser mode: {params.parser}")
-
-    result, metadata = await ingest_paper(
+def _ingest_arxiv_latex(query, params: ConvertParams, sections, base_output_dir: Path):
+    return ingest_paper(
         arxiv_id=query.arxiv_id,
         version=query.version,
         html_url=query.html_url,
@@ -82,57 +68,15 @@ async def _process_arxiv_paper(params: ConvertParams) -> Path:
         use_cache=not params.no_cache,
     )
 
-    base_id = strip_version(query.arxiv_id)
-    return await finalize_convert_output(
-        result=result,
-        metadata=metadata,
-        params=params,
-        base_output_dir=base_output_dir,
-        fallback_md_stem=base_id,
-        pdf_fetch=(query.arxiv_id, query.version),
-        log_local_success=False,
-    )
 
-
-async def _process_arxiv_paper_ir(params: ConvertParams) -> Path:
-    """Process an arXiv paper using the IR pipeline with full feature parity."""
+def _ingest_arxiv_html(query, params: ConvertParams, sections, base_output_dir: Path):
     from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
-    from arxiv2md_beta.query.parser import parse_arxiv_input
 
-    query = parse_arxiv_input(params.input_text.strip())
-    base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Processing arXiv paper (IR pipeline): {query.arxiv_id}")
-    logger.info(f"Parser mode: {params.parser}")
-
-    orchestrator = IngestionOrchestrator(params)
-    result, metadata = await orchestrator.run()
-
-    base_id = strip_version(query.arxiv_id)
-    return await finalize_convert_output(
-        result=result,
-        metadata=metadata,
-        params=params,
-        base_output_dir=base_output_dir,
-        fallback_md_stem=base_id,
-        pdf_fetch=(query.arxiv_id, query.version),
-        log_local_success=False,
-    )
+    return IngestionOrchestrator(params).run()
 
 
-async def _process_local_html(params: ConvertParams) -> Path:
-    """Process a local HTML file."""
-    query = parse_local_html(params.input_text.strip())
-
-    sections = collect_sections(params.sections, params.section)
-
-    base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Processing local HTML file: {query.html_path}")
-
-    result, metadata = await ingest_local_html(
+def _ingest_local_html(query, params: ConvertParams, sections, base_output_dir: Path):
+    return ingest_local_html(
         query=query,
         base_output_dir=base_output_dir,
         source=params.source,
@@ -147,30 +91,9 @@ async def _process_local_html(params: ConvertParams) -> Path:
         emit_graph_csv=params.emit_graph_csv,
     )
 
-    return await finalize_convert_output(
-        result=result,
-        metadata=metadata,
-        params=params,
-        base_output_dir=base_output_dir,
-        fallback_md_stem=query.html_path.stem,
-        pdf_fetch=None,
-        log_local_success=True,
-    )
 
-
-async def _process_local_archive(params: ConvertParams) -> Path:
-    """Process a local archive file (tar.gz, tgz, or zip)."""
-    query = parse_local_archive(params.input_text.strip())
-
-    sections = collect_sections(params.sections, params.section)
-
-    base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Processing local archive: {query.archive_path}")
-    logger.info(f"Archive type: {query.archive_type}")
-
-    result, metadata = await ingest_local_archive(
+def _ingest_local_archive(query, params: ConvertParams, sections, base_output_dir: Path):
+    return ingest_local_archive(
         query=query,
         base_output_dir=base_output_dir,
         source=params.source,
@@ -186,12 +109,101 @@ async def _process_local_archive(params: ConvertParams) -> Path:
         use_cache=not params.no_cache,
     )
 
+
+async def _process_with(
+    spec: _ModeSpec,
+    input_text: str,
+    params: ConvertParams,
+    label: str,
+) -> Path:
+    query = spec.parse(input_text)
+    spec.log_extra(query)
+    logger.info(f"Processing {label}")
+
+    sections = collect_sections(params.sections, params.section)
+    base_output_dir = determine_output_dir(params.output)
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+
+    result, metadata = await spec.ingest(query, params, sections, base_output_dir)
+
     return await finalize_convert_output(
         result=result,
         metadata=metadata,
         params=params,
         base_output_dir=base_output_dir,
-        fallback_md_stem=query.archive_path.stem,
-        pdf_fetch=None,
-        log_local_success=True,
+        fallback_md_stem=spec.fallback_stem(query),
+        pdf_fetch=spec.pdf_fetch(query),
+        log_local_success=spec.log_local_success,
     )
+
+
+def _arxiv_pdf_fetch(query) -> tuple[str, str | None]:
+    return (query.arxiv_id, query.version)
+
+
+def _no_pdf_fetch(query) -> None:
+    return None
+
+
+def _stem_of(path_like) -> str:
+    return Path(path_like.html_path if hasattr(path_like, "html_path") else path_like.archive_path).stem
+
+
+_SPECS: dict[str, _ModeSpec] = {
+    "arxiv": _ModeSpec(
+        parse=parse_arxiv_input,
+        ingest=lambda q, p, s, b: _ingest_arxiv_html(q, p, s, b),
+        fallback_stem=lambda q: strip_version(q.arxiv_id),
+        pdf_fetch=_arxiv_pdf_fetch,
+        log_local_success=False,
+        log_extra=lambda q: None,
+    ),
+    "arxiv-latex": _ModeSpec(
+        parse=parse_arxiv_input,
+        ingest=lambda q, p, s, b: _ingest_arxiv_latex(q, p, s, b),
+        fallback_stem=lambda q: strip_version(q.arxiv_id),
+        pdf_fetch=_arxiv_pdf_fetch,
+        log_local_success=False,
+        log_extra=lambda q: logger.info("Parser mode: latex"),
+    ),
+    "local-html": _ModeSpec(
+        parse=parse_local_html,
+        ingest=_ingest_local_html,
+        fallback_stem=_stem_of,
+        pdf_fetch=_no_pdf_fetch,
+        log_local_success=True,
+        log_extra=lambda q: logger.info(f"Processing local HTML file: {q.html_path}"),
+    ),
+    "local-archive": _ModeSpec(
+        parse=parse_local_archive,
+        ingest=_ingest_local_archive,
+        fallback_stem=_stem_of,
+        pdf_fetch=_no_pdf_fetch,
+        log_local_success=True,
+        log_extra=lambda q: logger.info(f"Processing local archive: {q.archive_path}\nArchive type: {q.archive_type}"),
+    ),
+}
+
+
+async def run_convert_flow(params: ConvertParams) -> Path:
+    """Route to local HTML, local archive, or arXiv ingestion; returns paper output directory."""
+    async with async_timed_operation("run_convert_flow"):
+        input_text = params.input_text.strip()
+        if not input_text:
+            raise UserInputError("INPUT cannot be empty")
+        if is_local_html_path(input_text):  # Check HTML first (more specific)
+            return await _process_with(_SPECS["local-html"], input_text, params, "local HTML file")
+        if is_local_archive_path(input_text):
+            return await _process_with(_SPECS["local-archive"], input_text, params, "local archive")
+        # IR pipeline currently only supports HTML parsing for content;
+        # route LaTeX parser requests to the LaTeX pipeline.
+        if params.parser == "latex":
+            return await _process_with(_SPECS["arxiv-latex"], input_text, params, "arXiv paper")
+        return await _process_with(_SPECS["arxiv"], input_text, params, "arXiv paper (IR pipeline)")
+
+
+def run_convert_sync(params: ConvertParams) -> None:
+    """Run convert flow in a fresh event loop (Typer entry)."""
+    from arxiv2md_beta.network.http import run_async
+
+    run_async(run_convert_flow(params))
