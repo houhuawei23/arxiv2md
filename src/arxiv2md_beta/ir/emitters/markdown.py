@@ -38,6 +38,9 @@ _EMPHASIS_CLOSERS: dict[str, str] = {
 # builder joins multi-cites as a bare comma list ("35,2,5").
 _CITATION_NUM_RE = re.compile(r"^(?:ref-)?(\d+(?:\s*,\s*\d+)*)$")
 
+# Text inline that only separates two adjacent citations (", ", "; ").
+_CITE_SEP_RE = re.compile(r"^[\s,;]*$")
+
 
 def _escape_md_text(text: str) -> str:
     r"""Escape characters that would break ``[text](url)`` link/image syntax."""
@@ -156,7 +159,70 @@ class MarkdownEmitter(IREmitter):
     # ── Inlines ────────────────────────────────────────────────────────
 
     def _emit_inlines(self, inlines: list) -> str:
-        return "".join(self._emit_inline(il) for il in inlines)
+        # ar5iv wraps citation groups in literal bracket text inlines —
+        # "[" / "]" (natbib \cite style) or "(" / ")" (\citep style) —
+        # which would otherwise yield "[[57]]" or "((11, 12))" once the
+        # emitter adds its own parens. Drop them when they directly bound
+        # a citation; the open/close pairing flag guards genuine prose
+        # parens around non-citation content.
+        def _is_cite(il) -> bool:
+            return (
+                getattr(il, "type", "") == "link"
+                and il.kind == "citation"
+                and bool(_CITATION_NUM_RE.match(il.target_id or ""))
+            )
+
+        cleaned: list = []
+        bracket_open = False
+        for i, il in enumerate(inlines):
+            prev_is_cite = i > 0 and _is_cite(inlines[i - 1])
+            next_is_cite = i + 1 < len(inlines) and _is_cite(inlines[i + 1])
+            if il.type == "text":
+                if il.text in ("[", "(") and next_is_cite:
+                    bracket_open = True
+                    continue
+                if il.text in ("]", ")") and prev_is_cite and bracket_open:
+                    bracket_open = False
+                    continue
+                # Separators sit inside a citation run and must not reset
+                # the pending-open flag; any other text does.
+                if not _CITE_SEP_RE.match(il.text):
+                    bracket_open = False
+            cleaned.append(il)
+
+        # Merge runs of adjacent numeric citations ("[30] , [52]") into a
+        # single parenthesised group "(30, 52)" instead of "[[30], [52]]".
+        parts: list[str] = []
+        run: list = []
+
+        def flush_run() -> None:
+            if not run:
+                return
+            matches = [_CITATION_NUM_RE.match(il.target_id or "") for il in run]
+            nums = [n.strip() for m in matches if m for n in m.group(1).split(",")]
+            if all(matches) and nums:
+                if self.linked_citations:
+                    parts.append("(" + ", ".join(f"[{n}](#ref-{n})" for n in nums) + ")")
+                else:
+                    parts.append(f"({', '.join(nums)})")
+            else:
+                parts.extend(self._emit_inline(il) for il in run)
+            run.clear()
+
+        for il in cleaned:
+            if (
+                getattr(il, "type", "") == "link"
+                and il.kind == "citation"
+                and _CITATION_NUM_RE.match(il.target_id or "")
+            ):
+                run.append(il)
+            elif run and il.type == "text" and _CITE_SEP_RE.match(il.text):
+                continue  # comma/whitespace separator inside the run
+            else:
+                flush_run()
+                parts.append(self._emit_inline(il))
+        flush_run()
+        return "".join(parts)
 
     def _emit_inline(self, inline) -> str:
         t = inline.type

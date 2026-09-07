@@ -107,10 +107,13 @@ class IngestionOrchestrator:
         await self._fetch_tex_and_images()
         # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
         # offloaded so the event loop can advance other papers in batch mode.
+        logger.info(f"[{self._query.arxiv_id}] Building IR from HTML (CPU-bound, may take a while)...")
         await asyncio.to_thread(self._build_ir)
         await asyncio.to_thread(self._enrich_metadata)
+        logger.info(f"[{self._query.arxiv_id}] Running transform passes...")
         await asyncio.to_thread(self._run_transforms)
         await asyncio.to_thread(self._normalize_abstract)
+        logger.info(f"[{self._query.arxiv_id}] Emitting markdown...")
         await asyncio.to_thread(self._emit_markdown)
         result = self._build_result()
         await self._save_paper_yml()

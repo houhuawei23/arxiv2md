@@ -589,7 +589,7 @@ class TestBblBibliographyResolution:
         resolved = resolve_latex_includes(tmp_path / "main.tex", tmp_path)
         doc = LaTeXBuilder().build(resolved, arxiv_id="t", base_dir=tmp_path)
         md = MarkdownEmitter().emit(doc)
-        assert "[1]" in md and "[2]" in md
+        assert "(1)" in md and "(2)" in md
 
 
 class TestMathNormalizationRegressions:
