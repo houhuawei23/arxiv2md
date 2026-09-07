@@ -11,6 +11,7 @@ from loguru import logger
 from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.schemas import IngestionResult, LocalHtmlQuery
+from arxiv2md_beta.settings import get_settings
 
 
 class LocalHtmlIngestionError(IngestionError):
@@ -62,7 +63,7 @@ async def ingest_local_html(
         source=source or query.source,
         short=short,
     )
-    images_dir_name = "images"
+    images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,25 +83,18 @@ async def ingest_local_html(
 
     # Build IR via HTMLBuilder (consumes ParsedArxivHtml, same as the orchestrator).
     def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
-        from arxiv2md_beta.ir import HTMLBuilder
-        from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.ir.transforms import build_default_pipeline
-        from arxiv2md_beta.settings import get_settings
+        from arxiv2md_beta.ingestion._builders import build_html_document
 
-        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map), images_subdir=images_dir_name).build(
-            parsed, arxiv_id=arxiv_id
-        )
-        pipeline = build_default_pipeline(
-            parser="html",
+        return build_html_document(
+            parsed,
+            arxiv_id=arxiv_id,
+            image_stem_map=image_stem_map,
+            images_subdir=images_dir_name,
             section_filter_mode=section_filter_mode,
-            selected_sections=sections,
+            sections=sections,
             remove_refs=remove_refs,
-            reference_section_titles=get_settings().ingestion.reference_section_titles,
+            paper_output_dir=paper_output_dir,
         )
-        pipeline.run(doc)
-        persist_inline_svgs(doc, paper_output_dir)
-        return doc
 
     try:
         doc = await asyncio.to_thread(_build_ir)

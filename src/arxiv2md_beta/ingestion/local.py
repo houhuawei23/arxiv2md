@@ -18,6 +18,7 @@ from arxiv2md_beta.latex.tex_source import (
     extract_local_archive,
 )
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
+from arxiv2md_beta.settings import get_settings
 
 
 class LocalIngestionError(IngestionError):
@@ -178,7 +179,7 @@ async def _ingest_latex_archive(
         source=source,
         short=short,
     )
-    images_dir_name = "images"
+    images_dir_name = get_settings().cli_defaults.images_subdir
 
     # Process images if enabled
     processed_images = None
@@ -194,33 +195,25 @@ async def _ingest_latex_archive(
 
     # Build IR via LaTeXBuilder (offload blocking pandoc to thread pool).
     def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ir import LaTeXBuilder
-        from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.ir.transforms import build_default_pipeline
+        from arxiv2md_beta.ingestion._builders import build_latex_document
         from arxiv2md_beta.latex.includes import resolve_latex_includes
-        from arxiv2md_beta.settings import get_settings
 
         main_tex = tex_source_info.main_tex_file
         assert main_tex is not None
         tex_content = resolve_latex_includes(main_tex, tex_source_info.extracted_dir)
-        doc = LaTeXBuilder(image_resolver=ImageResolver(path_map=latex_image_map)).build(
+        return build_latex_document(
             tex_content,
             arxiv_id=arxiv_id,
+            image_path_map=latex_image_map,
+            base_dir=tex_source_info.extracted_dir,
             title=title,
             authors=list(authors) if authors else None,
             abstract=abstract,
-            base_dir=tex_source_info.extracted_dir,
             images_subdir=images_dir_name,
-        )
-        pipeline = build_default_pipeline(
-            parser="latex",
             section_filter_mode=section_filter_mode,
-            selected_sections=sections,
+            sections=sections,
             remove_refs=remove_refs,
-            reference_section_titles=get_settings().ingestion.reference_section_titles,
         )
-        pipeline.run(doc)
-        return doc
 
     try:
         doc = await asyncio.to_thread(_build_ir)
@@ -298,7 +291,7 @@ async def _ingest_html_archive(
         source=source,
         short=short,
     )
-    images_dir_name = "images"
+    images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
 

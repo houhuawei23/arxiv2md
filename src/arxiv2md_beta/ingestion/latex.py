@@ -153,9 +153,7 @@ async def _ingest_paper_latex_impl(
     abstract_text = cast("str | None", api_metadata.get("summary"))
 
     def _build_latex_ir() -> DocumentIR:
-        from arxiv2md_beta.ir import LaTeXBuilder
-        from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.ir.transforms import build_default_pipeline
+        from arxiv2md_beta.ingestion._builders import build_latex_document
         from arxiv2md_beta.latex.includes import resolve_latex_includes
 
         main_tex = tex_source_info.main_tex_file
@@ -164,25 +162,19 @@ async def _ingest_paper_latex_impl(
             main_tex,
             tex_source_info.extracted_dir,
         )
-        resolver = ImageResolver(path_map=latex_image_map)
-        doc = LaTeXBuilder(image_resolver=resolver).build(
+        return build_latex_document(
             tex_content,
             arxiv_id=arxiv_id,
+            image_path_map=latex_image_map,
+            base_dir=tex_source_info.extracted_dir,
             title=title,
             authors=display_author_names or None,
             abstract=abstract_text,
-            base_dir=tex_source_info.extracted_dir,
             images_subdir=images_dir_name,
-        )
-        pipeline = build_default_pipeline(
-            parser="latex",
             section_filter_mode=section_filter_mode,
-            selected_sections=sections,
+            sections=sections,
             remove_refs=remove_refs,
-            reference_section_titles=get_settings().ingestion.reference_section_titles,
         )
-        pipeline.run(doc)
-        return doc
 
     try:
         doc = await asyncio.to_thread(_build_latex_ir)
