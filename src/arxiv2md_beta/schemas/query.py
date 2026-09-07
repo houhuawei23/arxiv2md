@@ -17,9 +17,6 @@ class ArxivQuery(BaseModel):
     version: str | None = None
     html_url: str
     ar5iv_url: str
-    abs_url: str
-    id: UUID
-    cache_dir: Path
     remove_refs: bool = False
     remove_inline_citations: bool = False
     section_filter_mode: Literal["include", "exclude"] = "exclude"

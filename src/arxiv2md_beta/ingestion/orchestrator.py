@@ -70,7 +70,6 @@ class IngestionOrchestrator:
 
         # Mutable pipeline state
         self._html: str = ""
-        self._html_error: str | None = None
         self._parsed: ParsedArxivHtml | None = None
         self._api_metadata: dict[str, Any] = {}
         self._display_author_names: list[str] = []
@@ -251,7 +250,6 @@ class IngestionOrchestrator:
         except NetworkError as exc:
             logger.warning(f"No usable HTML rendering for {self._query.arxiv_id}: {exc}")
             logger.warning("Falling back to PDF-only minimal output (paper.yml + stub paper.md + PDF).")
-            self._html_error = str(exc)
             return
         await asyncio.to_thread(self._parse_html)
 

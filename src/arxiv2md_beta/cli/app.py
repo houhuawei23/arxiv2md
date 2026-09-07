@@ -198,7 +198,6 @@ def convert_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
-        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     try:
         run_convert_sync(params)
@@ -291,7 +290,6 @@ def batch_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
-        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

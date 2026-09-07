@@ -29,8 +29,6 @@ def parse_arxiv_input(input_text: str) -> ArxivQuery:
     host = s.urls.arxiv_host
     html_url = f"https://{host}/html/{normalized_id}"
     ar5iv_url = f"{s.urls.ar5iv_html_base.rstrip('/')}/{normalized_id}"
-    abs_url = f"https://{host}/abs/{normalized_id}"
-    query_id = uuid4()
 
     return ArxivQuery(
         input_text=raw,
@@ -38,9 +36,6 @@ def parse_arxiv_input(input_text: str) -> ArxivQuery:
         version=version,
         html_url=html_url,
         ar5iv_url=ar5iv_url,
-        abs_url=abs_url,
-        id=query_id,
-        cache_dir=s.resolved_cache_path() / str(query_id),
     )
 
 

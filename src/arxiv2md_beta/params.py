@@ -31,4 +31,3 @@ class ConvertParams:
     no_cache: bool = False
     download_pdf: bool = True
     linked_citations: bool = False
-    fetch_arxiv_metadata: bool = False
