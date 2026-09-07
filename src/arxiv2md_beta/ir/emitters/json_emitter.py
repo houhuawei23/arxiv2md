@@ -15,7 +15,6 @@ from typing import Any
 
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
-from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 from arxiv2md_beta.schemas.structured import SCHEMA_VERSION
 from arxiv2md_beta.utils.logging_config import get_logger
 
@@ -145,20 +144,29 @@ def _build_asset_list(
 
 
 def _content_fingerprint(doc: DocumentIR) -> str:
-    """SHA-256 of abstract + section markdown content."""
-    emitter = MarkdownEmitter()
+    """SHA-256 of abstract + section plain text.
+
+    Hashes the IR's plain text (via TextCollector) instead of re-running a
+    full MarkdownEmitter serialization just to fingerprint the document.
+    """
+    from arxiv2md_beta.ir.visitor import TextCollector, walk
+
     parts: list[str] = []
-
     if doc.abstract:
-        parts.append(emitter._emit_blocks(doc.abstract))
+        for block in doc.abstract:
+            collector = TextCollector()
+            walk(block, collector)
+            parts.extend(collector.texts)
 
-    def walk(secs: list[SectionIR]) -> None:
+    def walk_secs(secs: list[SectionIR]) -> None:
         for sec in secs:
-            if sec.blocks:
-                parts.append(emitter._emit_blocks(sec.blocks))
-            walk(sec.children)
+            for block in sec.blocks:
+                collector = TextCollector()
+                walk(block, collector)
+                parts.extend(collector.texts)
+            walk_secs(sec.children)
 
-    walk(doc.sections)
+    walk_secs(doc.sections)
     return _sha256_parts(parts)
 
 
