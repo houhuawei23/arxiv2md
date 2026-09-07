@@ -1276,14 +1276,9 @@ def _map_arxiv_fragment_to_anchor(fragment: str) -> str | None:
     m = re.match(r"[SA]\d*\.?T(\d+)$", fragment)
     if m:
         return f"table-{m.group(1)}"
-    # Section: S1 -> section-1
-    m = re.match(r"S(\d+)$", fragment)
-    if m:
-        return f"section-{m.group(1)}"
-    # Subsection: S4.SS1 -> section-4-1
-    m = re.match(r"S(\d+)\.SS(\d+)$", fragment)
-    if m:
-        return f"section-{m.group(1)}-{m.group(2)}"
+    # Section fragments (S4, S4.SS1) are deliberately NOT guessed here: real
+    # section anchors are title slugs assigned by AnchorPass. The raw fragment
+    # stays in target_id and is repointed to the real anchor post-transform.
     # Algorithm: alg1 -> algorithm-1
     m = re.match(r"alg(\d+)$", fragment)
     if m:

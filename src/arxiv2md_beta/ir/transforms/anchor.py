@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import re
+
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms._anchors import slugify, unique_slug
 from arxiv2md_beta.ir.transforms.base import IRPass
+
+# arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"). The HTML
+# builder leaves these raw in link target_ids because real section anchors
+# are title slugs that only exist after this pass.
+_SECTION_FRAGMENT_RE = re.compile(r"^S\d+(?:\.S{2,3}\d+)*$")
 
 
 class AnchorPass(IRPass):
@@ -37,7 +44,80 @@ class AnchorPass(IRPass):
             self._anchor_block(block)
         for section in doc.sections:
             self._anchor_section(section)
+
+        self._repoint_section_fragments(doc)
         return doc
+
+    # ── fragment repointing ────────────────────────────────────────────
+
+    def _repoint_section_fragments(self, doc: DocumentIR) -> None:
+        """Repoint raw arXiv section fragments (``S4``, ``S4.SS1``) to real anchors.
+
+        The builder's old positional guess (``section-4-1``) never matched the
+        slugified anchors actually emitted, so in-document section links were
+        dead. Figure/table/algorithm fragments keep their build-time mapping
+        (those ids coincide with NumberingPass ids).
+        """
+        fragment_map: dict[str, str] = {}
+
+        def index_section(section: SectionIR, path: list[int]) -> None:
+            key = ".".join(("S" if i == 0 else "SS" if i == 1 else "SSS") + str(n) for i, n in enumerate(path))
+            if section.anchor:
+                fragment_map[key] = section.anchor
+            for j, child in enumerate(section.children, start=1):
+                index_section(child, [*path, j])
+
+        for i, section in enumerate(doc.sections, start=1):
+            index_section(section, [i])
+
+        if not fragment_map:
+            return
+
+        for block in doc.abstract:
+            self._sweep_block_links([block], fragment_map)
+        for block in doc.front_matter:
+            self._sweep_block_links([block], fragment_map)
+        for section in doc.sections:
+            self._sweep_section_links(section, fragment_map)
+
+    def _sweep_section_links(self, section: SectionIR, fragment_map: dict[str, str]) -> None:
+        self._sweep_block_links(section.blocks, fragment_map)
+        for child in section.children:
+            self._sweep_section_links(child, fragment_map)
+
+    def _sweep_block_links(self, blocks: list, fragment_map: dict[str, str]) -> None:
+        for block in blocks:
+            t = block.type
+            if t in ("paragraph", "heading"):
+                self._sweep_inline_links(getattr(block, "inlines", []), fragment_map)
+            elif t in ("figure", "algorithm"):
+                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
+            elif t == "table":
+                for cell in getattr(block, "headers", []):
+                    self._sweep_inline_links(cell, fragment_map)
+                for row in getattr(block, "rows", []):
+                    for cell in row:
+                        self._sweep_inline_links(cell, fragment_map)
+                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
+            elif t == "list":
+                for item in block.items:
+                    self._sweep_block_links(item, fragment_map)
+            elif t == "blockquote":
+                self._sweep_block_links(block.blocks, fragment_map)
+
+    def _sweep_inline_links(self, inlines: list, fragment_map: dict[str, str]) -> None:
+        for il in inlines:
+            if (
+                getattr(il, "type", None) == "link"
+                and getattr(il, "kind", None) == "internal"
+                and _SECTION_FRAGMENT_RE.match(il.target_id or "")
+            ):
+                mapped = fragment_map.get(il.target_id or "")
+                if mapped:
+                    il.target_id = mapped
+            nested = getattr(il, "inlines", None)
+            if nested:
+                self._sweep_inline_links(nested, fragment_map)
 
     # ── prescan ────────────────────────────────────────────────────────
 

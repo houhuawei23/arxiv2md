@@ -7,9 +7,11 @@ from arxiv2md_beta.ir import (
     EquationIR,
     FigureIR,
     ImageRefIR,
+    LinkIR,
     PaperMetadata,
     ParagraphIR,
     SectionIR,
+    TextIR,
 )
 from arxiv2md_beta.ir.transforms.anchor import AnchorPass
 
@@ -127,3 +129,58 @@ def test_anchor_pass_unnumbered_equation_skips_claimed_numbers():
     anchors = [b.anchor for b in doc.sections[0].blocks]
     assert anchors[0] == "eq-1"
     assert anchors[1] == "eq-2"
+
+
+def test_anchor_pass_repoints_section_fragments_to_real_anchors():
+    """Repoint raw arXiv section fragments to actual slug anchors.
+
+    S2 / S2.SS1 no longer stay as dead positional guesses (section-2 etc.).
+    """
+    doc = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="test"),
+        sections=[
+            SectionIR(title="Intro", level=1, blocks=[ParagraphIR(inlines=[])]),
+            SectionIR(
+                title="Methods & Data",
+                level=1,
+                blocks=[
+                    ParagraphIR(
+                        inlines=[
+                            TextIR(text="see "),
+                            LinkIR(kind="internal", target_id="S2", inlines=[TextIR(text="Methods")]),
+                            TextIR(text=" and "),
+                            LinkIR(kind="internal", target_id="S2.SS1", inlines=[TextIR(text="Data")]),
+                        ]
+                    )
+                ],
+                children=[SectionIR(title="Data", level=2, blocks=[ParagraphIR(inlines=[])])],
+            ),
+        ],
+    )
+    AnchorPass().run(doc)
+    para = doc.sections[1].blocks[0]
+    targets = [il.target_id for il in para.inlines if getattr(il, "type", "") == "link"]
+    assert targets == ["methods-data", "data"]
+
+
+def test_anchor_pass_leaves_non_section_fragments_alone():
+    doc = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="test"),
+        sections=[
+            SectionIR(
+                title="Body",
+                level=1,
+                blocks=[
+                    ParagraphIR(
+                        inlines=[
+                            LinkIR(kind="internal", target_id="figure-1", inlines=[TextIR(text="fig")]),
+                            LinkIR(kind="internal", target_id="S1.F1", inlines=[TextIR(text="raw")]),
+                        ]
+                    )
+                ],
+            ),
+        ],
+    )
+    AnchorPass().run(doc)
+    targets = [il.target_id for il in doc.sections[0].blocks[0].inlines if getattr(il, "type", "") == "link"]
+    assert targets == ["figure-1", "S1.F1"]  # S1.F1 maps to a figure, not a section
