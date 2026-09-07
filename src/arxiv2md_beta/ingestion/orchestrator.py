@@ -574,7 +574,10 @@ class IngestionOrchestrator:
     async def _structured_export(self) -> dict:
         assert self._doc is not None
         assert self._paper_output_dir is not None
-        return run_structured_export(
+        # Deep-copies the whole document + writes JSON files — keep off the
+        # event loop so concurrent batch papers keep making progress.
+        return await asyncio.to_thread(
+            run_structured_export,
             self._doc,
             self._paper_output_dir,
             mode=self.params.structured_output,

@@ -122,15 +122,15 @@ async def fetch_and_extract_tex_source(
     logger.info(f"Extracting TeX source to {extracted_dir}")
     try:
         extracted_dir.mkdir(parents=True, exist_ok=True)
-        _extract_archive(tex_source_path, extracted_dir)
+        await asyncio.to_thread(_extract_archive, tex_source_path, extracted_dir)
     except Exception as e:
         # Remove the partial extract so a later run does not mistake a half-
         # extracted directory for a valid cache entry (cache poisoning).
         shutil.rmtree(extracted_dir, ignore_errors=True)
         raise ImageExtractionError(f"Failed to extract TeX source: {e}") from e
 
-    # Extract images and find main tex file
-    info = _extract_info_from_dir(extracted_dir)
+    # Extract images and find main tex file (rglob + per-file reads are IO-bound)
+    info = await asyncio.to_thread(_extract_info_from_dir, extracted_dir)
     _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
     return info
 

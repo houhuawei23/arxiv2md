@@ -206,7 +206,10 @@ async def _ingest_paper_latex_impl(
     from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 
     merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
-    result, metadata = finalize_ingestion_output(
+    # Same off-loop treatment as the local-archive paths (markdown emission,
+    # YAML dump and JSON bundle are CPU/IO-bound).
+    result, metadata = await asyncio.to_thread(
+        finalize_ingestion_output,
         doc,
         arxiv_id=arxiv_id,
         version=version,

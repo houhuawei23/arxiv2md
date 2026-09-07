@@ -37,18 +37,16 @@ async def ingest_local_html(
     """Process a local HTML file and convert to Markdown via the IR pipeline."""
     sections = sections or []
 
-    # Read HTML content
-    try:
-        html_content = query.html_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError as e:
-        raise LocalHtmlIngestionError(f"Failed to read HTML file: {e}") from e
-
-    # Parse with the arXiv HTML parser (same as remote HTML + local HTML archives).
+    # Read HTML content and parse off the event loop (BS4 parse is CPU-bound).
     try:
         from arxiv2md_beta.html.parser import parse_arxiv_html
 
-        parsed = parse_arxiv_html(html_content)
-    except (ValueError, RuntimeError, OSError) as e:
+        parsed = await asyncio.to_thread(
+            lambda: parse_arxiv_html(query.html_path.read_text(encoding="utf-8", errors="ignore"))
+        )
+    except OSError as e:
+        raise LocalHtmlIngestionError(f"Failed to read HTML file: {e}") from e
+    except (ValueError, RuntimeError) as e:
         raise LocalHtmlIngestionError(f"Failed to parse HTML: {e}") from e
 
     # Use provided metadata or fall back to parsed

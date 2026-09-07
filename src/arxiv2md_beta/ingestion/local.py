@@ -81,9 +81,11 @@ async def ingest_local_archive(
     """
     sections = sections or []
 
-    # Extract the archive
+    # Extract the archive (tar decompress is IO/CPU-bound — keep it off the
+    # event loop so concurrent batch papers keep making progress).
     try:
-        tex_source_info = extract_local_archive(
+        tex_source_info = await asyncio.to_thread(
+            extract_local_archive,
             query.archive_path,
             output_dir=query.cache_dir / "extracted",
             use_cache=True,
@@ -287,8 +289,9 @@ async def _ingest_html_archive(
     main_html_file = _find_main_html_file(extracted_dir, html_files)
 
     try:
-        html_content = main_html_file.read_text(encoding="utf-8", errors="ignore")
-        parsed = parse_arxiv_html(html_content)
+        parsed = await asyncio.to_thread(
+            lambda: parse_arxiv_html(main_html_file.read_text(encoding="utf-8", errors="ignore"))
+        )
     except (OSError, ValueError, RuntimeError) as e:
         raise LocalIngestionError(f"Failed to parse HTML: {e}") from e
 
