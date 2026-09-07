@@ -350,3 +350,10 @@ class TestFieldValidation:
         """Extra fields should be rejected."""
         with pytest.raises(ValueError):
             TextIR(text="hello", extra_field="nope")
+
+
+def test_document_ir_has_no_bibliography_field():
+    """doc.bibliography was a dead field (emitted but never populated)."""
+    from arxiv2md_beta.ir import DocumentIR
+
+    assert "bibliography" not in DocumentIR.model_fields

@@ -73,5 +73,4 @@ class DocumentIR(IRNode):
     abstract: list[BlockUnion] = Field(default_factory=list)
     front_matter: list[BlockUnion] = Field(default_factory=list)
     sections: list[SectionIR] = Field(default_factory=list)
-    bibliography: list[BlockUnion] = Field(default_factory=list)
     assets: list[AssetUnion] = Field(default_factory=list)

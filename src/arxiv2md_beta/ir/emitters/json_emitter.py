@@ -379,7 +379,6 @@ class JsonEmitter(IREmitter):
 
     def _build_full(self, doc: DocumentIR) -> dict[str, Any]:
         result = self._build_document(doc)
-        result["bibliography"] = [b.model_dump(exclude_none=True) for b in doc.bibliography]
         assets, stem_map = _build_asset_list(doc, "")
         result["assets"] = assets
         result["stem_to_path"] = stem_map

@@ -74,6 +74,12 @@ class MarkdownEmitter(IREmitter):
     def emit(self, doc: DocumentIR) -> str:
         parts: list[str] = []
 
+        # Front matter (title-block figures etc. collected by the builders;
+        # empty for most papers, so this adds nothing when unused)
+        if doc.front_matter:
+            parts.append(self._emit_blocks(doc.front_matter))
+            parts.append("")
+
         # Abstract
         if doc.abstract:
             parts.append("## Abstract")
@@ -84,10 +90,6 @@ class MarkdownEmitter(IREmitter):
         # Sections
         for section in doc.sections:
             parts.append(self._emit_section(section))
-
-        # Bibliography
-        if doc.bibliography:
-            parts.append(self._emit_blocks(doc.bibliography))
 
         return _post_process("\n".join(parts))
 

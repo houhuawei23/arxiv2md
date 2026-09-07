@@ -59,7 +59,6 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
         ("abstract", "block"),
         ("front_matter", "block"),
         ("sections", "section"),
-        ("bibliography", "block"),
         ("assets", "asset"),
         ("metadata", "object"),
     ],

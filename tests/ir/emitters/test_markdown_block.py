@@ -409,3 +409,30 @@ class TestHeaderlessTable:
         out = emitter._emit_block(b)
         row_lines = [ln for ln in out.split("\n") if ln.startswith("|") and "---" not in ln]
         assert all(ln.count("|") == 3 for ln in row_lines)  # 2 cols each
+
+
+class TestFrontMatterEmission:
+    """MarkdownEmitter must not silently drop doc.front_matter."""
+
+    def test_front_matter_blocks_are_emitted(self) -> None:
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t"),
+            front_matter=[ParagraphIR(inlines=[TextIR(text="title-block figure")])],
+            abstract=[ParagraphIR(inlines=[TextIR(text="summary")])],
+        )
+        out = MarkdownEmitter().emit(doc)
+        assert "title-block figure" in out
+        assert "## Abstract" in out
+        assert out.index("title-block figure") < out.index("## Abstract")
+
+    def test_empty_front_matter_adds_nothing(self) -> None:
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t"),
+            abstract=[ParagraphIR(inlines=[TextIR(text="summary")])],
+        )
+        out = MarkdownEmitter().emit(doc)
+        assert out.strip().startswith("## Abstract")

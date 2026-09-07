@@ -374,7 +374,7 @@ class LaTeXBuilder(IRBuilder):
         # class ``thebibliography``) is turned into a "References" section by
         # ``_build_sections`` so ``split_ir_sections`` can route it to the
         # References.md sidecar — matching the HTML builder contract (where
-        # references stay in ``doc.sections`` rather than ``doc.bibliography``).
+        # references stay in ``doc.sections`` (there is no separate bibliography field).
         abstract_blocks: list[BlockUnion] = []
         sections = self._build_sections(blocks)
 
