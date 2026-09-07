@@ -80,3 +80,27 @@ def test_apply_markdown_postprocessing() -> None:
     # Output is POSIX newline-terminated.
     assert cleaned.content_references == "\n"
     assert cleaned.content_appendix is None
+
+
+class TestCleanMathAndSpacingEdges:
+    """Locked-in behavior of _clean_math_and_spacing on delimiter edge cases."""
+
+    CASES = [
+        ("a $x$ b", "a $x$ b"),
+        ("unbalanced $ math", "unbalanced $ math"),
+        ("$$display$$", "$$\ndisplay\n$$"),
+        ("$$a$$ b $$c$$", "$$\na\n$$ b $$\nc\n$$"),
+        ("$a$$b$", "$a$ $b$"),
+        ("$$$", "$$$"),
+        ("$$ a $$$ b $$", "$$\na\n$$$b$$"),
+        ("price $5 and $10 total", "price $5 and$ 10 total"),
+        ("$a\nb$ collapse", "$a b$ collapse"),
+        ("$$\nx=1\n$$", "$$\nx=1\n$$"),
+        ("  $$  \nx=1\n  $$  ", "  $$\nx=1\n$$  "),
+    ]
+
+    def test_edge_cases(self) -> None:
+        from arxiv2md_beta.output.markdown_postprocess import _clean_math_and_spacing
+
+        for source, expected in self.CASES:
+            assert _clean_math_and_spacing(source) == expected, f"input: {source!r}"
