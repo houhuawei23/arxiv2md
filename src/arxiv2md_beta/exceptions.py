@@ -24,6 +24,16 @@ class NetworkError(Arxiv2mdError):
     pass
 
 
+class NonRetryableNetworkError(NetworkError):
+    """Deterministic network failure that must not be retried.
+
+    Raised for outcomes that cannot change on a second attempt (e.g. HTTP 404).
+    Retry loops must re-raise this immediately instead of backing off.
+    """
+
+    pass
+
+
 class IngestionError(Arxiv2mdError):
     """Paper parsing or conversion pipeline failures."""
 

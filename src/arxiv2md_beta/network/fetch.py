@@ -11,12 +11,28 @@ import httpx
 from aiofiles import open as aio_open
 from loguru import logger
 
-from arxiv2md_beta.exceptions import NetworkError
+from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
 from arxiv2md_beta.network.http import get_http_client
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.progress import async_byte_download_progress
+
+
+async def _async_write_atomic(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write *content* to *path* via a ``.part`` sibling then atomic rename.
+
+    Mirrors the PDF/TeX cache pattern so a concurrent conversion never sees
+    (or overwrites) a half-written cache entry. The ``.part`` file is removed
+    if the write or rename fails.
+    """
+    tmp_path = path.with_name(path.name + ".part")
+    try:
+        await async_write_text(tmp_path, content, encoding=encoding)
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 async def fetch_arxiv_html(
@@ -42,14 +58,14 @@ async def fetch_arxiv_html(
     try:
         html_text = await _fetch_with_retries(html_url)
         _reject_no_content_placeholder(html_text)
-        await async_write_text(html_path, html_text, encoding="utf-8")
+        await _async_write_atomic(html_path, html_text, encoding="utf-8")
         return html_text
     except NetworkError as primary_error:
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
                 _reject_no_content_placeholder(html_text)
-                await async_write_text(html_path, html_text, encoding="utf-8")
+                await _async_write_atomic(html_path, html_text, encoding="utf-8")
                 return html_text
             except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError) as fallback_error:
                 logger.warning(f"ar5iv fallback also failed: {fallback_error}")
@@ -69,7 +85,9 @@ async def _fetch_with_retries(url: str) -> str:
             response = await client.get(url)
 
             if response.status_code == 404:
-                raise NetworkError(
+                # Deterministic: a second request will also 404. The ar5iv
+                # fallback in fetch_arxiv_html relies on catching this.
+                raise NonRetryableNetworkError(
                     "This paper does not have an HTML version available on arXiv. "
                     "arxiv2md-beta requires papers to be available in HTML format. "
                     "Older papers may only be available as PDF."
@@ -81,6 +99,8 @@ async def _fetch_with_retries(url: str) -> str:
                 response.raise_for_status()
                 _ensure_html_response(response)
                 return response.text
+        except NonRetryableNetworkError:
+            raise
         except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
             last_exc = exc
 
@@ -165,7 +185,8 @@ async def fetch_arxiv_pdf(
         try:
             async with client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
                 if response.status_code == 404:
-                    raise NetworkError(f"PDF not found at {pdf_url}")
+                    # Deterministic: retrying cannot conjure the PDF.
+                    raise NonRetryableNetworkError(f"PDF not found at {pdf_url}")
 
                 if response.status_code in retry_status:
                     last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
@@ -196,6 +217,8 @@ async def fetch_arxiv_pdf(
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(cache_path, output_path)
                     return output_path
+        except NonRetryableNetworkError:
+            raise
         except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
             last_exc = exc
 

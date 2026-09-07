@@ -281,3 +281,107 @@ def test_get_http_client_rebuilds_across_loops():
         await httpmod.close_http_client()
 
     asyncio.run(_cleanup())
+
+
+class TestFetch404NoRetry:
+    """404 is deterministic: exactly one HTTP request, no retry backoff."""
+
+    def _mock_settings(self, tmp_path, monkeypatch):
+        """Point fetch's cache dir at tmp_path.
+
+        fetch imports get_settings at module level, so patching the settings
+        module is not enough.
+        """
+        from arxiv2md_beta.network import fetch as fetch_module
+
+        monkeypatch.setattr(
+            fetch_module,
+            "_cache_dir_for",
+            lambda arxiv_id, version: tmp_path / f"{arxiv_id}__{version or 'latest'}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_html_404_makes_exactly_one_request(self, tmp_path, monkeypatch):
+        self._mock_settings(tmp_path, monkeypatch)
+        with respx.mock:
+            route = respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            with pytest.raises(NetworkError) as exc_info:
+                await fetch_arxiv_html(
+                    "https://arxiv.org/html/2501.12345",
+                    arxiv_id="2501.12345",
+                    version=None,
+                    use_cache=False,
+                )
+            assert "does not have an HTML version" in str(exc_info.value)
+            assert route.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_html_404_falls_back_to_ar5iv_single_attempt_each(self, tmp_path, monkeypatch):
+        """Both arXiv and ar5iv 404: exactly one request per URL, error chained."""
+        self._mock_settings(tmp_path, monkeypatch)
+        with respx.mock:
+            route_main = respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            route_ar5iv = respx.get("https://ar5iv.labs.arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            with pytest.raises(NetworkError) as exc_info:
+                await fetch_arxiv_html(
+                    "https://arxiv.org/html/2501.12345",
+                    arxiv_id="2501.12345",
+                    version=None,
+                    use_cache=False,
+                    ar5iv_url="https://ar5iv.labs.arxiv.org/html/2501.12345",
+                )
+            assert "does not have an HTML version" in str(exc_info.value)
+            assert route_main.call_count == 1
+            assert route_ar5iv.call_count == 1
+            assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.asyncio
+    async def test_html_404_no_part_file_left_behind(self, tmp_path, monkeypatch):
+        """A failed fetch leaves no .part cache artifact."""
+        self._mock_settings(tmp_path, monkeypatch)
+        with respx.mock:
+            respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            with pytest.raises(NetworkError):
+                await fetch_arxiv_html(
+                    "https://arxiv.org/html/2501.12345",
+                    arxiv_id="2501.12345",
+                    version=None,
+                    use_cache=False,
+                )
+        assert list(tmp_path.rglob("*.part")) == []
+
+
+class TestAtomicCacheWrite:
+    """HTML cache writes are atomic (.part + rename)."""
+
+    _mock_settings = TestFetch404NoRetry._mock_settings
+
+    @pytest.mark.asyncio
+    async def test_successful_write_leaves_no_part_file(self, tmp_path, monkeypatch):
+        self._mock_settings(tmp_path, monkeypatch)
+        with respx.mock:
+            respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(
+                    200,
+                    text="<html>Test content</html>",
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            html = await fetch_arxiv_html(
+                "https://arxiv.org/html/2501.12345",
+                arxiv_id="2501.12345",
+                version=None,
+                use_cache=False,
+            )
+            assert "Test content" in html
+        cache_files = [p.name for p in tmp_path.rglob("*") if p.is_file()]
+        assert cache_files == ["source.html"]
+        assert not list(tmp_path.rglob("*.part"))

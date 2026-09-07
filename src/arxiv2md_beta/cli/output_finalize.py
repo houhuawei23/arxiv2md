@@ -176,7 +176,7 @@ async def finalize_convert_output(
             if naming_scheme in FIXED_INTERNAL_SCHEMES:
                 pdf_filename = f"{paper_output_dir.name}.pdf"
             else:
-                pdf_filename = output_filename.replace(".md", ".pdf")
+                pdf_filename = Path(output_filename).with_suffix(".pdf").name
             pdf_path = paper_output_dir / pdf_filename
             await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
             logger.info(f"PDF downloaded to: {pdf_path}")
