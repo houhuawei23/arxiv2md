@@ -110,6 +110,17 @@ class ImagesSection(BaseModel):
     )
     trim_whitespace_tolerance: int = Field(ge=0)
     disable_tqdm: bool = False
+    max_concurrency: int = Field(
+        default=4,
+        ge=1,
+        description="Maximum concurrent image tasks per paper (raster + PDF conversions).",
+    )
+    pdf_workers: int = Field(
+        default=0,
+        ge=0,
+        description="Process-pool workers for PDF→PNG conversion, shared across a batch. "
+        "0 = auto (min(4, max(1, cpu_count // 2))).",
+    )
 
 
 class MarkdownSvgSection(BaseModel):

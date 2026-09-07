@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +20,41 @@ from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import iterable_task_progress
+
+
+def _init_pdf_worker() -> None:  # pragma: no cover - runs in worker processes
+    """Pool initializer: lift PIL's decompression-bomb guard once per worker.
+
+    arXiv sources are trusted; raising the limit per conversion (the previous
+    approach) mutated a process-global around concurrent PIL calls.
+    """
+    Image.MAX_IMAGE_PIXELS = None
+
+
+def _default_pdf_workers() -> int:
+    cpus = os.cpu_count() or 2
+    return min(4, max(1, cpus // 2))
+
+
+_PROCESS_POOL: ProcessPoolExecutor | None = None
+
+
+def _get_process_pool() -> ProcessPoolExecutor:
+    """Lazily create the shared PDF→PNG process pool (reused across a batch)."""
+    global _PROCESS_POOL
+    if _PROCESS_POOL is None:
+        configured = get_settings().images.pdf_workers
+        workers = configured if configured > 0 else _default_pdf_workers()
+        _PROCESS_POOL = ProcessPoolExecutor(max_workers=workers, initializer=_init_pdf_worker)
+    return _PROCESS_POOL
+
+
+def shutdown_process_pool() -> None:
+    """Tear down the shared process pool (called once at CLI exit)."""
+    global _PROCESS_POOL
+    if _PROCESS_POOL is not None:
+        _PROCESS_POOL.shutdown(wait=True)
+        _PROCESS_POOL = None
 
 
 def _compile_tex_figures(tex_source_info: TexSourceInfo, images_dir: Path) -> list[Path]:
@@ -136,14 +172,14 @@ async def process_images_async(
     tex_source_info: TexSourceInfo,
     output_dir: Path,
     images_dir_name: str = "images",
-    max_concurrency: int = 4,
-    max_pdf_workers: int | None = None,
+    max_concurrency: int | None = None,
 ) -> ProcessedImages:
     """Asynchronously process images from TeX source for use in Markdown.
 
-    PDF conversions are offloaded to a ``ProcessPoolExecutor`` (CPU-bound),
-    while raster copies are handled via ``asyncio.gather`` in a thread pool.
-    A semaphore limits total concurrent tasks.
+    PDF conversions are offloaded to a shared ``ProcessPoolExecutor``
+    (CPU-bound, reused across papers), while raster copies are handled via
+    ``asyncio.gather`` in a thread pool. A semaphore limits total concurrent
+    tasks. TikZ figure compilation runs in a worker thread.
 
     Parameters
     ----------
@@ -153,10 +189,8 @@ async def process_images_async(
         Directory where Markdown file will be saved
     images_dir_name : str
         Name of images subdirectory
-    max_concurrency : int
-        Maximum concurrent image tasks (default 4)
-    max_pdf_workers : int | None
-        Maximum processes for PDF conversion; defaults to ``max_concurrency``
+    max_concurrency : int | None
+        Maximum concurrent image tasks; defaults to ``settings.images.max_concurrency``
 
     Returns:
     -------
@@ -171,7 +205,9 @@ async def process_images_async(
         image_files = tex_source_info.all_images
 
     if not image_files:
-        compiled = _compile_tex_figures(tex_source_info, images_dir)
+        # pdflatex/pdftocairo subprocesses are slow (up to ~45s each) — run
+        # them off the event loop so concurrent batch papers keep progressing.
+        compiled = await asyncio.to_thread(_compile_tex_figures, tex_source_info, images_dir)
         if compiled:
             relative = {i: p.relative_to(output_dir) for i, p in enumerate(compiled)}
             stem_map = {p.stem: p.relative_to(output_dir) for p in compiled}
@@ -183,9 +219,10 @@ async def process_images_async(
 
     img_cfg = get_settings().images
     disable_tqdm = img_cfg.disable_tqdm
-    sem = asyncio.Semaphore(max(1, max_concurrency))
-    pdf_workers = max_pdf_workers if max_pdf_workers is not None else max(1, max_concurrency)
-    process_pool = ProcessPoolExecutor(max_workers=pdf_workers)
+    sem = asyncio.Semaphore(max(1, max_concurrency if max_concurrency is not None else img_cfg.max_concurrency))
+    # Shared, lazily-created pool (see _get_process_pool) — reused across a
+    # batch instead of fork/teardown per paper.
+    process_pool = _get_process_pool()
 
     image_map: dict[int, Path] = {}
     filename_map: dict[int, str] = {}
@@ -238,20 +275,17 @@ async def process_images_async(
                 logger.error(f"Failed to process image {source_path}: {e}")
                 failed.append(source_path.name)
 
-    try:
-        with iterable_task_progress(
-            "Processing images",
-            len(image_files),
-            disable=disable_tqdm,
-        ) as advance:
-            tasks = []
-            for idx, source_path in enumerate(image_files):
-                task = asyncio.create_task(_process_one(idx, source_path))
-                task.add_done_callback(lambda _f: advance())
-                tasks.append(task)
-            await asyncio.gather(*tasks)
-    finally:
-        process_pool.shutdown(wait=True)
+    with iterable_task_progress(
+        "Processing images",
+        len(image_files),
+        disable=disable_tqdm,
+    ) as advance:
+        tasks = []
+        for idx, source_path in enumerate(image_files):
+            task = asyncio.create_task(_process_one(idx, source_path))
+            task.add_done_callback(lambda _f: advance())
+            tasks.append(task)
+        await asyncio.gather(*tasks)
 
     # Rebuild the figure-index map in float-figure order so ar5iv xN.png names
     # (and positional figure_index fallback) resolve to the correct file.
@@ -323,24 +357,18 @@ def _process_single_image(
         output_path = output_dir / output_filename
 
         try:
-            # Temporarily raise PIL's decompression limit for large-but-legitimate PDFs
-            # (arXiv papers can have high-DPI figures that trigger the default limit)
-            _max_pixels = getattr(Image, "MAX_IMAGE_PIXELS", None)
-            try:
-                Image.MAX_IMAGE_PIXELS = None  # Disable limit for trusted arXiv sources
-                # Use lower DPI (150) for large PDFs to reduce memory; default is 200
-                # use_cropbox=True: use PDF cropbox instead of mediabox to avoid extra
-                # whitespace (matches what PDF viewers show)
-                images = convert_from_path(
-                    str(source_path),
-                    first_page=1,
-                    last_page=1,
-                    dpi=dpi,
-                    use_cropbox=True,
-                )
-            finally:
-                if _max_pixels is not None:
-                    Image.MAX_IMAGE_PIXELS = _max_pixels
+            # Image.MAX_IMAGE_PIXELS is lifted once per pool worker by the
+            # initializer (_init_pdf_worker) — arXiv papers can have high-DPI
+            # figures that trigger the default limit.
+            # use_cropbox=True: use PDF cropbox instead of mediabox to avoid extra
+            # whitespace (matches what PDF viewers show)
+            images = convert_from_path(
+                str(source_path),
+                first_page=1,
+                last_page=1,
+                dpi=dpi,
+                use_cropbox=True,
+            )
             if images:
                 pil_img = images[0]
                 if trim_whitespace:

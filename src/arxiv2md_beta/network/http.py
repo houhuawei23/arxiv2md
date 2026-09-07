@@ -85,13 +85,22 @@ async def _await_then_close(coro: Awaitable[T]) -> T:
 
 
 def run_async(coro: Awaitable[T]) -> T:
-    """Run *coro* in a fresh event loop, closing the shared HTTP client after.
+    """Run *coro* in a fresh event loop, closing shared resources after.
 
     Wraps ``asyncio.run`` so the shared client's connection pool is gracefully
     shut down on the same loop that created it, instead of leaking until the
-    process exits.
+    process exits. Also tears down the shared image-conversion process pool
+    (lazy import keeps pdf2image out of this module's import graph).
     """
-    return asyncio.run(_await_then_close(coro))
+    try:
+        return asyncio.run(_await_then_close(coro))
+    finally:
+        try:
+            from arxiv2md_beta.images.processor import shutdown_process_pool
+
+            shutdown_process_pool()
+        except ImportError:  # pragma: no cover - optional images extras
+            pass
 
 
 @asynccontextmanager

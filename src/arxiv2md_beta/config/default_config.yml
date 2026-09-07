@@ -64,6 +64,10 @@ images:
   trim_whitespace: false
   trim_whitespace_tolerance: 100
   disable_tqdm: false
+  # Concurrent image tasks per paper.
+  max_concurrency: 4
+  # PDF→PNG process-pool workers, shared across a batch (0 = auto: min(4, cpus/2)).
+  pdf_workers: 0
 
 markdown_svg:
   foreignobject_default_width: 100.0
