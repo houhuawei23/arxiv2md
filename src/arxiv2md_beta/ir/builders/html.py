@@ -90,6 +90,11 @@ class HTMLBuilder(IRBuilder):
         # Inline <svg> figures collected during build; persisted by the
         # ingestion layer (builder performs no file I/O).
         self._svg_assets: list[SvgAsset] = []
+        # _get_text re-serializes + re-parses a tag (expensive); cache per
+        # fragment — tags are not mutated during a fragment build. Keyed by
+        # the Tag object itself (identity hash), which also pins the tag so
+        # its id() cannot be recycled mid-fragment.
+        self._text_cache: dict[Tag, str] = {}
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -184,6 +189,7 @@ class HTMLBuilder(IRBuilder):
         if not html_fragment:
             return []
         soup = BeautifulSoup(html_fragment, "html.parser")
+        self._text_cache.clear()
         blocks, idx = self._children_to_blocks(soup.children, section_id, 0)
         # Flush remaining footnotes at end of fragment
         while self._pending_footnotes:
@@ -616,6 +622,9 @@ class HTMLBuilder(IRBuilder):
         MathML rendering (the unicode glyph) with the raw LaTeX source; drop
         them so ``get_text`` yields e.g. ``𝒙`` instead of ``𝒙 \bm{x}``.
         """
+        cached = self._text_cache.get(tag)
+        if cached is not None:
+            return cached
         source = re.sub(
             r"<annotation[^>]*>.*?</annotation>",
             "",
@@ -623,7 +632,9 @@ class HTMLBuilder(IRBuilder):
             flags=re.DOTALL,
         )
         text = BeautifulSoup(source, "html.parser").get_text(" ", strip=True)
-        return re.sub(r"\s+", " ", text).strip()
+        result = re.sub(r"\s+", " ", text).strip()
+        self._text_cache[tag] = result
+        return result
 
     def _extract_equation_latex(self, tag: Tag) -> str:
         r"""Extract LaTeX from an equation table, preferring <math> annotations.
