@@ -1088,15 +1088,15 @@ class LaTeXBuilder(IRBuilder):
                         elif cid:
                             ref_nums.append(cid)  # fallback: keep key
             if ref_nums:
-                # Build inlines with individual [N] markers, one per ref.
-                # MarkdownEmitter wraps LinkIR(kind="citation") as [{inlines}]
-                # when target_id is set, producing [[35], [2], [5]] to match
-                # ar5iv HTML format.
+                # Build inlines with one bare marker per ref (no brackets:
+                # the emitter adds its own around numeric groups and around
+                # the bibitem-key fallback — literal "[N]" text here used to
+                # render as "[[N]]").
                 marker_inlines: list[InlineUnion] = []
                 for idx, num in enumerate(ref_nums):
                     if idx > 0:
                         marker_inlines.append(TextIR(text=", "))
-                    marker_inlines.append(TextIR(text=f"[{num}]"))
+                    marker_inlines.append(TextIR(text=num))
                 cite_link = LinkIR(
                     kind="citation",
                     target_id=",".join(ref_nums),

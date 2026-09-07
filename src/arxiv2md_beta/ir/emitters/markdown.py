@@ -259,6 +259,10 @@ class MarkdownEmitter(IREmitter):
                 # Fallback: bare key text, with trailing punctuation/whitespace
                 # stripped ("vicuna ", "radford2021learning, " -> "[vicuna]").
                 cite_text = text.strip().rstrip(",").rstrip(";").strip()
+                # Strip one pair of literal brackets if the builder/HTML left
+                # them in the text — the emitter adds its own below.
+                if cite_text.startswith("[") and cite_text.endswith("]"):
+                    cite_text = cite_text[1:-1].strip()
                 if inline.target_id and self.linked_citations:
                     return f"[{_escape_md_text(cite_text)}](#{_escape_url(inline.target_id)})"
                 return f"[{_escape_md_text(cite_text)}]"

@@ -179,3 +179,33 @@ class TestEscaping:
         n = ImageRefIR(src="fig 1.png", alt="[Fig]")
         out = emitter._emit_inline(n)
         assert out == "![\\[Fig\\]](fig%201.png)"
+
+
+class TestBibitemKeyCitation:
+    """Bibitem-key fallback citations render single-bracketed, not [[key]]."""
+
+    def test_key_target_not_double_bracketed(self, emitter) -> None:
+        # Builder now emits bare key text; even if a literal "[key]" survives,
+        # the emitter fallback must strip it before adding its own brackets.
+        n = LinkIR(kind="citation", target_id="vicuna2023", inlines=[TextIR(text="vicuna2023")])
+        out = emitter._emit_inline(n)
+        assert out == "[vicuna2023]"
+
+    def test_literal_bracket_text_stripped(self, emitter) -> None:
+        n = LinkIR(kind="citation", target_id="vicuna2023", inlines=[TextIR(text="[vicuna2023]")])
+        out = emitter._emit_inline(n)
+        assert out == "[vicuna2023]"
+        assert "[[" not in out
+
+    def test_numeric_group_still_merges(self, emitter) -> None:
+        from arxiv2md_beta.ir import ParagraphIR
+
+        p = ParagraphIR(
+            inlines=[
+                LinkIR(kind="citation", target_id="30", inlines=[TextIR(text="30")]),
+                TextIR(text=" , "),
+                LinkIR(kind="citation", target_id="52", inlines=[TextIR(text="52")]),
+            ]
+        )
+        out = emitter._emit_block(p)
+        assert out == "(30, 52)"
