@@ -141,20 +141,9 @@ async def _ingest_paper_latex_impl(
         processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
 
     # Build image map from LaTeX labels/paths to local paths
-    # The image_map from tex_source_info uses labels, we need to map them to processed images
-    latex_image_map: dict[str, Path] = {}
-    if processed_images:
-        for idx, (label, source_path) in enumerate(tex_source_info.image_files.items()):
-            if idx in processed_images.image_map:
-                latex_image_map[label] = processed_images.image_map[idx]
-                # Also map by filename
-                latex_image_map[source_path.name] = processed_images.image_map[idx]
-                # Map by path relative to base_dir
-                try:
-                    rel_path = source_path.relative_to(tex_source_info.extracted_dir)
-                    latex_image_map[str(rel_path)] = processed_images.image_map[idx]
-                except ValueError:
-                    pass
+    from arxiv2md_beta.images.processor import build_latex_image_label_map
+
+    latex_image_map = build_latex_image_label_map(tex_source_info, processed_images)
 
     # Build IR from LaTeX via Pandoc AST (offload blocking pandoc call to thread).
     # Replaces the legacy parse_latex_to_markdown + format_paper + latex/structured

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -155,26 +154,11 @@ def _copy_associated_files(html_path: Path, images_dir: Path) -> None:
         logger.debug(f"No associated files directory found for {html_path}")
         return
 
+    from arxiv2md_beta.utils.file_copy import copy_images_flat
+
     image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"}
-
-    copied_count = 0
-    for ext in image_extensions:
-        for img_file in files_dir.rglob(f"*{ext}"):
-            try:
-                dest_path = images_dir / img_file.name
-                counter = 1
-                original_dest = dest_path
-                while dest_path.exists():
-                    stem = original_dest.stem
-                    suffix = original_dest.suffix
-                    dest_path = images_dir / f"{stem}_{counter}{suffix}"
-                    counter += 1
-
-                shutil.copy2(img_file, dest_path)
-                copied_count += 1
-                logger.debug(f"Copied associated file: {img_file} -> {dest_path}")
-            except Exception as e:
-                logger.warning(f"Failed to copy file {img_file}: {e}")
+    sources = [img for ext in image_extensions for img in files_dir.rglob(f"*{ext}")]
+    copied_count = copy_images_flat(sources, images_dir)
 
     if copied_count > 0:
         logger.info(f"Copied {copied_count} associated file(s) from {files_dir}")

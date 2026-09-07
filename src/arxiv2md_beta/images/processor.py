@@ -420,3 +420,27 @@ def _process_single_image(
 
     # Return relative path from output_dir's parent and original filename
     return Path(output_dir.name) / output_filename, original_filename
+
+
+def build_latex_image_label_map(
+    tex_source_info: TexSourceInfo,
+    processed_images: ProcessedImages | None,
+) -> dict[str, Path]:
+    r"""Map LaTeX ``\includegraphics`` keys to processed image paths.
+
+    Keys are the TeX label, the source filename, and the path relative to the
+    extraction dir; values are the processed image paths (for ImageResolver).
+    """
+    latex_image_map: dict[str, Path] = {}
+    if not processed_images:
+        return latex_image_map
+    for idx, (label, source_path) in enumerate(tex_source_info.image_files.items()):
+        if idx in processed_images.image_map:
+            latex_image_map[label] = processed_images.image_map[idx]
+            latex_image_map[source_path.name] = processed_images.image_map[idx]
+            try:
+                rel_path = source_path.relative_to(tex_source_info.extracted_dir)
+                latex_image_map[str(rel_path)] = processed_images.image_map[idx]
+            except ValueError:
+                pass
+    return latex_image_map

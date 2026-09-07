@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -187,17 +186,9 @@ async def _ingest_latex_archive(
         processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
 
     # Build image map from LaTeX labels/paths to local paths
-    latex_image_map: dict[str, Path] = {}
-    if processed_images:
-        for idx, (label, source_path) in enumerate(tex_source_info.image_files.items()):
-            if idx in processed_images.image_map:
-                latex_image_map[label] = processed_images.image_map[idx]
-                latex_image_map[source_path.name] = processed_images.image_map[idx]
-                try:
-                    rel_path = source_path.relative_to(tex_source_info.extracted_dir)
-                    latex_image_map[str(rel_path)] = processed_images.image_map[idx]
-                except ValueError:
-                    pass
+    from arxiv2md_beta.images.processor import build_latex_image_label_map
+
+    latex_image_map = build_latex_image_label_map(tex_source_info, processed_images)
 
     arxiv_id = query.archive_path.stem
 
@@ -409,21 +400,11 @@ def _copy_local_images(extracted_dir: Path, images_dir: Path) -> None:
     subdirectories get ``_1``/``_2`` suffixes instead of silently overwriting
     each other (same policy as ``local_html._copy_associated_files``).
     """
-    image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"}
+    from arxiv2md_beta.utils.file_copy import copy_images_flat
 
-    for ext in image_extensions:
-        for img_file in extracted_dir.rglob(f"*{ext}"):
-            try:
-                dest_path = images_dir / img_file.name
-                counter = 1
-                original_dest = dest_path
-                while dest_path.exists():
-                    dest_path = images_dir / f"{original_dest.stem}_{counter}{original_dest.suffix}"
-                    counter += 1
-                shutil.copy2(img_file, dest_path)
-                logger.debug(f"Copied image: {img_file} -> {dest_path}")
-            except OSError as e:
-                logger.warning(f"Failed to copy image {img_file}: {e}")
+    image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".pdf"}
+    sources = [img for ext in image_extensions for img in extracted_dir.rglob(f"*{ext}")]
+    copy_images_flat(sources, images_dir)
 
 
 def _extract_title_from_tex(tex_content: str) -> str | None:
