@@ -53,3 +53,44 @@ class TestSectionFilterPass:
         SectionFilterPass(mode="exclude", selected=["methods"]).run(doc)
         titles = [s.title for s in doc.sections]
         assert "2. Methods" not in titles
+
+
+class TestIncludeKeepsParentOfMatchedChild:
+    """Include mode keeps a parent whose child matched (legacy tree semantics)."""
+
+    def _doc(self):
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata, ParagraphIR, SectionIR
+
+        return DocumentIR(
+            metadata=PaperMetadata(arxiv_id="test"),
+            sections=[
+                SectionIR(
+                    title="Introduction",
+                    level=1,
+                    blocks=[ParagraphIR(inlines=[])],
+                    children=[
+                        SectionIR(title="Datasets", level=2, blocks=[ParagraphIR(inlines=[])]),
+                        SectionIR(title="Metrics", level=2, blocks=[ParagraphIR(inlines=[])]),
+                    ],
+                ),
+                SectionIR(title="Methods", level=1, blocks=[ParagraphIR(inlines=[])]),
+            ],
+        )
+
+    def test_parent_kept_with_only_matched_child(self):
+        doc = self._doc()
+        SectionFilterPass(mode="include", selected=["Datasets"]).run(doc)
+        assert [s.title for s in doc.sections] == ["Introduction"]
+        intro = doc.sections[0]
+        assert [c.title for c in intro.children] == ["Datasets"]
+
+    def test_parent_dropped_when_no_child_matches(self):
+        doc = self._doc()
+        SectionFilterPass(mode="include", selected=["Methods"]).run(doc)
+        assert [s.title for s in doc.sections] == ["Methods"]
+
+    def test_exclude_mode_unaffected(self):
+        doc = self._doc()
+        SectionFilterPass(mode="exclude", selected=["Datasets"]).run(doc)
+        assert [s.title for s in doc.sections] == ["Introduction", "Methods"]
+        assert [c.title for c in doc.sections[0].children] == ["Metrics"]
