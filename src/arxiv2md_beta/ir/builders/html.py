@@ -31,6 +31,12 @@ from arxiv2md_beta.ir.blocks import (
     RuleIR,
     TableIR,
 )
+from arxiv2md_beta.ir.builders._math_norm import (
+    MBOX_TO_TEXT_RE,
+    NOLINEBREAK_RE,
+    PERP_IN_MATH_RE,
+    PERP_REPLACEMENT,
+)
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
 from arxiv2md_beta.ir.inlines import (
@@ -1192,17 +1198,13 @@ def _normalize_math_latex(latex: str) -> str:
     # symbol's inner '{}' groups would defeat the single-level brace regex.
     # The optional '$' covers the pre-simplify annotation ('${}' / '{}') — the
     # real ar5iv form has both a leading and a trailing '$' inside the box.
-    latex = re.sub(
-        r"\\mbox\{\$?\{\}\\perp(?:\\mkern-[0-9]+(?:\.[0-9]+)?mu|\\!+)\\perp\{\}\$?\}",
-        r"\\perp \\!\\!\\! \\perp ",
-        latex,
-    )
+    latex = PERP_IN_MATH_RE.sub(PERP_REPLACEMENT, latex)
     # The replacement ends with a space so a symbol glued to its successor
     # (e.g. "...\perp{}X^e") still reads as "...\perp X^e"; collapse any
     # double space where the source already had one.
     latex = re.sub(r" {2,}", " ", latex)
     # \mbox{text} -> \text{text} (text-mode \mbox breaks math renderers).
-    latex = re.sub(r"\\mbox(\s*)\{([^{}]*)\}", r"\\text\1{\2}", latex)
+    latex = MBOX_TO_TEXT_RE.sub(r"\\text\1{\2}", latex)
 
     # KaTeX rejects math macros directly inside \text{...} (e.g. the annotation
     # '\mbox{ can be rejected at level $\alpha$}' becomes '\text{...\alpha...}'
@@ -1223,7 +1225,7 @@ def _normalize_math_latex(latex: str) -> str:
     latex = re.sub(r"\\text\{([^{}]*\$[^{}]*)\}", _split_math_from_text, latex)
     # TeX line-break hints (\nolinebreak) are unsupported by some renderers
     # and visually no-ops in display math; drop them.
-    latex = re.sub(r"\\nolinebreak(?:\s*\[[^\]]*\])?", "", latex)
+    latex = NOLINEBREAK_RE.sub("", latex)
     return latex.strip()
 
 

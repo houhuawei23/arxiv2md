@@ -23,6 +23,13 @@ from arxiv2md_beta.ir.blocks import (
     RuleIR,
     TableIR,
 )
+from arxiv2md_beta.ir.builders._math_norm import (
+    MBOX_TO_TEXT_RE,
+    MULTI_SPACE_RE,
+    NOLINEBREAK_RE,
+    PERP_IN_MATH_RE,
+    PERP_REPLACEMENT,
+)
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.core import SourceLoc
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
@@ -96,11 +103,6 @@ _MAX_UNCLOSED_GROUP_RETRIES = 25
 # ``\label{eq:foo}`` leaked into a display-math string by Pandoc (align/equation
 # environments). KaTeX treats it as an undefined control sequence.
 _LABEL_IN_MATH_RE = re.compile(r"\\label\{[^}]*\}")
-
-# Independence symbol from ``\newcommand{\independent}{\mbox{${}\perp\mkern-11mu\perp{}$}}``
-# — Pandoc expands it inside math, leaving literal ``$`` characters that unbalance
-# the emitted ``$...$`` delimiters. Same normalization as the HTML builder.
-_PERP_IN_MATH_RE = re.compile(r"\\mbox\{\$?\{\}\\perp(?:\\mkern-[0-9]+(?:\.[0-9]+)?mu|\\!+)\\perp\{\}\$?\}")
 
 # ``\text{... math ...}`` after \mbox→\text translation may still contain math
 # macros (\alpha etc.) when the source was ``\mbox{... at level $\alpha$}`` and
@@ -1002,18 +1004,18 @@ class LaTeXBuilder(IRBuilder):
             # $...$ delimiters — normalize to the same \perp \!\!\! \perp form
             # the HTML path produces. Trailing space is load-bearing: without
             # it the replacement glues to the next token (\perpX).
-            latex = _PERP_IN_MATH_RE.sub(r"\\perp \\!\\!\\! \\perp ", latex)
+            latex = PERP_IN_MATH_RE.sub(PERP_REPLACEMENT, latex)
             # \mbox{argmin} (from \DeclareMathOperator{\argmin}{argmin}):
             # text-mode \mbox breaks KaTeX; \text renders.
-            latex = re.sub(r"\\mbox(\s*)\{([^{}]*)\}", r"\\text\1{\2}", latex)
+            latex = MBOX_TO_TEXT_RE.sub(r"\\text\1{\2}", latex)
             # KaTeX rejects math macros directly inside \text{...} (e.g.
             # \mbox{... at level $\alpha$} expanded by Pandoc loses the inner
             # $...$). Split the math back out (same as the HTML builder).
             latex = _SPLIT_MATH_FROM_TEXT_RE.sub(_split_math_from_text, latex)
             # TeX line-break hints unsupported by some renderers (same as the
             # HTML builder's normalization).
-            latex = re.sub(r"\\nolinebreak(?:\s*\[[^\]]*\])?", "", latex)
-            latex = re.sub(r" {2,}", " ", latex).strip()
+            latex = NOLINEBREAK_RE.sub("", latex)
+            latex = MULTI_SPACE_RE.sub(" ", latex).strip()
             return MathIR(latex=latex, display=display)
         elif t == "RawInline":
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"
