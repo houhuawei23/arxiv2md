@@ -239,3 +239,37 @@ class TestFragmentLinkRepointing:
         )
         NumberingPass().run(doc)
         assert para.inlines[0].target_id == "figure-1"
+
+
+def test_preserved_label_anchor_registered_as_used():
+    """A builder-set label anchor must count as used.
+
+    A later identical caption gets a -2 anchor instead of duplicating the
+    label anchor.
+    """
+    fig1 = FigureIR(figure_id="figure-1", label="fig:overview", images=[ImageRefIR(src="./a.png")])
+    fig2 = FigureIR(figure_id="figure-2", label="fig:overview", images=[ImageRefIR(src="./b.png")])
+    d = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="test"),
+        sections=[
+            SectionIR(title="S", level=1, blocks=[fig1, fig2]),
+        ],
+    )
+    fig1.anchor = "fig:overview"  # builder-set label anchor, differs from id
+    NumberingPass().run(d)
+    anchors = [fig1.anchor, fig2.anchor]
+    assert len(set(anchors)) == 2
+    assert fig1.anchor == "fig:overview"
+    assert fig2.anchor == "figure-2"
+
+
+def test_label_to_anchor_never_stores_none():
+    """_label_to_anchor maps labels to real anchors, never None."""
+    fig = FigureIR(figure_id="figure-1", label="fig:x", images=[ImageRefIR(src="./a.png")])
+    d = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="test"),
+        sections=[SectionIR(title="S", level=1, blocks=[fig])],
+    )
+    pass_ = NumberingPass()
+    pass_.run(d)
+    assert pass_._label_to_anchor.get("fig:x") == "figure-1"

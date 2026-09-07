@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
+from arxiv2md_beta.ir.transforms._anchors import unique_slug
 from arxiv2md_beta.ir.transforms.base import IRPass
 
 
@@ -143,28 +144,23 @@ class NumberingPass(IRPass):
 
     def _unique_anchor(self, base: str) -> str:
         """First of ``base``, ``base-2``, ``base-3``, … not yet used."""
-        if base not in self._used_anchors:
-            self._used_anchors.add(base)
-            return base
-        n = 2
-        while f"{base}-{n}" in self._used_anchors:
-            n += 1
-        anchor = f"{base}-{n}"
-        self._used_anchors.add(anchor)
-        return anchor
+        return unique_slug(base, self._used_anchors)
 
     def _claim_and_anchor(self, block, block_id: str) -> None:
         """Register *block_id* as claimed and give *block* a unique anchor.
 
         The anchor is only rewritten when it mirrors the id (or was empty);
-        label-based anchors set by builders are preserved as-is.
+        label-based anchors set by builders are preserved as-is — and
+        registered as used so a later auto anchor cannot collide with them.
         """
         self._claimed.add(block_id)
         current = getattr(block, "anchor", None)
         if not current or current == block_id:
             block.anchor = self._unique_anchor(block_id)
+        else:
+            self._used_anchors.add(current)
         label = getattr(block, "label", None)
-        if label:
+        if label and block.anchor:
             self._label_to_anchor[label] = block.anchor
 
     # ── fragment-link repointing ───────────────────────────────────────
