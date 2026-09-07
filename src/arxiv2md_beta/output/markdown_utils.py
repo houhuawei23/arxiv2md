@@ -12,13 +12,13 @@ module with no circular-import surface.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-from arxiv2md_beta.schemas import SectionNode
 from arxiv2md_beta.settings import get_settings
+
+if TYPE_CHECKING:
+    from arxiv2md_beta.schemas import SectionNode
 
 try:
     import tiktoken

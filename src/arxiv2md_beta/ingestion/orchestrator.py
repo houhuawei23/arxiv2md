@@ -11,11 +11,10 @@ import contextlib
 import subprocess
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
-from arxiv2md_beta.html.sections import filter_sections
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown, run_structured_export
 from arxiv2md_beta.ir import HTMLBuilder
@@ -83,7 +82,6 @@ class IngestionOrchestrator:
 
         # Section-filter state
         self._selected_sections: list[str] = []
-        self._filtered_sections: list[Any] = []
         self._include_abstract: bool = True
 
         # Markdown emission results
@@ -286,19 +284,7 @@ class IngestionOrchestrator:
     def _filter_sections(self) -> None:
         from arxiv2md_beta.cli.helpers import collect_sections
 
-        assert self._parsed is not None
         self._selected_sections = collect_sections(self.params.sections, self.params.section)
-        self._filtered_sections = filter_sections(
-            self._parsed.sections,
-            mode=self.params.section_filter_mode,
-            selected=self._selected_sections,
-        )
-        if self.params.remove_refs:
-            self._filtered_sections = filter_sections(
-                self._filtered_sections,
-                mode="exclude",
-                selected=self._ingestion_cfg.reference_section_titles,
-            )
 
         # Determine whether abstract should be included
         abstract_key = self._ingestion_cfg.abstract_section_title.lower()
@@ -562,9 +548,13 @@ class IngestionOrchestrator:
                     summary_lines.append(f"  - {name} — {affils}")
                 else:
                     summary_lines.append(f"  - {name}")
-        summary_lines.append(f"- Sections: {count_sections(self._filtered_sections)}")
+        # Single sections tree, derived from the post-transform IR (same
+        # filtering the emitted markdown went through).
+        ir_sections = cast("list[Any]", self._doc.sections)
+        sections_tree_body = create_sections_tree(ir_sections)
+        summary_lines.append(f"- Sections: {count_sections(ir_sections)}")
         token_body = "\n".join(x for x in (self._content, self._content_references, self._content_appendix or "") if x)
-        token_estimate = format_token_count(create_sections_tree(self._filtered_sections) + "\n" + token_body)
+        token_estimate = format_token_count(sections_tree_body + "\n" + token_body)
         if token_estimate:
             summary_lines.append(f"- Estimated tokens: {token_estimate}")
         summary = "\n".join(summary_lines)
@@ -573,7 +563,7 @@ class IngestionOrchestrator:
         tree_lines = ["Sections:"]
         if self._include_abstract and self._parsed.abstract:
             tree_lines.append("Abstract")
-        tree_lines.append(create_sections_tree(self._filtered_sections))
+        tree_lines.append(sections_tree_body)
         sections_tree = "\n".join(tree_lines)
 
         return IngestionResult(
