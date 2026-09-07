@@ -523,12 +523,11 @@ def _wrap_line(line: str, continuation_indent: str, width: int = 100) -> list[st
 
 
 def _post_process(md: str) -> str:
-    """Clean up the rendered markdown."""
-    import re
+    """Clean up the rendered markdown.
 
-    # Collapse 3+ blank lines to 2
-    md = re.sub(r"\n{3,}", "\n\n", md)
-
+    Blank-line collapsing happens once, in ``finalize_markdown`` (the last
+    postprocess step); doing it here too was a redundant full-text scan.
+    """
     # Remove trailing whitespace on each line
     md = "\n".join(line.rstrip() for line in md.split("\n"))
 
