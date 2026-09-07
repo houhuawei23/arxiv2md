@@ -123,6 +123,10 @@ async def _enrich_authors_and_refresh_citation(
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | None]:
     """Fetch metadata from arXiv API and optionally enrich with Crossref API.
 
+    The whole chain (retries + Crossref + abs-page/OpenAlex enrichment) runs
+    under an overall wall-clock budget (``http.metadata_timeout_s``) so a slow
+    chain cannot hold a batch concurrency slot indefinitely.
+
     Parameters
     ----------
     arxiv_id : str
@@ -133,6 +137,24 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, str | list | dict | N
     dict
         Metadata including title, authors, published date, etc., enriched with Crossref data if available
     """
+    try:
+        return await asyncio.wait_for(_fetch_arxiv_metadata_impl(arxiv_id), get_settings().http.metadata_timeout_s)
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Metadata fetch for {arxiv_id} exceeded http.metadata_timeout_s; "
+            "using id-derived date and HTML fallbacks where available"
+        )
+        return fill_arxiv_metadata_defaults(
+            {
+                "title": None,
+                "published": None,
+                "submission_date": None,
+            },
+            strip_version(arxiv_id),
+        )
+
+
+async def _fetch_arxiv_metadata_impl(arxiv_id: str) -> dict[str, str | list | dict | None]:
     base_id = strip_version(arxiv_id)
 
     s = get_settings()

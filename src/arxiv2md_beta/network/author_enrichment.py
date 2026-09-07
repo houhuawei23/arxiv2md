@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -184,8 +185,10 @@ async def enrich_authors_with_abs_html_and_openalex(
         base_id,
     )
 
+    # abs page and OpenAlex are independent sources — fetch concurrently.
+    html, work = await asyncio.gather(fetch_abs_html(base_id), fetch_openalex_work_for_arxiv(base_id))
+
     # 1) abs page
-    html = await fetch_abs_html(base_id)
     if html:
         abs_names, hints = parse_abs_page_for_authors(html)
         _apply_abs_hints_to_authors(authors, abs_names, hints)
@@ -212,7 +215,6 @@ async def enrich_authors_with_abs_html_and_openalex(
         )
 
     # 2) OpenAlex (primary source for institutions for most arXiv DOIs)
-    work = await fetch_openalex_work_for_arxiv(base_id)
     if work:
         n_matched = _merge_openalex_into_authors(authors, work)
         wid = work.get("id")

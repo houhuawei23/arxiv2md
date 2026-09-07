@@ -26,6 +26,12 @@ class HttpSection(BaseModel):
     large_transfer_timeout_multiplier: float = Field(gt=0)
     max_connections: int = Field(default=100, ge=1, description="httpx connection pool size")
     max_keepalive_connections: int = Field(default=20, ge=0, description="httpx keep-alive limit")
+    metadata_timeout_s: float = Field(
+        default=90.0,
+        gt=0,
+        description="Overall wall-clock budget for one metadata fetch (retries included), "
+        "so a slow enrichment chain cannot hold a batch slot indefinitely.",
+    )
 
 
 class CacheSection(BaseModel):
