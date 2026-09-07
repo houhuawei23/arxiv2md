@@ -371,3 +371,40 @@ def test_walk_reaches_assets_and_authors():
     walk(doc, counter)
     assert counter.counts.get("author") == 1
     assert counter.counts.get("image_asset") == 1
+
+
+def test_walk_visits_figure_grid_inlines():
+    """Regression: _CHILD_SPECS omitted figure.grid.
+
+    Grid-cell inlines were invisible to walk()/TextCollector, so token counts
+    under-counted.
+    """
+    from arxiv2md_beta.ir import DocumentIR, FigureIR, MathIR, PaperMetadata, SectionIR, TextIR
+    from arxiv2md_beta.ir.visitor import NodeCounter, TextCollector, walk
+
+    doc = DocumentIR(
+        metadata=PaperMetadata(arxiv_id="t"),
+        sections=[
+            SectionIR(
+                title="S",
+                level=1,
+                blocks=[
+                    FigureIR(
+                        grid=[
+                            [[], [TextIR(text="gt")]],
+                            [[MathIR(latex="x=1")], [TextIR(text="cell text")]],
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    tc = TextCollector()
+    walk(doc, tc)
+    assert "gt" in tc.texts
+    assert "cell text" in tc.texts
+
+    nc = NodeCounter()
+    walk(doc, nc)
+    assert nc.counts.get("text") == 2
+    assert nc.counts.get("math") == 1

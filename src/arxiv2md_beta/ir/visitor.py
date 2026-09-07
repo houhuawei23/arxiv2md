@@ -48,7 +48,7 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
     "heading": [("inlines", "inline")],
     "blockquote": [("blocks", "block")],
     "list": [("items", "block_list")],
-    "figure": [("caption", "inline")],
+    "figure": [("caption", "inline"), ("grid", "inline_list_list")],
     "table": [("headers", "inline_list"), ("rows", "inline_list_list"), ("caption", "inline")],
     "algorithm": [("steps", "block"), ("caption", "inline")],
     "code": [("caption", "inline")],
