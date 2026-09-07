@@ -87,24 +87,25 @@ def emit_split_markdown(
     original_sections = doc.sections
     original_abstract = doc.abstract
 
-    doc.sections = main_irs
-    content = finalize_markdown(emitter.emit(doc), include_anchors=include_anchors)
+    try:
+        doc.sections = main_irs
+        content = finalize_markdown(emitter.emit(doc), include_anchors=include_anchors)
 
-    doc.abstract = []
-    doc.sections = ref_irs
-    ref_raw = emitter.emit(doc) if ref_irs else ""
-    if ref_raw.strip():
-        ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
-        content_references = _number_reference_entries(ref_final, include_anchors=include_anchors)
-    else:
-        content_references = None
+        doc.abstract = []
+        doc.sections = ref_irs
+        ref_raw = emitter.emit(doc) if ref_irs else ""
+        if ref_raw.strip():
+            ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
+            content_references = _number_reference_entries(ref_final, include_anchors=include_anchors)
+        else:
+            content_references = None
 
-    doc.sections = app_irs
-    app_raw = emitter.emit(doc) if app_irs else ""
-    content_appendix = finalize_markdown(app_raw, include_anchors=include_anchors) if app_raw.strip() else None
-
-    doc.sections = original_sections
-    doc.abstract = original_abstract
+        doc.sections = app_irs
+        app_raw = emitter.emit(doc) if app_irs else ""
+        content_appendix = finalize_markdown(app_raw, include_anchors=include_anchors) if app_raw.strip() else None
+    finally:
+        doc.sections = original_sections
+        doc.abstract = original_abstract
     return content, content_references, content_appendix
 
 

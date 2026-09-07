@@ -80,6 +80,10 @@ class OutputNamingSection(BaseModel):
 
 
 class IngestionSection(BaseModel):
+    fetch_arxiv_metadata: bool = Field(
+        default=False,
+        description="Fetch optional arXiv API metadata enrichment (disabled by default).",
+    )
     reference_section_titles: list[str]
     abstract_section_title: str
     latex_fallback_title: str

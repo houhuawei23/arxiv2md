@@ -100,10 +100,7 @@ class HTMLBuilder(IRBuilder):
 
     def _build_from_parsed(self, parsed: Any, arxiv_id: str) -> DocumentIR:
         """从已解析的 :class:`ParsedArxivHtml` 构建 IR，避免再次解析完整 HTML。."""
-        from arxiv2md_beta.html.parser import (
-            ParsedArxivHtml,
-            _extract_sections,
-        )
+        from arxiv2md_beta.html.parser import ParsedArxivHtml
 
         assert isinstance(parsed, ParsedArxivHtml)
 
@@ -116,10 +113,7 @@ class HTMLBuilder(IRBuilder):
         front_matter_blocks = self._html_to_blocks(parsed.front_matter_html, section_id="front_matter")
 
         # Convert section tree and drop leaf sections that have no content
-        document_root = parsed.document_root
-        assert isinstance(document_root, Tag), "parsed.document_root must be a Tag"
-        section_nodes = _extract_sections(document_root)
-        sections = [self._build_section(sn) for sn in section_nodes]
+        sections = [self._build_section(section_node) for section_node in parsed.sections]
         sections = self._filter_empty_sections(sections)
 
         doc = DocumentIR(

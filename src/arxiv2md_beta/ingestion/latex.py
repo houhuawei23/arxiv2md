@@ -14,7 +14,10 @@ from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, 
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
+
+logger = get_logger()
 
 
 async def ingest_paper_latex(
@@ -106,8 +109,14 @@ async def _ingest_paper_latex_impl(
     ParserNotAvailableError
         If pypandoc is not available
     """
-    # Fetch metadata from API
-    api_metadata = await fetch_arxiv_metadata(arxiv_id)
+    # Fetch metadata from API (optional; disabled by default to avoid slow
+    # retry chains when arXiv API / OpenAlex / Crossref are unreachable)
+    api_metadata: dict[str, Any] = {}
+    if get_settings().ingestion.fetch_arxiv_metadata:
+        try:
+            api_metadata = await fetch_arxiv_metadata(arxiv_id)
+        except Exception as exc:  # noqa: BLE001 - metadata is enrichment only
+            logger.warning(f"arXiv API metadata fetch failed for {arxiv_id}; using fallbacks: {exc}")
     fallback_title = get_settings().ingestion.latex_fallback_title
     title = api_metadata.get("title") or fallback_title
     submission_date = api_metadata.get("submission_date")

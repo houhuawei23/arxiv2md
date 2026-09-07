@@ -192,4 +192,10 @@ async def finalize_convert_output(
     except UnicodeEncodeError:
         print(result.summary.encode("utf-8", errors="replace").decode("utf-8"))
 
+    if result.performance:
+        print("\nPerformance:")
+        print(f"Total: {result.performance.get('total_seconds', 0):.3f}s")
+        for name, metric in result.performance.get("stages", {}).items():
+            print(f"  {name}: {metric.get('seconds', 0):.3f}s ({metric.get('share', 0) * 100:.1f}%)")
+
     return paper_output_dir

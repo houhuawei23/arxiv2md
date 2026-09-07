@@ -22,6 +22,7 @@ from arxiv2md_beta.cli.options import (
     DOWNLOAD_PDF_OPT,
     EMIT_GRAPH_CSV_OPT,
     EMIT_RESULT_JSON_OPT,
+    FETCH_METADATA_OPT,
     INCLUDE_ANCHORS_OPT,
     INCLUDE_TREE_OPT,
     LINKED_CITATIONS_OPT,
@@ -160,6 +161,7 @@ def convert_cmd(
     linked_citations: bool | None = LINKED_CITATIONS_OPT,
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
+    fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -172,6 +174,7 @@ def convert_cmd(
         include_anchors=include_anchors,
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
+        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     # Effective output flags live in settings after apply_convert_cli_settings
     # merged CLI values (explicit only) over YAML/env defaults.
@@ -195,6 +198,7 @@ def convert_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
+        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     try:
         run_convert_sync(params)
@@ -252,6 +256,7 @@ def batch_cmd(
     linked_citations: bool | None = LINKED_CITATIONS_OPT,
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
+    fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -264,6 +269,7 @@ def batch_cmd(
         include_anchors=include_anchors,
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
+        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     eff = get_settings().output
     template = make_convert_params(
@@ -285,6 +291,7 @@ def batch_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
+        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

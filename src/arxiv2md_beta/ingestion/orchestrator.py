@@ -31,6 +31,7 @@ from arxiv2md_beta.network.arxiv_api import (
     author_display_names_from_metadata,
     fetch_arxiv_metadata,
     fill_arxiv_metadata_defaults,
+    submission_date_from_new_style_arxiv_id,
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.output.layout import create_paper_output_dir, determine_output_dir
@@ -47,6 +48,7 @@ from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
+from arxiv2md_beta.utils.performance import PerformanceMonitor
 
 logger = get_logger()
 
@@ -89,12 +91,14 @@ class IngestionOrchestrator:
         self._content: str = ""
         self._content_references: str | None = None
         self._content_appendix: str | None = None
+        self._performance = PerformanceMonitor()
 
     # ── Public entry point ─────────────────────────────────────────────
 
     async def run(self) -> tuple[IngestionResult, dict[str, Any]]:
         """Execute the full pipeline and return (result, metadata)."""
-        self._parse_query()
+        with self._performance.stage("parse_query"):
+            self._parse_query()
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
         await self._fetch_html_and_metadata()
         if self._parsed is None:
@@ -108,17 +112,24 @@ class IngestionOrchestrator:
         # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
         # offloaded so the event loop can advance other papers in batch mode.
         logger.info(f"[{self._query.arxiv_id}] Building IR from HTML (CPU-bound, may take a while)...")
-        await asyncio.to_thread(self._build_ir)
-        await asyncio.to_thread(self._enrich_metadata)
+        with self._performance.stage("build_ir"):
+            await asyncio.to_thread(self._build_ir)
+        with self._performance.stage("enrich_metadata"):
+            await asyncio.to_thread(self._enrich_metadata)
         logger.info(f"[{self._query.arxiv_id}] Running transform passes...")
-        await asyncio.to_thread(self._run_transforms)
-        await asyncio.to_thread(self._normalize_abstract)
+        with self._performance.stage("transform_ir"):
+            await asyncio.to_thread(self._run_transforms)
+        with self._performance.stage("normalize_abstract"):
+            await asyncio.to_thread(self._normalize_abstract)
         logger.info(f"[{self._query.arxiv_id}] Emitting markdown...")
-        await asyncio.to_thread(self._emit_markdown)
+        with self._performance.stage("emit_markdown"):
+            await asyncio.to_thread(self._emit_markdown)
         result = self._build_result()
         await self._save_paper_yml()
         structured_export = await self._structured_export()
         metadata = self._build_metadata(structured_export)
+        result.performance = self._performance.snapshot()
+        metadata["performance"] = result.performance
         return result, metadata
 
     # ── Step 0: Parse query ────────────────────────────────────────────
@@ -131,7 +142,9 @@ class IngestionOrchestrator:
         writes ``paper.md`` and downloads the PDF. Content conversion is
         impossible — there is nothing to parse.
         """
-        self._submission_date = self._api_metadata.get("submission_date")
+        self._submission_date = self._api_metadata.get("submission_date") or (
+            submission_date_from_new_style_arxiv_id(self._query.arxiv_id)
+        )
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
         title = self._api_metadata.get("title") or strip_version(self._query.arxiv_id)
 
@@ -208,6 +221,9 @@ class IngestionOrchestrator:
     # ── Step 3: Fetch API metadata ─────────────────────────────────────
 
     async def _fetch_api_metadata(self) -> None:
+        if not self._ingestion_cfg.fetch_arxiv_metadata:
+            self._api_metadata = {}
+            return
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
 
     async def _fetch_html_and_metadata(self) -> None:
@@ -246,6 +262,10 @@ class IngestionOrchestrator:
         self._submission_date = self._api_metadata.get("submission_date")
         if not self._submission_date and self._parsed is not None:
             self._submission_date = self._parsed.submission_date
+        if not self._submission_date:
+            # Metadata fetch disabled or date missing: derive YYYYMM from the
+            # arXiv id so output dir names stay stable (no "Unknown-Arxiv").
+            self._submission_date = submission_date_from_new_style_arxiv_id(self._query.arxiv_id)
 
         if self._parsed is not None and not self._parsed.title and self._api_metadata.get("title"):
             self._parsed.title = self._api_metadata["title"]

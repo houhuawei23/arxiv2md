@@ -46,6 +46,7 @@ output_naming:
   naming_scheme: arxiv-ym
 
 ingestion:
+  fetch_arxiv_metadata: false
   reference_section_titles:
     - references
     - bibliography

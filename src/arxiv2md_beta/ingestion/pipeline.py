@@ -106,6 +106,7 @@ async def ingest_paper(
             emit_graph_csv=emit_graph_csv,
             no_cache=not use_cache,
             download_pdf=False,
+            fetch_arxiv_metadata=False,
         )
         result, metadata = await IngestionOrchestrator(params).run()
 

@@ -63,3 +63,8 @@ DOWNLOAD_PDF_OPT = typer.Option(
     "--download-pdf/--skip-pdf-download",
     help="Download the arXiv PDF into the output directory (default: True).",
 )
+FETCH_METADATA_OPT = typer.Option(
+    False,
+    "--fetch-metadata",
+    help="Fetch optional arXiv API metadata (disabled by default).",
+)

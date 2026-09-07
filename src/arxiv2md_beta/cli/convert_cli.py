@@ -20,6 +20,7 @@ def apply_convert_cli_settings(
     include_anchors: bool | None = None,
     linked_citations: bool | None = None,
     naming_scheme: str | None = None,
+    fetch_arxiv_metadata: bool = False,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
 
@@ -65,6 +66,9 @@ def apply_convert_cli_settings(
             naming_scheme=naming_scheme,
         ),
     )
+    if fetch_arxiv_metadata:
+        ingestion = merged.ingestion.model_copy(update={"fetch_arxiv_metadata": True})
+        merged = merged.model_copy(update={"ingestion": ingestion})
     if no_progress:
         merged = merged.model_copy(
             update={
@@ -95,6 +99,7 @@ def make_convert_params(
     no_cache: bool = False,
     download_pdf: bool = True,
     linked_citations: bool = False,
+    fetch_arxiv_metadata: bool = False,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -117,4 +122,5 @@ def make_convert_params(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=linked_citations,
+        fetch_arxiv_metadata=fetch_arxiv_metadata,
     )

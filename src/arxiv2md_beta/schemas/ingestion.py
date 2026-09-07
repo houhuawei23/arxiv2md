@@ -19,3 +19,4 @@ class IngestionResult(BaseModel):
     content: str
     content_references: str | None = None
     content_appendix: str | None = None
+    performance: dict | None = None

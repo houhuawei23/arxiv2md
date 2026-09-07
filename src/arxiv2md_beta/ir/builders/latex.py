@@ -782,7 +782,7 @@ class LaTeXBuilder(IRBuilder):
             if kind == "eq":
                 blocks.append(
                     EquationIR(
-                        latex=cast(str, val),
+                        latex=cast("str", val),
                         source=_SHARED_SOURCE,
                         section_id=section_id,
                         order_index=order,
@@ -791,7 +791,7 @@ class LaTeXBuilder(IRBuilder):
             else:
                 blocks.append(
                     ParagraphIR(
-                        inlines=cast(list[InlineUnion], val),
+                        inlines=cast("list[InlineUnion]", val),
                         source=_SHARED_SOURCE,
                         section_id=section_id,
                         order_index=order,
