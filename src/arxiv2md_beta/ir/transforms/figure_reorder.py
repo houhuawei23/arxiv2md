@@ -71,25 +71,28 @@ class FigureReorderPass(IRPass):
                 if fig_id in figures and fig_id not in first_cite:
                     first_cite[fig_id] = block
 
-        # Move each figure to after its first citation
+        # Move each figure to after its first citation. Positions live in an
+        # identity-keyed dict, updated incrementally after each pop/insert —
+        # replaces the O(F×B) linear identity rescan per move.
+        pos: dict[int, int] = {id(b): i for i, b in enumerate(blocks)}
         for fig_id, figure in figures.items():
             para = first_cite.get(fig_id)
             if para is None:
                 continue
-            fig_idx = _index_of(blocks, figure)
-            para_idx = _index_of(blocks, para)
+            fig_idx = pos.get(id(figure))
+            para_idx = pos.get(id(para))
             if fig_idx is None or para_idx is None or para_idx >= fig_idx:
                 continue
             blocks.pop(fig_idx)
-            blocks.insert(para_idx + 1, figure)
-
-
-def _index_of(blocks: list, obj: object) -> int | None:
-    """Index of *obj* in *blocks* by identity (``list.index`` uses ``==``)."""
-    for i, block in enumerate(blocks):
-        if block is obj:
-            return i
-    return None
+            for bid, i in pos.items():
+                if i > fig_idx:
+                    pos[bid] = i - 1
+            insert_at = para_idx + 1
+            blocks.insert(insert_at, figure)
+            for bid, i in pos.items():
+                if bid != id(figure) and i >= insert_at:
+                    pos[bid] = i + 1
+            pos[id(figure)] = insert_at
 
 
 def _inlines_to_text(inlines: list) -> str:
