@@ -41,7 +41,6 @@ Builder.build → DocumentIR
 3. **Emitter**（`ir/emitters/`）：
    - `MarkdownEmitter`（`linked_citations` / `remove_inline_citations`）：未知类型 `raise EmitterError`。
    - `JsonEmitter`：`paper.{meta,document,assets,bib,graph}.json`，`SCHEMA_VERSION` 单一源。
-   - `PlainTextEmitter`：fail-fast。
 
 ## 后处理（单次）
 

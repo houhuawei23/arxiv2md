@@ -40,6 +40,7 @@ async def ingest_local_archive(
     sections: list[str] | None = None,
     structured_output: str = "none",
     emit_graph_csv: bool = False,
+    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a local archive file (tar.gz, tgz, or zip) and convert to Markdown.
 
@@ -88,7 +89,7 @@ async def ingest_local_archive(
             extract_local_archive,
             query.archive_path,
             output_dir=query.cache_dir / "extracted",
-            use_cache=True,
+            use_cache=use_cache,
         )
     except ArchiveExtractionError as e:
         raise LocalIngestionError(f"Failed to extract archive: {e}") from e

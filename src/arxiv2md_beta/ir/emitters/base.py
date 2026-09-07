@@ -11,7 +11,7 @@ class IREmitter(ABC):
     """Serialize a :class:`DocumentIR` to a target format.
 
     Subclasses implement :meth:`emit` for specific output formats
-    (Markdown, JSON, plain text, etc.).
+    (Markdown, JSON).
     """
 
     format_name: str = ""

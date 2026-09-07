@@ -183,6 +183,7 @@ async def _process_local_archive(params: ConvertParams) -> Path:
         sections=sections,
         structured_output=params.structured_output,
         emit_graph_csv=params.emit_graph_csv,
+        use_cache=not params.no_cache,
     )
 
     return await finalize_convert_output(
