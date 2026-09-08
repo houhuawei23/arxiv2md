@@ -178,6 +178,7 @@ async def _ingest_latex_archive(
         title,
         source=source,
         short=short,
+        identity=str(query.archive_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
 
@@ -290,6 +291,7 @@ async def _ingest_html_archive(
         title,
         source=source,
         short=short,
+        identity=str(query.archive_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name

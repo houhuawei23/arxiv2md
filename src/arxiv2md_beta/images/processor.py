@@ -19,6 +19,7 @@ from PIL import Image, ImageChops
 from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.concurrency import concurrency_slot
 from arxiv2md_beta.utils.progress import iterable_task_progress
 
 
@@ -245,22 +246,16 @@ async def process_images_async(
                 trim_tolerance=img_cfg.trim_whitespace_tolerance,
             )
             try:
-                if is_pdf:
-                    relative_path, original_filename = await loop.run_in_executor(
-                        process_pool,
-                        bound_func,
-                        source_path,
-                        images_dir,
-                        idx,
-                    )
-                else:
-                    relative_path, original_filename = await loop.run_in_executor(
-                        None,
-                        bound_func,
-                        source_path,
-                        images_dir,
-                        idx,
-                    )
+                async with concurrency_slot("images", img_cfg.global_max_concurrency):
+                    if is_pdf:
+                        async with concurrency_slot("pdf", img_cfg.global_pdf_concurrency):
+                            relative_path, original_filename = await loop.run_in_executor(
+                                process_pool, bound_func, source_path, images_dir, idx
+                            )
+                    else:
+                        relative_path, original_filename = await loop.run_in_executor(
+                            None, bound_func, source_path, images_dir, idx
+                        )
                 image_map[idx] = relative_path
                 filename_map[idx] = original_filename
                 source_to_outcome[source_path] = (relative_path, original_filename)
@@ -285,7 +280,13 @@ async def process_images_async(
             task = asyncio.create_task(_process_one(idx, source_path))
             task.add_done_callback(lambda _f: advance())
             tasks.append(task)
-        await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     # Rebuild the figure-index map in float-figure order so ar5iv xN.png names
     # (and positional figure_index fallback) resolve to the correct file.

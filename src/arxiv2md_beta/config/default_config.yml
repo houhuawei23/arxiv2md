@@ -15,6 +15,8 @@ http:
   metadata_timeout_s: 90.0
   # Global client-side request rate limit. 0 disables client-side throttling.
   max_requests_per_second: 0.0
+  # Concurrent requests across all papers in a batch.
+  max_concurrent_requests: 16
 
 cache:
   # User-wide cache (not cwd); default ~/.cache/arxiv2md-beta. Relative values resolve under XDG cache.
@@ -70,6 +72,9 @@ images:
   disable_tqdm: false
   # Concurrent image tasks per paper.
   max_concurrency: 4
+  # Global image/PDF limits shared by all papers in a batch.
+  global_max_concurrency: 12
+  global_pdf_concurrency: 4
   # PDF→PNG process-pool workers, shared across a batch (0 = auto: min(4, cpus/2)).
   pdf_workers: 0
 

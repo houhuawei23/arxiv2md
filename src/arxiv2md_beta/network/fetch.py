@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from aiofiles import open as aio_open
 from loguru import logger
 
 from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
-from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client
+from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -26,7 +27,7 @@ async def _async_write_atomic(path: Path, content: str, encoding: str = "utf-8")
     (or overwrites) a half-written cache entry. The ``.part`` file is removed
     if the write or rename fails.
     """
-    tmp_path = path.with_name(path.name + ".part")
+    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.part")
     try:
         await async_write_text(tmp_path, content, encoding=encoding)
         tmp_path.replace(path)
@@ -83,7 +84,8 @@ async def _fetch_with_retries(url: str) -> str:
     for attempt in range(h.fetch_max_retries + 1):
         try:
             await acquire_rate_slot()
-            response = await client.get(url)
+            async with http_request_slot():
+                response = await client.get(url)
 
             if response.status_code == 404:
                 # Deterministic: a second request will also 404. The ar5iv
@@ -185,7 +187,7 @@ async def fetch_arxiv_pdf(
     for attempt in range(h.fetch_max_retries + 1):
         try:
             await acquire_rate_slot()
-            async with client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
+            async with http_request_slot(), client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
                 if response.status_code == 404:
                     # Deterministic: retrying cannot conjure the PDF.
                     raise NonRetryableNetworkError(f"PDF not found at {pdf_url}")
@@ -202,19 +204,22 @@ async def fetch_arxiv_pdf(
                     total_size = int(response.headers.get("content-length", 0))
                     # Write to a temp sibling then rename so a concurrent
                     # conversion never sees (or overwrites) a half-written cache.
-                    tmp_path = cache_path.with_name(cache_path.name + ".part")
-                    async with (
-                        async_byte_download_progress(
-                            "Downloading PDF",
-                            total_size if total_size > 0 else None,
-                            disable=disable_tqdm,
-                        ) as advance,
-                        aio_open(tmp_path, "wb") as f,
-                    ):
-                        async for chunk in response.aiter_bytes():
-                            await f.write(chunk)
-                            advance(len(chunk))
-                    tmp_path.replace(cache_path)
+                    tmp_path = cache_path.with_name(f"{cache_path.name}.{uuid.uuid4().hex}.part")
+                    try:
+                        async with (
+                            async_byte_download_progress(
+                                "Downloading PDF",
+                                total_size if total_size > 0 else None,
+                                disable=disable_tqdm,
+                            ) as advance,
+                            aio_open(tmp_path, "wb") as f,
+                        ):
+                            async for chunk in response.aiter_bytes():
+                                await f.write(chunk)
+                                advance(len(chunk))
+                        tmp_path.replace(cache_path)
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
 
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(cache_path, output_path)

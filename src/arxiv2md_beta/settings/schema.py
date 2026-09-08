@@ -26,6 +26,7 @@ class HttpSection(BaseModel):
     large_transfer_timeout_multiplier: float = Field(gt=0)
     max_connections: int = Field(default=100, ge=1, description="httpx connection pool size")
     max_keepalive_connections: int = Field(default=20, ge=0, description="httpx keep-alive limit")
+    max_concurrent_requests: int = Field(default=16, ge=1, description="Global concurrent HTTP request limit")
     metadata_timeout_s: float = Field(
         default=90.0,
         gt=0,
@@ -126,6 +127,16 @@ class ImagesSection(BaseModel):
         default=4,
         ge=1,
         description="Maximum concurrent image tasks per paper (raster + PDF conversions).",
+    )
+    global_max_concurrency: int = Field(
+        default=12,
+        ge=1,
+        description="Maximum image processing tasks across all papers.",
+    )
+    global_pdf_concurrency: int = Field(
+        default=4,
+        ge=1,
+        description="Maximum PDF rasterization jobs submitted across all papers.",
     )
     pdf_workers: int = Field(
         default=0,

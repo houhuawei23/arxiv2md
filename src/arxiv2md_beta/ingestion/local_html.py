@@ -62,6 +62,7 @@ async def ingest_local_html(
         title,
         source=source or query.source,
         short=short,
+        identity=str(query.html_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
     images_dir = paper_output_dir / images_dir_name

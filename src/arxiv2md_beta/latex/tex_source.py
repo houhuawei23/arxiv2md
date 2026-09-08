@@ -7,6 +7,7 @@ import gzip
 import re
 import shutil
 import tarfile
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,7 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
-from arxiv2md_beta.network.http import get_http_client
+from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -38,6 +39,19 @@ class TexSourceNotFoundError(NetworkError):
     """Raised when TeX source is not available (HTTP 404 or download exhausted)."""
 
     pass
+
+
+def _safe_archive_target(output_dir: Path, member_name: str) -> Path:
+    """Return a normalized extraction target contained by *output_dir*."""
+    if not member_name or Path(member_name).is_absolute():
+        raise ArchiveExtractionError(f"Archive contains suspicious path: {member_name}")
+    root = output_dir.resolve()
+    target = (root / member_name).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ArchiveExtractionError(f"Archive contains suspicious path: {member_name}") from exc
+    return target
 
 
 class ImageExtractionError(ImageProcessingError):
@@ -240,12 +254,11 @@ def _extract_zip_archive(archive_path: Path, output_dir: Path) -> None:
     try:
         with zipfile.ZipFile(archive_path, "r") as zip_ref:
             # Check for potential zip bomb / path traversal
-            for member in zip_ref.namelist():
-                member_path = output_dir / member
-                try:
-                    member_path.relative_to(output_dir.resolve())
-                except ValueError as e:
-                    raise ArchiveExtractionError(f"Archive contains suspicious path: {member}") from e
+            for member in zip_ref.infolist():
+                _safe_archive_target(output_dir, member.filename)
+                unix_mode = member.external_attr >> 16
+                if (unix_mode & 0o170000) == 0o120000:
+                    raise ArchiveExtractionError(f"Archive contains symbolic link: {member.filename}")
 
             zip_ref.extractall(output_dir)
         logger.info(f"Extracted ZIP archive to {output_dir}")
@@ -282,13 +295,14 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
             # tar.gz archive
             with tarfile.open(archive_path, "r:gz") as tar:
                 # Security: check for path traversal
-                for member in tar.getmembers():
-                    member_path = output_dir / member.name
-                    try:
-                        member_path.relative_to(output_dir.resolve())
-                    except ValueError as e:
-                        raise ArchiveExtractionError(f"Archive contains suspicious path: {member.name}") from e
-                tar.extractall(output_dir)
+                members = tar.getmembers()
+                for member in members:
+                    _safe_archive_target(output_dir, member.name)
+                    if member.issym() or member.islnk():
+                        raise ArchiveExtractionError(f"Archive contains link: {member.name}")
+                    if not (member.isfile() or member.isdir()):
+                        raise ArchiveExtractionError(f"Archive contains unsupported member: {member.name}")
+                tar.extractall(output_dir, members=members)
         logger.info(f"Extracted tar archive to {output_dir}")
     except tarfile.TarError as e:
         raise ArchiveExtractionError(f"Invalid tar file: {e}") from e
@@ -307,7 +321,8 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
     client = get_http_client()
     for attempt in range(h.fetch_max_retries + 1):
         try:
-            async with client.stream("GET", url, timeout=timeout) as response:
+            await acquire_rate_slot()
+            async with http_request_slot(), client.stream("GET", url, timeout=timeout) as response:
                 if response.status_code == 404:
                     raise TexSourceNotFoundError(
                         f"TeX source not found at {url}. This paper may not have TeX source available."
@@ -337,7 +352,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
 
                     # Write to a temp sibling then rename so a concurrent
                     # conversion never sees (or overwrites) a half-written cache.
-                    tmp_path = output_path.with_name(output_path.name + ".part")
+                    tmp_path = output_path.with_name(f"{output_path.name}.{uuid.uuid4().hex}.part")
                     async with (
                         async_byte_download_progress(
                             "Downloading TeX source",
@@ -356,13 +371,16 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                     def _is_pdf(path: Path = tmp_path) -> bool:
                         return path.read_bytes()[:5] == b"%PDF-"
 
-                    if await asyncio.to_thread(_is_pdf):
-                        raise TexSourceNotFoundError(
-                            f"TeX source not available for this paper "
-                            f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
-                        )
-                    tmp_path.replace(output_path)
-                    return
+                    try:
+                        if await asyncio.to_thread(_is_pdf):
+                            raise TexSourceNotFoundError(
+                                f"TeX source not available for this paper "
+                                f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
+                            )
+                        tmp_path.replace(output_path)
+                        return
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
         except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
             last_exc = exc
 

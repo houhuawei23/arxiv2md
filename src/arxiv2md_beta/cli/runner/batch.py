@@ -64,7 +64,7 @@ async def run_batch_flow(
     Comment lines and blank lines yield ``(line, None, None)``.
     """
     async with async_timed_operation("run_batch_flow"):
-        sem = asyncio.Semaphore(max(1, max_concurrency))
+        worker_count = max(1, max_concurrency)
         # --fail-fast: stop scheduling new conversions after the first failure
         # (in-flight ones finish); conversions already admitted past the
         # semaphore complete normally.
@@ -77,27 +77,41 @@ async def run_batch_flow(
             if stop_event is not None and stop_event.is_set():
                 return (stripped, "skipped: an earlier conversion failed", None)
             merged = merge_convert_params(params_template, stripped)
-            async with sem:
-                if stop_event is not None and stop_event.is_set():
-                    return (stripped, "skipped: an earlier conversion failed", None)
-                # Sleep inside the semaphore so concurrent tasks actually space
-                # out their network bursts (outside it, everyone sleeps in
-                # parallel and the delay has no rate-limiting effect).
-                if delay_seconds > 0 and index > 0:
-                    await asyncio.sleep(delay_seconds)
-                try:
-                    out = await run_convert_flow(merged)
-                    return (stripped, None, str(out.resolve()))
-                except (Arxiv2mdError, OSError) as exc:
-                    if stop_event is not None:
-                        stop_event.set()
-                    return (stripped, str(exc), None)
-                except Exception as exc:
-                    # Unexpected errors (unwrapped httpx bugs, etc.) must not
-                    # escape gather() and cancel sibling conversions.
-                    if stop_event is not None:
-                        stop_event.set()
-                    return (stripped, f"{type(exc).__name__}: {exc}", None)
+            if stop_event is not None and stop_event.is_set():
+                return (stripped, "skipped: an earlier conversion failed", None)
+            if delay_seconds > 0 and index > 0:
+                await asyncio.sleep(delay_seconds)
+            try:
+                out = await run_convert_flow(merged)
+                return (stripped, None, str(out.resolve()))
+            except (Arxiv2mdError, OSError) as exc:
+                if stop_event is not None:
+                    stop_event.set()
+                return (stripped, str(exc), None)
+            except Exception as exc:
+                if stop_event is not None:
+                    stop_event.set()
+                return (stripped, f"{type(exc).__name__}: {exc}", None)
 
-        tasks = [run_one(line, i) for i, line in enumerate(lines)]
-        return list(await asyncio.gather(*tasks))
+        queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue(maxsize=worker_count)
+        results: list[tuple[str, str | None, str | None] | None] = [None] * len(lines)
+
+        async def worker() -> None:
+            while True:
+                item = await queue.get()
+                try:
+                    if item is None:
+                        return
+                    index, line = item
+                    results[index] = await run_one(line, index)
+                finally:
+                    queue.task_done()
+
+        workers = [asyncio.create_task(worker()) for _ in range(worker_count)]
+        for index, line in enumerate(lines):
+            await queue.put((index, line))
+        for _ in workers:
+            await queue.put(None)
+        await queue.join()
+        await asyncio.gather(*workers)
+        return [result for result in results if result is not None]

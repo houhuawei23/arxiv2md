@@ -145,13 +145,29 @@ def create_paper_output_dir(
     short: str | None = None,
     *,
     settings: AppSettings | None = None,
+    identity: str | None = None,
 ) -> Path:
     """Create output directory for paper with format [date]-[source]-[short]-[title]."""
     s = settings or get_settings()
     dir_name = build_output_basename(submission_date, title, source, short, settings=s)
     output_dir = base_output_dir / dir_name
+    marker = output_dir / ".arxiv2md-paper"
+    if identity and output_dir.exists() and marker.exists():
+        existing_identity = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if existing_identity and existing_identity != identity:
+            output_dir = base_output_dir / f"{dir_name}-{_stable_collision_suffix(identity)}"
+            marker = output_dir / ".arxiv2md-paper"
     output_dir.mkdir(parents=True, exist_ok=True)
+    if identity and not marker.exists():
+        marker.write_text(identity + "\n", encoding="utf-8")
     return output_dir
+
+
+def _stable_collision_suffix(identity: str) -> str:
+    """Generate a deterministic short suffix for an occupied output name."""
+    import hashlib
+
+    return hashlib.sha256(identity.encode()).hexdigest()[:8]
 
 
 def determine_images_dir(settings: AppSettings | None = None) -> str:

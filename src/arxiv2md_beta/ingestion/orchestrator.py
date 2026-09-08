@@ -101,7 +101,14 @@ class IngestionOrchestrator:
         # overlaps the HTML fetch + parse phase instead of serializing after it.
         tex_task = self._start_tex_fetch()
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
-        await self._fetch_html_and_metadata()
+        try:
+            await self._fetch_html_and_metadata()
+        except asyncio.CancelledError:
+            if tex_task is not None:
+                tex_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await tex_task
+            raise
         if self._parsed is None:
             # PDF-only paper (no HTML rendering anywhere): still produce the
             # output directory, paper.yml, a stub paper.md, and let finalize
@@ -166,6 +173,7 @@ class IngestionOrchestrator:
             title,
             source=self.params.source,
             short=self.params.short,
+            identity=self._query.arxiv_id,
         )
 
         summary_lines = [f"# Title: {title}", f"- ArXiv: {self._query.arxiv_id}"]
@@ -309,6 +317,7 @@ class IngestionOrchestrator:
             self._parsed.title,
             source=self.params.source,
             short=self.params.short,
+            identity=self._query.arxiv_id,
         )
         self._images_dir = self._paper_output_dir / self._images_dir_name
         self._images_dir.mkdir(parents=True, exist_ok=True)

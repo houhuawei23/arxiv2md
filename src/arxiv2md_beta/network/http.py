@@ -11,6 +11,7 @@ from typing import TypeVar
 import httpx
 
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.concurrency import concurrency_slot
 
 _client: httpx.AsyncClient | None = None
 # Global client-side token bucket (single token per interval). Created lazily
@@ -108,6 +109,13 @@ async def acquire_rate_slot() -> None:
         _rate_next_slot = max(now, _rate_next_slot) + interval
     if wait > 0:
         await asyncio.sleep(wait)
+
+
+@asynccontextmanager
+async def http_request_slot() -> AsyncIterator[None]:
+    """Limit in-flight HTTP requests across concurrent paper pipelines."""
+    async with concurrency_slot("http", get_settings().http.max_concurrent_requests):
+        yield
 
 
 def run_async(coro: Awaitable[T]) -> T:

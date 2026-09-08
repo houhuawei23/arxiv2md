@@ -125,7 +125,12 @@ async def _ingest_paper_latex_impl(
     from arxiv2md_beta.output.layout import create_paper_output_dir
 
     paper_output_dir = create_paper_output_dir(
-        base_output_dir, cast("str | None", submission_date), cast("str | None", title), source=source, short=short
+        base_output_dir,
+        cast("str | None", submission_date),
+        cast("str | None", title),
+        source=source,
+        short=short,
+        identity=arxiv_id,
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
 
