@@ -77,6 +77,7 @@ class TestFetchArxivHtml:
     async def test_fetch_404_raises_network_error(self, tmp_path, monkeypatch):
         """Test that 404 raises NetworkError."""
         from arxiv2md_beta import settings as settings_module
+        from arxiv2md_beta.network import fetch as fetch_module
 
         monkeypatch.setattr(
             settings_module,
@@ -90,6 +91,9 @@ class TestFetchArxivHtml:
                 },
             )(),
         )
+        # Minimal fake settings above have no mirror config; disable the
+        # mirror so this test stays focused on the 404 → NetworkError path.
+        monkeypatch.setattr(fetch_module, "to_export_mirror", lambda *a, **k: None)
 
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
@@ -302,9 +306,13 @@ class TestFetch404NoRetry:
 
     @pytest.mark.asyncio
     async def test_html_404_makes_exactly_one_request(self, tmp_path, monkeypatch):
+        """404 is not retried on the same host; the export mirror gets one try."""
         self._mock_settings(tmp_path, monkeypatch)
         with respx.mock:
             route = respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            route_mirror = respx.get("https://export.arxiv.org/html/2501.12345").mock(
                 return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
             with pytest.raises(NetworkError) as exc_info:
@@ -316,13 +324,17 @@ class TestFetch404NoRetry:
                 )
             assert "does not have an HTML version" in str(exc_info.value)
             assert route.call_count == 1
+            assert route_mirror.call_count == 1
 
     @pytest.mark.asyncio
     async def test_html_404_falls_back_to_ar5iv_single_attempt_each(self, tmp_path, monkeypatch):
-        """Both arXiv and ar5iv 404: exactly one request per URL, error chained."""
+        """arXiv, export mirror, and ar5iv each get exactly one request; error chained."""
         self._mock_settings(tmp_path, monkeypatch)
         with respx.mock:
             route_main = respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            route_mirror = respx.get("https://export.arxiv.org/html/2501.12345").mock(
                 return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
             route_ar5iv = respx.get("https://ar5iv.labs.arxiv.org/html/2501.12345").mock(
@@ -338,6 +350,7 @@ class TestFetch404NoRetry:
                 )
             assert "does not have an HTML version" in str(exc_info.value)
             assert route_main.call_count == 1
+            assert route_mirror.call_count == 1
             assert route_ar5iv.call_count == 1
             assert exc_info.value.__cause__ is not None
 
@@ -347,6 +360,9 @@ class TestFetch404NoRetry:
         self._mock_settings(tmp_path, monkeypatch)
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            respx.get("https://export.arxiv.org/html/2501.12345").mock(
                 return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
             with pytest.raises(NetworkError):
@@ -385,3 +401,81 @@ class TestAtomicCacheWrite:
         cache_files = [p.name for p in tmp_path.rglob("*") if p.is_file()]
         assert cache_files == ["source.html"]
         assert not list(tmp_path.rglob("*.part"))
+
+
+class TestExportMirror:
+    """export.arxiv.org mirror fallback for arxiv.org 404 / rate-limit."""
+
+    def _mock_cache(self, monkeypatch, tmp_path):
+        from arxiv2md_beta.network import fetch as fetch_module
+
+        monkeypatch.setattr(
+            fetch_module,
+            "_cache_dir_for",
+            lambda arxiv_id, version: tmp_path / f"{arxiv_id}__{version or 'latest'}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_html_404_mirror_success(self, tmp_path, monkeypatch):
+        """arxiv.org 404 → export mirror serves the HTML."""
+        self._mock_cache(monkeypatch, tmp_path)
+        with respx.mock:
+            respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            route_mirror = respx.get("https://export.arxiv.org/html/2501.12345").mock(
+                return_value=Response(
+                    200,
+                    text="<html>Mirror content</html>",
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            html = await fetch_arxiv_html(
+                "https://arxiv.org/html/2501.12345",
+                arxiv_id="2501.12345",
+                version=None,
+                use_cache=False,
+            )
+            assert "Mirror content" in html
+            assert route_mirror.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_mirror_disabled_no_mirror_request(self, tmp_path, monkeypatch):
+        """urls.arxiv_mirror_host = '' disables mirror retries entirely."""
+        from types import SimpleNamespace
+
+        from arxiv2md_beta.network import fetch as fetch_module
+        from arxiv2md_beta.network import mirror as mirror_module
+
+        self._mock_cache(monkeypatch, tmp_path)
+        fake = SimpleNamespace(
+            urls=SimpleNamespace(arxiv_host="arxiv.org", arxiv_mirror_host=""),
+            http=SimpleNamespace(mirror_on_404=False, mirror_on_rate_limit=False),
+        )
+        monkeypatch.setattr(mirror_module, "get_settings", lambda: fake)
+        monkeypatch.setattr(fetch_module, "to_export_mirror", mirror_module.to_export_mirror)
+        monkeypatch.setattr(fetch_module, "mirror_worth_try", mirror_module.mirror_worth_try)
+        with respx.mock:
+            route = respx.get("https://arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
+            route_mirror = respx.get("https://export.arxiv.org/html/2501.12345")
+            with pytest.raises(NetworkError):
+                await fetch_arxiv_html(
+                    "https://arxiv.org/html/2501.12345",
+                    arxiv_id="2501.12345",
+                    version=None,
+                    use_cache=False,
+                )
+            assert route.call_count == 1
+            assert not route_mirror.called
+
+    def test_to_export_mirror_non_arxiv_host(self):
+        from arxiv2md_beta.network.mirror import to_export_mirror
+
+        assert to_export_mirror("https://ar5iv.labs.arxiv.org/html/2501.12345") is None
+
+    def test_mirror_worth_try_non_network_error(self):
+        from arxiv2md_beta.network.mirror import mirror_worth_try
+
+        assert not mirror_worth_try(ValueError("nope"))

@@ -19,10 +19,12 @@ from arxiv2md_beta.cli.convert_cli import (
     make_convert_params,
 )
 from arxiv2md_beta.cli.options import (
+    ALLOW_STUB_OPT,
     DOWNLOAD_PDF_OPT,
     EMIT_GRAPH_CSV_OPT,
     EMIT_RESULT_JSON_OPT,
     FETCH_METADATA_OPT,
+    FORCE_OPT,
     INCLUDE_ANCHORS_OPT,
     INCLUDE_TREE_OPT,
     LINKED_CITATIONS_OPT,
@@ -162,6 +164,8 @@ def convert_cmd(
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
     fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
+    force: bool = FORCE_OPT,
+    allow_stub: bool = ALLOW_STUB_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -198,6 +202,8 @@ def convert_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
+        force=force,
+        allow_stub=allow_stub,
     )
     try:
         run_convert_sync(params)
@@ -259,6 +265,8 @@ def batch_cmd(
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
     fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
+    force: bool = FORCE_OPT,
+    allow_stub: bool = ALLOW_STUB_OPT,
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -293,6 +301,8 @@ def batch_cmd(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=eff.linked_citations,
+        force=force,
+        allow_stub=allow_stub,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:
@@ -314,14 +324,12 @@ def batch_cmd(
     table.add_column("detail", overflow="fold")
 
     any_err = False
-    for inp, err, pdir in results:
+    for inp, err, pdir, status in results:
         if err:
             any_err = True
             table.add_row(inp, "error", err)
-        elif pdir is None:
-            table.add_row(inp, "skip", "")
         else:
-            table.add_row(inp, "ok", pdir)
+            table.add_row(inp, status, pdir or "")
 
     Console(stderr=False).print(table)
     if any_err:
@@ -544,6 +552,9 @@ def bibtex_cmd(
 
 def main() -> None:
     """Console script entry (see ``pyproject.toml`` ``project.scripts``)."""
+    from arxiv2md_beta.cli.search_cmd import search_cmd as _search_cmd
+
+    app.command("search")(_search_cmd)
     try:
         app()
     except KeyboardInterrupt:

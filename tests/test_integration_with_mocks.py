@@ -6,6 +6,9 @@ testing without network dependencies.
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import AsyncMock
+
 import pytest
 import respx
 from httpx import Response
@@ -40,6 +43,9 @@ class TestHtmlFetching:
             respx.get("https://arxiv.org/html/2501.99999").mock(
                 return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
+            respx.get("https://export.arxiv.org/html/2501.99999").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
+            )
 
             from arxiv2md_beta.exceptions import NetworkError
 
@@ -63,6 +69,10 @@ class TestHtmlFetching:
                     text="does not have an HTML version",
                     headers={"content-type": "text/html; charset=utf-8"},
                 )
+            )
+            # Mirror gets one try too (404 here, ar5iv still succeeds below)
+            respx.get("https://export.arxiv.org/html/2501.12345").mock(
+                return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
             )
             # Make ar5iv return success
             respx.get("https://ar5iv.org/html/2501.12345").mock(
@@ -175,3 +185,68 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     bundle = JsonEmitter(mode="full").write_bundle(doc, tmp_path, images_subdir="images", emit_graph_csv=False)
     assert "paper.meta.json" in bundle.get("paths", {})
     assert (tmp_path / "paper.meta.json").is_file()
+
+
+class TestPdfFallback:
+    """TeX failure → PDF download fallback (playbook兜底链, exit 7)."""
+
+    @pytest.mark.asyncio
+    async def test_tex_failure_downloads_pdf_and_raises_exit7(self, tmp_path, monkeypatch):
+        from arxiv2md_beta.cli.params import ConvertParams
+        from arxiv2md_beta.cli.runner.convert import run_convert_flow
+        from arxiv2md_beta.exceptions import PdfFallbackCompleted
+        from arxiv2md_beta.network import fetch as fetch_module
+        from arxiv2md_beta.output.manifest import read_paper_manifest
+
+        monkeypatch.setattr(
+            fetch_module,
+            "_cache_dir_for",
+            lambda arxiv_id, version: tmp_path / "cache",
+        )
+
+        async def fake_pdf(arxiv_id, output_path, version=None, use_cache=True):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"%PDF-1.4 fake")
+            return output_path
+
+        monkeypatch.setattr(
+            "arxiv2md_beta.network.fetch.fetch_arxiv_pdf",
+            fake_pdf,
+        )
+
+        async def raise_tex_error(*args, **kwargs):
+            from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError
+
+            raise TexSourceNotFoundError("Invalid tar file: invalid header")
+
+        monkeypatch.setattr(
+            "arxiv2md_beta.cli.runner.convert._ingest_arxiv_latex",
+            AsyncMock(side_effect=raise_tex_error),
+        )
+
+        params = ConvertParams(
+            input_text="2311.15127",
+            parser="latex",
+            output=str(tmp_path),
+            source="Arxiv",
+            short=None,
+            no_images=True,
+            remove_refs=False,
+            remove_inline_citations=False,
+            section_filter_mode="exclude",
+            sections=None,
+            section=None,
+            include_tree=False,
+        )
+        with pytest.raises(PdfFallbackCompleted) as exc_info:
+            await run_convert_flow(params)
+        assert exc_info.value.exit_code == 7
+
+        paper_dir = Path(exc_info.value.paper_output_dir)
+        pdfs = list(paper_dir.glob("*.pdf"))
+        assert pdfs and pdfs[0].read_bytes().startswith(b"%PDF")
+        # No Markdown written: the directory must not look like a completed conversion.
+        assert not list(paper_dir.glob("*.md"))
+        manifest = read_paper_manifest(paper_dir)
+        assert manifest is not None
+        assert manifest["status"] == "pdf_fallback"

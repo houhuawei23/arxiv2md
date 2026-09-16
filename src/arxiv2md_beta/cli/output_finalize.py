@@ -12,6 +12,8 @@ import httpx
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.output.layout import FIXED_INTERNAL_SCHEMES, build_output_basename
+from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
+from arxiv2md_beta.output.quality_gate import ensure_not_stub, is_stub
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
@@ -147,6 +149,10 @@ async def finalize_convert_output(
         include_tree=params.include_tree,
     )
 
+    # Quality gate before any disk writes (including the PDF download task
+    # below) so a rejected stub leaves no half-written artifacts behind.
+    ensure_not_stub(output_text, settings=s, allow_stub=params.allow_stub)
+
     if naming_scheme in FIXED_INTERNAL_SCHEMES:
         output_filename = "paper.md"
     elif submission_date and title:
@@ -170,6 +176,7 @@ async def finalize_convert_output(
     # PDF download is independent of the markdown writes — run concurrently
     # and re-raise-safely below before the summary.
     pdf_task: asyncio.Task | None = None
+    resolved_pdf_path: Path | None = None
     if pdf_fetch is not None and params.download_pdf:
         arxiv_id, version = pdf_fetch
         if naming_scheme in FIXED_INTERNAL_SCHEMES:
@@ -177,6 +184,7 @@ async def finalize_convert_output(
         else:
             pdf_filename = Path(output_filename).with_suffix(".pdf").name
         pdf_path = paper_output_dir / pdf_filename
+        resolved_pdf_path = pdf_path
 
         async def _download_pdf() -> None:
             try:
@@ -193,6 +201,24 @@ async def finalize_convert_output(
 
     if pdf_task is not None:
         await pdf_task
+
+    # Self-describing artifact: id/title/size/timing for downstream consistency
+    # checks (batch manifests aggregate these).
+    manifest_status = "allowed_stub" if params.allow_stub and is_stub(output_text, settings=s) else "ok"
+    manifest = build_paper_manifest(
+        arxiv_id=metadata.get("arxiv_id"),
+        title=title,
+        submission_date=submission_date,
+        source_url=metadata.get("urls", {}).get("abstract") if isinstance(metadata.get("urls"), dict) else None,
+        pdf_path=str(resolved_pdf_path) if resolved_pdf_path is not None else None,
+        markdown_file=output_filename,
+        output_text=output_text,
+        parser=params.parser,
+        naming_scheme=naming_scheme,
+        duration_seconds=(result.performance or {}).get("total_seconds"),
+        status=manifest_status,
+    )
+    write_paper_manifest(paper_output_dir, manifest)
 
     if log_local_success:
         logger.info("Local archive processed successfully (no PDF download for local archives)")

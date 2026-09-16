@@ -170,6 +170,57 @@ def _stable_collision_suffix(identity: str) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()[:8]
 
 
+def identity_for_arxiv_id(arxiv_id: str) -> str:
+    """Canonical identity written to ``.arxiv2md-paper`` for arXiv inputs.
+
+    Must stay in sync with the ``identity=`` values passed at the ingestion
+    call sites (orchestrator / latex / local / local_html) — the idempotency
+    pre-check matches against exactly these strings.
+    """
+    return arxiv_id
+
+
+def identity_for_local_path(path) -> str:
+    """Canonical identity for local HTML/archive inputs (resolved path)."""
+    return str(Path(path).resolve())
+
+
+def find_completed_output_dir(base_output_dir: Path, identity: str) -> Path | None:
+    """Return the output directory where ``identity`` was already converted.
+
+    A directory counts as completed when its ``.arxiv2md-paper`` marker exists
+    and matches ``identity`` (an empty marker counts as a match) and the
+    directory contains at least one non-empty ``.md`` file. Directories
+    without a marker are never adopted — an unrelated directory that happens
+    to contain Markdown must not swallow a conversion. Returns None otherwise.
+
+    Used by the convert runner to skip re-ingestion (resume / idempotency);
+    ``--force`` bypasses the check.
+    """
+    if not base_output_dir.exists():
+        return None
+    for entry in base_output_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        marker = entry / ".arxiv2md-paper"
+        if not marker.exists():
+            continue
+        existing = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if existing and existing != identity:
+            continue
+        if _has_nonempty_markdown(entry):
+            return entry
+    return None
+
+
+def _has_nonempty_markdown(directory: Path) -> bool:
+    """True when ``directory`` contains at least one ``.md`` file with size > 0."""
+    try:
+        return any(p.is_file() and p.suffix.lower() == ".md" and p.stat().st_size > 0 for p in directory.iterdir())
+    except OSError:
+        return False
+
+
 def determine_images_dir(settings: AppSettings | None = None) -> str:
     """Return configured images subdirectory name (e.g. ``images``)."""
     s = settings or get_settings()

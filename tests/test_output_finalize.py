@@ -112,7 +112,9 @@ def test_emit_result_json_line_disabled(capsys: pytest.CaptureFixture[str]) -> N
 async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
     from arxiv2md_beta.cli.output_finalize import finalize_convert_output
 
-    result = IngestionResult(summary="Sum", sections_tree="", content="Body")
+    # Body above the stub quality-gate thresholds (stub_min_bytes=5000).
+    body = "Real body content. " * 400
+    result = IngestionResult(summary="Sum", sections_tree="", content=body)
     meta = {
         "submission_date": "20200101",
         "title": "Hello World Title Here",

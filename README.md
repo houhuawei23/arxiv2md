@@ -116,10 +116,20 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--include-anchors` / `--no-include-anchors` | 输出 `<a id="...">` 锚点（仅在显式传参时覆盖 YAML/env 配置） | 配置中 `output.include_anchors` |
 | `--linked-citations` / `--no-linked-citations` | 内联引用渲染为 `[N](#ref-N)` 链接 | 配置中 `output.linked_citations` |
 | `--naming-scheme` | 输出命名方案：`arxiv-ym` / `paper-pipeline` / `classic` | 配置中 `output_naming.naming_scheme` |
+| `--force`, `-f` | 忽略幂等检查，强制重新转换 | 关闭 |
+| `--allow-stub` | 内容低于 stub 阈值时仍写出（默认报错，退出码 5） | 关闭 |
+
+**幂等 / 断点续传**：转换前会扫描输出目录下 `.arxiv2md-paper` 标记，若该论文（identity = arXiv ID，含版本号）已有完成的转换（含非空 Markdown）则直接跳过。重跑同一 `batch` 清单即可断点续传。
+
+**stub 质量门**：写 `paper.md` 前校验内容字节数（`output.stub_min_bytes`，默认 5000）与 token 数（`output.stub_min_tokens`，默认 1000），不达标抛 `EmptyContentError`（退出码 5），`--allow-stub` 放行。
+
+**TeX 失败 PDF 兜底**（`--parser latex`）：TeX 源损坏/缺失时自动下载 arXiv PDF 到输出目录并提示 mineru-parse 命令，退出码 7（`PdfFallbackCompleted`）；不写 Markdown。
+
+**退出码**：`0` 成功 | `1` 未分类失败 | `2` 输入错误 | `3` 下载失败 / ID 不存在 | `4` 解析转换失败 | `5` 空内容（stub）被拒 | `6` 存储/图片失败 | `7` PDF 兜底完成（无 Markdown） | `130` 用户中断。
 
 ### 命令行参数（`batch`）
 
-与 `convert` 使用相同的解析与输出相关选项（`--parser`、`--output`、`--no-images`、`--structured-output` 等）。额外参数：
+与 `convert` 使用相同的解析与输出相关选项（`--parser`、`--output`、`--no-images`、`--structured-output`、`--force`、`--allow-stub` 等）。额外参数：
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -128,7 +138,23 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 | `--delay-seconds` | 从第二条任务起，每条任务开始前休眠的秒数（礼貌限流） | `0` |
 | `--fail-fast` | 遇到首个错误即停止；默认处理完所有行并汇总 | 关闭 |
 
-结束时在终端打印 Rich 汇总表；若有任一项失败，进程退出码为 `1`。请合理设置并发，避免对 arXiv 造成过大压力。
+结束时在终端打印 Rich 汇总表（status：`ok` / `error` / `skip-done` 已完成跳过 / `duplicate` 重复行去重 / `pdf-fallback`）；重复 ID 只转换一次。若有任一项失败，进程退出码为 `1`。请合理设置并发，避免对 arXiv 造成过大压力。
+
+### 产物自描述 manifest
+
+- **每篇论文目录**内写 `paper.manifest.json`：arXiv ID、标题、来源 URL、PDF 路径、字数/字节/token 估算、耗时、状态（`ok` / `allowed_stub` / `pdf_fallback`）、工具版本。
+- **batch 结束后**在输出根增量维护 `download_manifest.json`（totals + entries，原子重写）；中断后重跑会预填已完成条目并只重试其余。
+
+### `search` 子命令
+
+转换前核对 arXiv ID（不要凭记忆写 ID）：
+
+```bash
+arxiv2md-beta search "fourier neural operator" --field ti --max-results 5
+arxiv2md-beta search "attention is all you need" --author Vaswani --json
+```
+
+查询默认加引号按短语匹配（`--field` 选 `ti`/`all`/`abs`）；已含 arXiv 字段语法（如 `ti:"..." AND cat:cs.LG`）的查询原样透传。批量搜索建议设置限速 `ARXIV2MD_BETA_HTTP__MAX_REQUESTS_PER_SECOND=0.33`。
 
 ### 结构化 JSON（`paper.*.json`）
 

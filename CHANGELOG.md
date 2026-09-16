@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进。
+
+### Added
+
+- **退出码语义化**：`NetworkError`→3（下载失败/ID 不存在）、`ParseError`/`IngestionError` 等管线错误→4、`StorageError`/`ImageProcessingError`→6；新增 `EmptyContentError`（5，stub 被拒）与 `PdfFallbackCompleted`（7，TeX 失败但 PDF 兜底完成）。batch 汇总仍为任一失败→1。
+- **stub 质量门**：写 `paper.md` 前按 `output.stub_min_bytes`（默认 5000）/`output.stub_min_tokens`（默认 1000）双门 OR 校验，不达标抛退出码 5 而非静默写空文件；`--allow-stub`（或 `output.allow_stub`）放行，放行时 manifest 记 `allowed_stub`。
+- **幂等跳过 / 断点续传**：convert 与 batch 在转换前按 `.arxiv2md-paper` identity + 非空 Markdown 检查已完成输出并跳过（batch 结果标 `skip-done`）；`--force/-f` 跳过检查强制重转。
+- **batch ID 去重**：重复行（含 URL/裸 ID 混写、本地路径 resolve）只转换一次，结果标 `duplicate of line N`，不消耗并发槽。
+- **export.arxiv.org 镜像回退**：arxiv.org 的 HTML/PDF/TeX 下载遇 404 或重试耗尽仍 429 时，自动经 export 镜像重试一次（`urls.arxiv_mirror_host`，置空禁用；`http.mirror_on_404`/`http.mirror_on_rate_limit` 可分别关闭）。`NetworkError` 新增 `status_code` 属性支撑。
+- **产物自描述 manifest**：每篇论文目录写入 `paper.manifest.json`（id、标题、来源 URL、字节数/token、耗时、状态 ok|allowed_stub|pdf_fallback）；batch 结束在输出根增量维护 `download_manifest.json`（totals + entries，原子重写，崩溃后重跑自动预填已完成条目）。
+- **TeX 失败 PDF 兜底**：`--parser latex` 下 TeX 源损坏/缺失时自动下载 arXiv PDF 到输出目录并提示 mineru-parse 命令，抛退出码 7；不写 Markdown 以免污染幂等判定。batch 中记为 `pdf_fallback`（非硬失败）。
+- **`search` 子命令**：`arxiv2md-beta search "title phrase" [--author ...] [--field ti|all|abs] [--sort ...] [--json]`，封装 arXiv Atom API 搜索（复用限速与重试），供转换前核对 ID。
+- batch 结果表新增 status 列（ok / error / skipped / skip-done / duplicate / pdf-fallback）。
+
+### Changed
+
+- **HTML 日期兜底防漂移**：Atom API 缺失时，HTML 解析日期与 arXiv id 推导的 YYMM 做年月一致性校验，不一致信 id（页面日期可能是 latest version 的 updated 日期）；抽取为 `resolve_submission_date()`。
+- `output/markdown_utils` 新增 `count_tokens()`（返回原始 int），`format_token_count` 改为基于它格式化。
+
 ## [0.15.1] - 2026-08-20
 
 PDF-only 论文（无 TeX 源、无 HTML 渲染）导致的两类失败。

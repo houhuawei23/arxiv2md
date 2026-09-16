@@ -143,14 +143,25 @@ def format_markdown_output(markdown: str) -> str:
 # ── Token counting ───────────────────────────────────────────────────────────
 
 
-def format_token_count(text: str) -> str | None:
-    """Return a human-readable tiktoken token count, or None if unavailable."""
+def count_tokens(text: str) -> int | None:
+    """Return the raw tiktoken token count, or None if unavailable.
+
+    Unlike :func:`format_token_count` this returns a comparable integer, so
+    callers can use it for threshold checks (e.g. the stub quality gate).
+    """
     encoding = _get_cached_encoding(get_settings().output.tiktoken_encoding)
     if encoding is None:
         return None
     try:
-        total_tokens = len(encoding.encode(text, disallowed_special=()))
+        return len(encoding.encode(text, disallowed_special=()))
     except Exception:
+        return None
+
+
+def format_token_count(text: str) -> str | None:
+    """Return a human-readable tiktoken token count, or None if unavailable."""
+    total_tokens = count_tokens(text)
+    if total_tokens is None:
         return None
 
     if total_tokens >= 1_000_000:

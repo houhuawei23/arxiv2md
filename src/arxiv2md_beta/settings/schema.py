@@ -39,6 +39,14 @@ class HttpSection(BaseModel):
         description="Global client-side rate limit for HTTP requests. 0 disables "
         "client-side throttling (server-side retry/backoff still applies).",
     )
+    mirror_on_404: bool = Field(
+        default=True,
+        description="Retry arxiv.org downloads on export.arxiv.org after a 404.",
+    )
+    mirror_on_rate_limit: bool = Field(
+        default=True,
+        description="Retry arxiv.org downloads on export.arxiv.org after exhausting retries on HTTP 429.",
+    )
 
 
 class CacheSection(BaseModel):
@@ -60,8 +68,20 @@ class PathsSection(BaseModel):
 
 class UrlsSection(BaseModel):
     arxiv_host: str
+    arxiv_mirror_host: str = Field(
+        default="export.arxiv.org",
+        description="Mirror host for /pdf/, /src/ and /html/ fallback when arxiv.org "
+        "404s or rate-limits. Empty string disables mirror retries.",
+    )
     ar5iv_html_base: str
     arxiv_api_query_template: str
+    arxiv_api_search_template: str = Field(
+        default=(
+            "https://export.arxiv.org/api/query?search_query={query}"
+            "&start={start}&max_results={max_results}&sortBy={sort}"
+        ),
+        description="arXiv Atom API search endpoint used by the ``search`` command.",
+    )
     arxiv_pdf_template: str
     arxiv_src_template: str
     crossref_works_template: str
@@ -175,6 +195,22 @@ class OutputSection(BaseModel):
     linked_citations: bool = Field(
         default=False,
         description="If True, render inline citations as linked [N](#ref-N); otherwise render them as plain [N].",
+    )
+    stub_min_bytes: int = Field(
+        default=5000,
+        ge=0,
+        description="Quality gate: output Markdown below this UTF-8 byte count is treated as a "
+        "stub and rejected (exit 5) unless --allow-stub is passed.",
+    )
+    stub_min_tokens: int = Field(
+        default=1000,
+        ge=0,
+        description="Quality gate: output Markdown below this estimated token count is treated as "
+        "a stub. Skipped automatically when tiktoken is unavailable.",
+    )
+    allow_stub: bool = Field(
+        default=False,
+        description="Write stub-level output instead of rejecting it (CLI --allow-stub overrides).",
     )
 
 

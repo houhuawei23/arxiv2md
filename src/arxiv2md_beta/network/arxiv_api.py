@@ -33,6 +33,29 @@ def submission_date_from_new_style_arxiv_id(arxiv_id: str) -> str | None:
     return f"{year:04d}{mm:02d}01"
 
 
+def resolve_submission_date(
+    *,
+    api_date: str | None,
+    html_date: str | None,
+    arxiv_id: str,
+) -> str | None:
+    """Pick the submission date, preferring v1 semantics over page-render dates.
+
+    Priority: Atom API ``published`` (the v1 date) → parsed HTML date →
+    id-derived ``YYMM``. The HTML date is only trusted when its year-month
+    agrees with the id's (pages can carry the *current version's* date after
+    updates); on mismatch the id-derived date wins.
+    """
+    if api_date:
+        return api_date
+    id_date = submission_date_from_new_style_arxiv_id(arxiv_id)
+    if html_date:
+        if id_date and html_date[:6] != id_date[:6]:
+            return id_date
+        return html_date
+    return id_date
+
+
 def author_display_names_from_metadata(
     metadata: dict[str, str | list | dict | None],
 ) -> list[str]:
@@ -348,20 +371,42 @@ def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:
 
 def _parse_api_response(xml_content: str) -> dict[str, str | list | dict | None]:
     """Parse arXiv API XML response and extract comprehensive metadata."""
+    entries = parse_api_entries(xml_content)
+    if not entries:
+        return {"title": None, "published": None, "submission_date": None}
+    return entries[0]
+
+
+_ATOM_NS = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "arxiv": "http://arxiv.org/schemas/atom",
+}
+
+
+def parse_api_entries(xml_content: str) -> list[dict[str, str | list | dict | None]]:
+    """Parse every ``atom:entry`` in an arXiv API response.
+
+    Shared by the metadata fetcher (single-ID lookup) and the ``search``
+    command (multi-result queries). Returns one metadata dict per entry; an
+    empty feed yields an empty list.
+    """
     import xml.etree.ElementTree as ET
 
     try:
         root = ET.fromstring(xml_content)
-        # Namespaces
-        ns = {
-            "atom": "http://www.w3.org/2005/Atom",
-            "arxiv": "http://arxiv.org/schemas/atom",
-        }
+    except ET.ParseError:
+        return []
+    entries = []
+    for entry in root.findall("atom:entry", _ATOM_NS):
+        parsed = _parse_entry(entry, _ATOM_NS)
+        if parsed is not None:
+            entries.append(parsed)
+    return entries
 
-        entry = root.find("atom:entry", ns)
-        if entry is None:
-            return {"title": None, "published": None, "submission_date": None}
 
+def _parse_entry(entry: Any, ns: dict[str, str]) -> dict[str, str | list | dict | None] | None:
+    """Parse a single Atom entry into a metadata dict (see parse_api_entries)."""
+    try:
         # Extract title
         title_elem = entry.find("atom:title", ns)
         title = title_elem.text.strip() if title_elem is not None and title_elem.text else None

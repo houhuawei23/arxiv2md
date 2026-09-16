@@ -30,6 +30,7 @@ from arxiv2md_beta.network.arxiv_api import (
     author_display_names_from_metadata,
     fetch_arxiv_metadata,
     fill_arxiv_metadata_defaults,
+    resolve_submission_date,
     submission_date_from_new_style_arxiv_id,
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
@@ -276,13 +277,14 @@ class IngestionOrchestrator:
         if not self._display_author_names and self._parsed is not None:
             self._display_author_names = [a.name for a in self._parsed.authors]
 
-        self._submission_date = self._api_metadata.get("submission_date")
-        if not self._submission_date and self._parsed is not None:
-            self._submission_date = self._parsed.submission_date
-        if not self._submission_date:
-            # Metadata fetch disabled or date missing: derive YYYYMM from the
-            # arXiv id so output dir names stay stable (no "Unknown-Arxiv").
-            self._submission_date = submission_date_from_new_style_arxiv_id(self._query.arxiv_id)
+        # Date priority: Atom API published (v1) → HTML page date (only when
+        # its year-month agrees with the id) → id-derived YYMM. See
+        # resolve_submission_date for the mismatch rationale.
+        self._submission_date = resolve_submission_date(
+            api_date=self._api_metadata.get("submission_date"),
+            html_date=self._parsed.submission_date if self._parsed is not None else None,
+            arxiv_id=self._query.arxiv_id,
+        )
 
         if self._parsed is not None and not self._parsed.title and self._api_metadata.get("title"):
             self._parsed.title = self._api_metadata["title"]

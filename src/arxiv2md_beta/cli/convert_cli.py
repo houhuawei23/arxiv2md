@@ -99,6 +99,8 @@ def make_convert_params(
     no_cache: bool = False,
     download_pdf: bool = True,
     linked_citations: bool = False,
+    force: bool = False,
+    allow_stub: bool = False,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -121,4 +123,6 @@ def make_convert_params(
         no_cache=no_cache,
         download_pdf=download_pdf,
         linked_citations=linked_citations,
+        force=force,
+        allow_stub=allow_stub,
     )

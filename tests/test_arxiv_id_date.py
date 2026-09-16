@@ -33,3 +33,29 @@ def test_fill_preserves_existing_submission_date() -> None:
         "2311.15127",
     )
     assert out["submission_date"] == "20231115"
+
+
+def test_resolve_submission_date_prefers_api() -> None:
+    from arxiv2md_beta.network.arxiv_api import resolve_submission_date
+
+    assert resolve_submission_date(api_date="20231115", html_date="20260901", arxiv_id="2311.15127") == "20231115"
+
+
+def test_resolve_submission_date_mismatch_trusts_id() -> None:
+    """HTML date from a later version loses against the id's YYMM (v1 month)."""
+    from arxiv2md_beta.network.arxiv_api import resolve_submission_date
+
+    assert resolve_submission_date(api_date=None, html_date="20260901", arxiv_id="2311.15127") == "20231101"
+
+
+def test_resolve_submission_date_agreement_keeps_html() -> None:
+    from arxiv2md_beta.network.arxiv_api import resolve_submission_date
+
+    assert resolve_submission_date(api_date=None, html_date="20231120", arxiv_id="2311.15127") == "20231120"
+
+
+def test_resolve_submission_date_old_style_id_falls_back_to_html() -> None:
+    from arxiv2md_beta.network.arxiv_api import resolve_submission_date
+
+    assert resolve_submission_date(api_date=None, html_date="19990101", arxiv_id="math/9901123") == "19990101"
+    assert resolve_submission_date(api_date=None, html_date=None, arxiv_id="math/9901123") is None

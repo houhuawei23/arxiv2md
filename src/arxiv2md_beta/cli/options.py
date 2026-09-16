@@ -68,3 +68,19 @@ FETCH_METADATA_OPT = typer.Option(
     "--fetch-metadata",
     help="Fetch optional arXiv API metadata (disabled by default).",
 )
+FORCE_OPT = typer.Option(
+    False,
+    "--force",
+    "-f",
+    help=(
+        "Re-convert even if a completed output for this paper already exists "
+        "(skips the idempotency check; unrelated to paper-yml --force overwrite semantics)."
+    ),
+)
+ALLOW_STUB_OPT = typer.Option(
+    False,
+    "--allow-stub",
+    help=(
+        "Write output even when the quality gate flags it as stub-level content (below stub_min_bytes/stub_min_tokens)."
+    ),
+)

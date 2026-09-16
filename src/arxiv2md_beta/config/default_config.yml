@@ -17,6 +17,9 @@ http:
   max_requests_per_second: 0.0
   # Concurrent requests across all papers in a batch.
   max_concurrent_requests: 16
+  # Retry downloads on the export mirror when arxiv.org 404s / rate-limits.
+  mirror_on_404: true
+  mirror_on_rate_limit: true
 
 cache:
   # User-wide cache (not cwd); default ~/.cache/arxiv2md-beta. Relative values resolve under XDG cache.
@@ -28,6 +31,8 @@ paths:
 
 urls:
   arxiv_host: "arxiv.org"
+  # Mirror origin with independent rate limiting; also serves /pdf/, /src/, /html/.
+  arxiv_mirror_host: "export.arxiv.org"
   ar5iv_html_base: "https://ar5iv.labs.arxiv.org/html"
   # Use HTTPS for export.arxiv.org (avoids 301 redirect)
   arxiv_api_query_template: "https://export.arxiv.org/api/query?id_list={base_id}"
@@ -99,3 +104,7 @@ output:
   tiktoken_encoding: o200k_base
   include_anchors: false
   linked_citations: false
+  # Quality gate: reject stub output (near-empty paper.md) instead of writing it silently.
+  stub_min_bytes: 5000
+  stub_min_tokens: 1000
+  allow_stub: false

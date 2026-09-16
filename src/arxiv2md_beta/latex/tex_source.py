@@ -19,6 +19,7 @@ from loguru import logger
 
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
+from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -127,8 +128,24 @@ async def fetch_and_extract_tex_source(
     tex_url = get_settings().urls.arxiv_src_template.format(arxiv_id=arxiv_id)
     logger.info(f"Downloading TeX source from {tex_url}")
 
+    async def _download_with_mirror() -> None:
+        try:
+            await _download_tex_source(tex_url, tex_source_path)
+        except NetworkError as tex_error:
+            # Mirror fallback: export.arxiv.org serves /src/ from its own
+            # backend with independent rate limiting.
+            mirrored = to_export_mirror(tex_url)
+            if not (mirrored and mirror_worth_try(tex_error)):
+                raise
+            logger.warning(f"Retrying TeX source download via export mirror: {mirrored}")
+            try:
+                await _download_tex_source(mirrored, tex_source_path)
+            except NetworkError as mirror_error:
+                logger.warning(f"Export mirror TeX fallback also failed: {mirror_error}")
+                raise tex_error from mirror_error
+
     try:
-        await _download_tex_source(tex_url, tex_source_path)
+        await _download_with_mirror()
     except RuntimeError as e:
         raise TexSourceNotFoundError(f"Failed to download TeX source for {arxiv_id}: {e}") from e
 
@@ -317,6 +334,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
     retry_status = set(h.retry_status_codes)
     timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
     last_exc: Exception | None = None
+    last_status: int | None = None
 
     client = get_http_client()
     for attempt in range(h.fetch_max_retries + 1):
@@ -325,10 +343,12 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
             async with http_request_slot(), client.stream("GET", url, timeout=timeout) as response:
                 if response.status_code == 404:
                     raise TexSourceNotFoundError(
-                        f"TeX source not found at {url}. This paper may not have TeX source available."
+                        f"TeX source not found at {url}. This paper may not have TeX source available.",
+                        status_code=404,
                     )
 
                 if response.status_code in retry_status:
+                    last_status = response.status_code
                     last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
                 else:
                     response.raise_for_status()
@@ -388,7 +408,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
             backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
-    raise TexSourceNotFoundError(f"Failed to download TeX source from {url}: {last_exc}")
+    raise TexSourceNotFoundError(f"Failed to download TeX source from {url}: {last_exc}", status_code=last_status)
 
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> None:

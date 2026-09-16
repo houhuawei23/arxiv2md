@@ -14,6 +14,7 @@ from loguru import logger
 
 from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
+from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -62,6 +63,18 @@ async def fetch_arxiv_html(
         await _async_write_atomic(html_path, html_text, encoding="utf-8")
         return html_text
     except NetworkError as primary_error:
+        # Mirror fallback: the export origin serves from a different backend
+        # and rate-limits independently, so a 404/429 here may not hold there.
+        mirrored = to_export_mirror(html_url)
+        if mirrored and mirror_worth_try(primary_error):
+            try:
+                html_text = await _fetch_with_retries(mirrored)
+                _reject_no_content_placeholder(html_text)
+                await _async_write_atomic(html_path, html_text, encoding="utf-8")
+                logger.info(f"Fetched HTML via export mirror: {mirrored}")
+                return html_text
+            except NetworkError as mirror_error:
+                logger.warning(f"Export mirror fallback also failed: {mirror_error}")
         if ar5iv_url and "does not have an HTML version" in str(primary_error):
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
@@ -88,16 +101,17 @@ async def _fetch_with_retries(url: str) -> str:
                 response = await client.get(url)
 
             if response.status_code == 404:
-                # Deterministic: a second request will also 404. The ar5iv
-                # fallback in fetch_arxiv_html relies on catching this.
+                # Deterministic: a second request will also 404. The mirror
+                # and ar5iv fallbacks in fetch_arxiv_html rely on catching this.
                 raise NonRetryableNetworkError(
                     "This paper does not have an HTML version available on arXiv. "
                     "arxiv2md-beta requires papers to be available in HTML format. "
-                    "Older papers may only be available as PDF."
+                    "Older papers may only be available as PDF.",
+                    status_code=404,
                 )
 
             if response.status_code in retry_status:
-                last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
+                last_exc = NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
             else:
                 response.raise_for_status()
                 _ensure_html_response(response)
@@ -111,7 +125,8 @@ async def _fetch_with_retries(url: str) -> str:
             backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
-    raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}")
+    status = getattr(last_exc, "status_code", None)
+    raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}", status_code=status)
 
 
 def _ensure_html_response(response: httpx.Response) -> None:
@@ -165,9 +180,6 @@ async def fetch_arxiv_pdf(
 ) -> Path:
     """Download arXiv PDF and save to output path."""
     s = get_settings()
-    h = s.http
-    urls = s.urls
-    retry_status = set(h.retry_status_codes)
     cache_dir = _cache_dir_for(arxiv_id, version)
     cache_path = cache_dir / "paper.pdf"
 
@@ -178,8 +190,29 @@ async def fetch_arxiv_pdf(
         return output_path
 
     base_id = strip_version(arxiv_id)
-    pdf_url = urls.arxiv_pdf_template.format(base_id=base_id)
+    pdf_url = s.urls.arxiv_pdf_template.format(base_id=base_id)
 
+    try:
+        return await _download_pdf_from(pdf_url, cache_path=cache_path, output_path=output_path)
+    except NetworkError as primary_error:
+        # Mirror fallback: export.arxiv.org rate-limits independently and its
+        # backend may hold files arxiv.org 404s on (and vice versa).
+        mirrored = to_export_mirror(pdf_url)
+        if mirrored and mirror_worth_try(primary_error):
+            logger.warning(f"Retrying PDF download via export mirror: {mirrored}")
+            try:
+                return await _download_pdf_from(mirrored, cache_path=cache_path, output_path=output_path)
+            except NetworkError as mirror_error:
+                logger.warning(f"Export mirror PDF fallback also failed: {mirror_error}")
+                raise primary_error from mirror_error
+        raise
+
+
+async def _download_pdf_from(pdf_url: str, *, cache_path: Path, output_path: Path) -> Path:
+    """Retry-loop download of one PDF URL into the cache, then copy to output."""
+    s = get_settings()
+    h = s.http
+    retry_status = set(h.retry_status_codes)
     pdf_timeout = h.fetch_timeout_s * h.large_transfer_timeout_multiplier
     last_exc: Exception | None = None
 
@@ -189,15 +222,16 @@ async def fetch_arxiv_pdf(
             await acquire_rate_slot()
             async with http_request_slot(), client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
                 if response.status_code == 404:
-                    # Deterministic: retrying cannot conjure the PDF.
-                    raise NonRetryableNetworkError(f"PDF not found at {pdf_url}")
+                    # Deterministic on this host: the mirror fallback in
+                    # fetch_arxiv_pdf relies on catching this.
+                    raise NonRetryableNetworkError(f"PDF not found at {pdf_url}", status_code=404)
 
                 if response.status_code in retry_status:
-                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv")
+                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
                 else:
                     response.raise_for_status()
 
-                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
 
                     disable_tqdm = s.images.disable_tqdm
 
@@ -233,4 +267,5 @@ async def fetch_arxiv_pdf(
             backoff = h.fetch_backoff_s * (2**attempt)
             await asyncio.sleep(backoff)
 
-    raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}")
+    status = getattr(last_exc, "status_code", None)
+    raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}", status_code=status)
