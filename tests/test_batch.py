@@ -70,9 +70,9 @@ def test_merge_convert_params_preserves_all_fields() -> None:
         if field_name == "input_text":
             assert getattr(merged, field_name) == "2501.11120"
             continue
-        assert getattr(merged, field_name) == getattr(
-            template, field_name
-        ), f"merge_convert_params dropped field {field_name!r}"
+        assert getattr(merged, field_name) == getattr(template, field_name), (
+            f"merge_convert_params dropped field {field_name!r}"
+        )
 
 
 @pytest.mark.asyncio
