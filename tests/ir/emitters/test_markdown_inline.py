@@ -209,3 +209,41 @@ class TestBibitemKeyCitation:
         )
         out = emitter._emit_block(p)
         assert out == "(30, 52)"
+
+
+class TestCitationRunSeparators:
+    """Whitespace/comma text between citations merges the run.
+
+    Prose text after the last citation must survive verbatim (regression: a
+    trailing space used to be swallowed, gluing "(12)" to the next word).
+    """
+
+    def test_prose_after_citation_keeps_space(self, emitter):
+        p = ParagraphIR(
+            inlines=[
+                TextIR(text="As shown in "),
+                LinkIR(kind="citation", target_id="ref-12", inlines=[TextIR(text="[12]")]),
+                TextIR(text=" the method fails."),
+            ]
+        )
+        assert emitter._emit_inlines(p.inlines) == "As shown in (12) the method fails."
+
+    def test_separator_between_two_citations_merges(self, emitter):
+        p = ParagraphIR(
+            inlines=[
+                LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")]),
+                TextIR(text=", "),
+                LinkIR(kind="citation", target_id="ref-2", inlines=[TextIR(text="[2]")]),
+                TextIR(text="."),
+            ]
+        )
+        assert emitter._emit_inlines(p.inlines) == "(1, 2)."
+
+    def test_comma_then_prose_ends_run(self, emitter):
+        p = ParagraphIR(
+            inlines=[
+                LinkIR(kind="citation", target_id="ref-1", inlines=[TextIR(text="[1]")]),
+                TextIR(text=", done."),
+            ]
+        )
+        assert emitter._emit_inlines(p.inlines) == "(1), done."

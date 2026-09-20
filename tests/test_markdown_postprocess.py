@@ -92,8 +92,11 @@ class TestCleanMathAndSpacingEdges:
         ("$$a$$ b $$c$$", "$$\na\n$$ b $$\nc\n$$"),
         ("$a$$b$", "$a$ $b$"),
         ("$$$", "$$$"),
-        ("$$ a $$$ b $$", "$$\na\n$$$b$$"),
-        ("price $5 and $10 total", "price $5 and$ 10 total"),
+        # The lone "$" between the two display blocks is literal; so is the
+        # whitespace-flanked " b " after it (pandoc flanking rule).
+        ("$$ a $$$ b $$", "$$\na\n$$$ b $$"),
+        # Dollar amounts: no flanking-valid math pair, stays literal.
+        ("price $5 and $10 total", "price $5 and $10 total"),
         ("$a\nb$ collapse", "$a b$ collapse"),
         ("$$\nx=1\n$$", "$$\nx=1\n$$"),
         ("  $$  \nx=1\n  $$  ", "  $$\nx=1\n$$  "),
@@ -104,3 +107,65 @@ class TestCleanMathAndSpacingEdges:
 
         for source, expected in self.CASES:
             assert _clean_math_and_spacing(source) == expected, f"input: {source!r}"
+
+    def test_empty_display_region_does_not_raise(self) -> None:
+        # Regression: "$$$$$" (inline followed by an empty "$$$$" display
+        # region) used to IndexError in the inline spacing lookahead.
+        from arxiv2md_beta.output.markdown_postprocess import _clean_math_and_spacing
+
+        assert _clean_math_and_spacing("$x$$$$$") == "$x$$$\n\n$$"
+        assert _clean_math_and_spacing("$a$$$$") == "$a$$$$"
+
+
+class TestFencedCodeProtection:
+    """Postprocessing must never rewrite the contents of code blocks."""
+
+    def test_fenced_dollars_and_table_untouched(self) -> None:
+        from arxiv2md_beta.output.markdown_postprocess import clean_markdown_output
+
+        text = "```bash\nprice $5 and $10 total\n**Table 1: demo**\n\n\n\nkeep blank lines\n```\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        inner = result.split("```bash\n", 1)[1].split("\n```", 1)[0]
+        # Blank lines inside the fence survive the 3+ newline collapse.
+        assert inner == "price $5 and $10 total\n**Table 1: demo**\n\n\n\nkeep blank lines"
+
+    def test_fenced_code_survives_format_markdown_output(self) -> None:
+        from arxiv2md_beta.output.markdown_utils import format_markdown_output
+
+        text = "```\n**Table 1: demo**\n| a | b |\n```"
+        assert format_markdown_output(text) == text
+
+    def test_inline_code_dollars_untouched(self) -> None:
+        from arxiv2md_beta.output.markdown_postprocess import clean_markdown_output
+
+        text = "run `$HOME $USER` and `$x$` now\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert result == "run `$HOME $USER` and `$x$` now\n"
+
+    def test_tilde_fence_untouched(self) -> None:
+        from arxiv2md_beta.output.markdown_postprocess import clean_markdown_output
+
+        text = "~~~\n$5 $$ 10\n~~~\n"
+        assert "$5 $$ 10" in clean_markdown_output(text, include_anchors=False)
+
+    def test_unclosed_fence_safe(self) -> None:
+        from arxiv2md_beta.output.markdown_postprocess import clean_markdown_output
+
+        text = "intro\n\n```python\nx = '$5 and $10'\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert "x = '$5 and $10'" in result
+
+    def test_content_after_closed_fence_still_processed(self) -> None:
+        """Postprocessing must resume after a *closed* fence.
+
+        Regression: the closing-fence regex was built as an f-string, so
+        "{0,7}" became a format field and every fence read as unclosed —
+        silently exempting the rest of the document from all rules.
+        """
+        from arxiv2md_beta.output.markdown_postprocess import clean_markdown_output
+
+        text = "```\ncode $5 here\n```\n\nanswer$x$is here\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert "answer $x$ is here" in result  # post-fence content still cleaned
+        inner = result.split("```\n", 1)[1].split("\n```", 1)[0]
+        assert inner == "code $5 here"

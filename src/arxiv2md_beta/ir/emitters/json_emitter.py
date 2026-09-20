@@ -22,11 +22,22 @@ logger = get_logger()
 
 
 def _package_version() -> str:
+    # The package's own __version__ is the single runtime source. Dist
+    # metadata (importlib.metadata) is only a fallback and can be stale —
+    # an editable install upgraded in place keeps its July-era egg-info
+    # forever, which used to emit tool_version 0.13.1 from a 0.15.1 tree.
+    try:
+        from arxiv2md_beta import __version__
+
+        if __version__ and __version__ != "0.0.0":
+            return __version__
+    except ImportError:  # pragma: no cover
+        pass
     try:
         from importlib.metadata import version
 
         return version("arxiv2md-beta")
-    except (ImportError, ModuleNotFoundError):
+    except Exception:
         return "0.0.0"
 
 
@@ -39,17 +50,35 @@ def _sha256_parts(parts: list[str]) -> str:
 
 
 def _assign_struct_ids(sections: list[SectionIR], prefix: str = "sec") -> None:
-    """Fill in ``struct_id`` only where missing.
+    """Fill in ``struct_id`` only where missing, and never duplicating.
 
     Sections that already carry an id (e.g. ``sec_1_2`` from
     ``SectionNumberingPass``, which also anchors the Markdown links) keep it —
     the JSON bundle must not silently renumber them to positional ids.
+    Positional fallbacks for the remaining sections skip ids already taken:
+    an unnumbered section at top-level index 4 (``References``) used to be
+    filled with ``sec_4``, colliding with numbered §4.
     """
+    taken: set[str] = set()
+
+    def collect(secs: list[SectionIR]) -> None:
+        for sec in secs:
+            if sec.struct_id:
+                taken.add(sec.struct_id)
+            collect(sec.children)
+
+    collect(sections)
 
     def walk(secs: list[SectionIR], path: tuple[int, ...]) -> None:
         for i, sec in enumerate(secs):
             if not sec.struct_id:
-                sec.struct_id = prefix + "".join(f"_{p}" for p in (*path, i))
+                base = prefix + "".join(f"_{p}" for p in (*path, i))
+                sid, n = base, 2
+                while sid in taken:
+                    sid = f"{base}-{n}"
+                    n += 1
+                sec.struct_id = sid
+                taken.add(sid)
             walk(sec.children, (*path, i))
 
     walk(sections, ())
@@ -248,10 +277,15 @@ def build_graph(doc: DocumentIR) -> dict[str, Any]:
 
     walk_sections("paper", doc.sections, True)
 
-    # Asset nodes
+    # Asset nodes — dedup by path: the same image can back several figures,
+    # and duplicate node ids would corrupt the graph.
+    seen_asset_paths: set[str] = set()
     for a in doc.assets:
         d = a.model_dump(exclude_none=True)
         path = d.get("path", "")
+        if path in seen_asset_paths:
+            continue
+        seen_asset_paths.add(path)
         aid = f"asset:{path}"
         nodes.append({"id": aid, "type": "asset", "properties": {}})
         edges.append({"src": "paper", "dst": aid, "type": "contains"})
@@ -332,10 +366,11 @@ class JsonEmitter(IREmitter):
         if mode in ("document", "full", "all"):
             written.update(self._write_document(doc, paper_output_dir))
 
-        # --- paper.assets.json + paper.bib.json ---
+        # --- paper.assets.json ---
+        # (paper.bib.json — previously always an empty stub — was removed;
+        #  bibliography content lives in the split References markdown.)
         if mode in ("full", "all"):
             written.update(self._write_assets(doc, paper_output_dir, images_subdir))
-            written.update(self._write_bib(doc, paper_output_dir))
 
         # --- paper.graph.json (+ optional CSV) ---
         if mode == "all":
@@ -352,6 +387,10 @@ class JsonEmitter(IREmitter):
     # ------------------------------------------------------------------
 
     def _build_data(self, doc: DocumentIR, mode: str) -> dict[str, Any]:
+        # Same invariant as write_bundle: id backfill happens on a deep copy,
+        # so emit() and write_bundle() produce identical schemas for a doc.
+        doc = doc.model_copy(deep=True)
+        _assign_struct_ids(doc.sections)
         if mode == "meta":
             return self._build_meta(doc)
         if mode == "document":
@@ -432,19 +471,6 @@ class JsonEmitter(IREmitter):
         )
         logger.info(f"Structured assets written to: {path}")
         return {"paper.assets.json": str(path.relative_to(out_dir))}
-
-    def _write_bib(self, doc: DocumentIR, out_dir: Path) -> dict[str, str]:
-        data: dict[str, Any] = {
-            "schema_version": SCHEMA_VERSION,
-            "arxiv_id": doc.metadata.arxiv_id,
-            "entries": [],
-        }
-        path = out_dir / "paper.bib.json"
-        path.write_text(
-            json.dumps(data, indent=self.indent, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
-        return {"paper.bib.json": str(path.relative_to(out_dir))}
 
     def _write_graph(
         self,

@@ -192,9 +192,10 @@ class CitationResolver:
         """Create a basic entry from parsed text when no identifiers resolve."""
         from arxiv2md_beta.citations.models import CitationEntry
 
-        # Try to extract year from text
-        year_match = re.search(r"\b(19|20)\d{2}\b", parsed.text)
-        year = year_match.group(1) if year_match else None
+        # Try to extract year from text. ``group(0)`` — the full match ("2015");
+        # ``group(1)`` is just the century alternation ("19"/"20").
+        year_match = re.search(r"\b(?:19|20)\d{2}\b", parsed.text)
+        year = year_match.group(0) if year_match else None
 
         return CitationEntry(
             key=parsed.key or f"ref{index}",

@@ -630,3 +630,29 @@ class TestMathNormalizationRegressions:
         )
         md = self._build_md(tex)
         assert r"\nolinebreak" not in md
+
+
+class TestBibitemNumbering:
+    def test_bibitem_numbers_skip_if0_blocks(self):
+        r"""Regression: bibitem numbering ran before ``\if0`` sanitization.
+
+        Commented-out ``\bibitem`` entries used to occupy reference numbers,
+        shifting every subsequent ``\cite``.
+        """
+        tex = r"""\documentclass{article}
+\begin{document}
+\section{Introduction}
+Body text \cite{real}.
+\begin{thebibliography}{9}
+\if0
+\bibitem{ghost} Ghost entry, commented out.
+\fi
+\bibitem{real} Real Reference. 2020.
+\end{thebibliography}
+\end{document}"""
+        doc = LaTeXBuilder().build(tex, arxiv_id="test")
+        md = MarkdownEmitter().emit(doc)
+        # Single cite renders as a parenthesised group; the ghost bibitem
+        # must not have shifted the number.
+        assert "Body text (1)." in md
+        assert "(2)" not in md

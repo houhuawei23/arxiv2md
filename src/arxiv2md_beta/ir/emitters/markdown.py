@@ -42,6 +42,28 @@ _CITATION_NUM_RE = re.compile(r"^(?:ref-)?(\d+(?:\s*,\s*\d+)*)$")
 _CITE_SEP_RE = re.compile(r"^[\s,;]*$")
 
 
+def _is_citation(il) -> bool:
+    """Whether *il* is a numeric citation link (``[N]`` / ``[N](#ref-N)``)."""
+    return (
+        getattr(il, "type", "") == "link"
+        and getattr(il, "kind", "") == "citation"
+        and bool(_CITATION_NUM_RE.match(getattr(il, "target_id", "") or ""))
+    )
+
+
+def _next_is_citation(items: list, idx: int) -> bool:
+    """Whether the first non-separator inline after *idx* is a numeric cite.
+
+    Used to decide if a whitespace/comma text inline joins two citations of
+    one run (drop it) or ends the run (keep the prose text verbatim).
+    """
+    for il in items[idx + 1 :]:
+        if il.type == "text" and _CITE_SEP_RE.match(il.text):
+            continue
+        return _is_citation(il)
+    return False
+
+
 def _escape_md_text(text: str) -> str:
     r"""Escape characters that would break ``[text](url)`` link/image syntax."""
     return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
@@ -167,18 +189,11 @@ class MarkdownEmitter(IREmitter):
         # emitter adds its own parens. Drop them when they directly bound
         # a citation; the open/close pairing flag guards genuine prose
         # parens around non-citation content.
-        def _is_cite(il) -> bool:
-            return (
-                getattr(il, "type", "") == "link"
-                and il.kind == "citation"
-                and bool(_CITATION_NUM_RE.match(il.target_id or ""))
-            )
-
         cleaned: list = []
         bracket_open = False
         for i, il in enumerate(inlines):
-            prev_is_cite = i > 0 and _is_cite(inlines[i - 1])
-            next_is_cite = i + 1 < len(inlines) and _is_cite(inlines[i + 1])
+            prev_is_cite = i > 0 and _is_citation(inlines[i - 1])
+            next_is_cite = i + 1 < len(inlines) and _is_citation(inlines[i + 1])
             if il.type == "text":
                 if il.text in ("[", "(") and next_is_cite:
                     bracket_open = True
@@ -211,15 +226,11 @@ class MarkdownEmitter(IREmitter):
                 parts.extend(self._emit_inline(il) for il in run)
             run.clear()
 
-        for il in cleaned:
-            if (
-                getattr(il, "type", "") == "link"
-                and il.kind == "citation"
-                and _CITATION_NUM_RE.match(il.target_id or "")
-            ):
+        for i, il in enumerate(cleaned):
+            if _is_citation(il):
                 run.append(il)
-            elif run and il.type == "text" and _CITE_SEP_RE.match(il.text):
-                continue  # comma/whitespace separator inside the run
+            elif run and il.type == "text" and _CITE_SEP_RE.match(il.text) and _next_is_citation(cleaned, i):
+                continue  # separator between two citations of the same run
             else:
                 flush_run()
                 parts.append(self._emit_inline(il))
@@ -426,8 +437,14 @@ class MarkdownEmitter(IREmitter):
             lines.extend(self._emit_list_item(item_blocks, lst.ordered, 0, idx))
         return "\n".join(lines)
 
-    def _emit_list_item(self, item_blocks: list, ordered: bool, indent: int, index: int = 0) -> list[str]:
-        prefix = "  " * indent
+    def _emit_list_item(
+        self, item_blocks: list, ordered: bool, indent: int, index: int = 0, indent_width: int = 0
+    ) -> list[str]:
+        # A nested item's indentation must reach the parent's content column
+        # (CommonMark): 2 spaces under "- ", 3 under "1. ", 4 under "10. ".
+        # A fixed 2-space indent used to demote nested ordered lists to
+        # paragraph continuation text.
+        prefix = " " * indent_width
         marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
         continuation_indent = " " * len(marker)
         # Block-level content inside a list item must be indented enough for
@@ -435,7 +452,7 @@ class MarkdownEmitter(IREmitter):
         # at least 4 spaces per nesting level (or one past the marker width,
         # whichever is larger) and preserve that indentation through the
         # downstream display-math formatter.
-        block_indent = " " * max(len(marker) + 1, 4 * (indent + 1))
+        block_indent = " " * max(indent_width + len(marker) + 1, 4 * (indent + 1))
         lines: list[str] = []
 
         # Split into block items and nested lists, rendering block-level content
@@ -447,7 +464,15 @@ class MarkdownEmitter(IREmitter):
                 self._flush_list_text(text_blocks, marker, continuation_indent, lines)
                 text_blocks = []
                 for nested_idx, nested_item in enumerate(blk.items):
-                    lines.extend(self._emit_list_item(nested_item, blk.ordered, indent + 1, nested_idx))
+                    lines.extend(
+                        self._emit_list_item(
+                            nested_item,
+                            blk.ordered,
+                            indent + 1,
+                            nested_idx,
+                            indent_width=indent_width + len(marker),
+                        )
+                    )
             elif _is_block_level_in_list(blk):
                 self._flush_list_text(text_blocks, marker, continuation_indent, lines)
                 text_blocks = []

@@ -241,3 +241,27 @@ class TestSingleFlightCoalescing:
         n, results = asyncio.run(run())
         assert n == 1  # second caller joined the in-flight task
         assert all(r is not None for r in results)
+
+
+class TestYearExtractionFromText:
+    """Regression: the fallback year extractor must keep the full year."""
+
+    def test_year_is_full_match_not_century(self):
+        # group(1) of r"\b(19|20)\d{2}\b" is "19"/"20" — every fallback
+        # entry used to get year "20" instead of e.g. "2015".
+        resolver = CitationResolver()
+        parsed = ParsedCitation(key="nature2015", text="A study. Nature 2015.")
+        entry = resolver._create_entry_from_text(parsed, index=7)
+        assert entry.year == "2015"
+
+    def test_year_19xx(self):
+        resolver = CitationResolver()
+        parsed = ParsedCitation(key="old", text="Proc. of 1998 workshop")
+        entry = resolver._create_entry_from_text(parsed, index=1)
+        assert entry.year == "1998"
+
+    def test_no_year(self):
+        resolver = CitationResolver()
+        parsed = ParsedCitation(key="none", text="No date in here")
+        entry = resolver._create_entry_from_text(parsed, index=2)
+        assert entry.year is None

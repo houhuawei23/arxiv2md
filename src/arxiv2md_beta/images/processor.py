@@ -165,8 +165,13 @@ class ProcessedImages(NamedTuple):
     filename_map: dict[int, str]  # figure_index -> original_filename (for reference)
     # TeX source stem / output basename -> relative path (for HTML <img src> matching)
     stem_to_image_path: dict[str, Path]
+    # TeX source file -> relative output path (exact identity; LaTeX label
+    # mapping keys on this instead of positional indices, which are renumbered
+    # in float-figure order and diverge when images fail or are inline).
+    source_paths: dict[Path, Path] = {}
     # Source filenames that failed processing entirely (surfaces silent drops).
-    failed: list[str] = []
+    # Immutable default: a NamedTuple class attribute would be shared.
+    failed: tuple[str, ...] = ()
 
 
 async def process_images_async(
@@ -229,6 +234,7 @@ async def process_images_async(
     filename_map: dict[int, str] = {}
     stem_to_image_path: dict[str, Path] = {}
     failed: list[str] = []
+    source_paths: dict[Path, Path] = {}
     # source_path -> (relative_path, original_filename), used to rebuild the
     # figure-index map in float-figure order after concurrent processing.
     source_to_outcome: dict[Path, tuple[Path, str]] = {}
@@ -258,6 +264,7 @@ async def process_images_async(
                         )
                 image_map[idx] = relative_path
                 filename_map[idx] = original_filename
+                source_paths[source_path] = relative_path
                 source_to_outcome[source_path] = (relative_path, original_filename)
                 stem_to_image_path[original_filename] = relative_path
                 stem_to_image_path[relative_path.name] = relative_path
@@ -317,7 +324,8 @@ async def process_images_async(
         images_dir=images_dir,
         filename_map=filename_map,
         stem_to_image_path=stem_to_image_path,
-        failed=failed,
+        source_paths=source_paths,
+        failed=tuple(failed),
     )
 
 
@@ -431,17 +439,25 @@ def build_latex_image_label_map(
 
     Keys are the TeX label, the source filename, and the path relative to the
     extraction dir; values are the processed image paths (for ImageResolver).
+
+    Lookup keys on the source file's identity
+    (:attr:`ProcessedImages.source_paths`), never on positional indices — the
+    public ``image_map`` is renumbered in float-figure order and would hand
+    the wrong file to any label whose image is inline, failed, or merely
+    ordered differently in the document.
     """
     latex_image_map: dict[str, Path] = {}
     if not processed_images:
         return latex_image_map
-    for idx, (label, source_path) in enumerate(tex_source_info.image_files.items()):
-        if idx in processed_images.image_map:
-            latex_image_map[label] = processed_images.image_map[idx]
-            latex_image_map[source_path.name] = processed_images.image_map[idx]
-            try:
-                rel_path = source_path.relative_to(tex_source_info.extracted_dir)
-                latex_image_map[str(rel_path)] = processed_images.image_map[idx]
-            except ValueError:
-                pass
+    for label, source_path in tex_source_info.image_files.items():
+        out_path = processed_images.source_paths.get(source_path)
+        if out_path is None:
+            continue
+        latex_image_map[label] = out_path
+        latex_image_map[source_path.name] = out_path
+        try:
+            rel_path = source_path.relative_to(tex_source_info.extracted_dir)
+            latex_image_map[str(rel_path)] = out_path
+        except ValueError:
+            pass
     return latex_image_map

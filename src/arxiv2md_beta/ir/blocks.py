@@ -122,6 +122,9 @@ class TableIR(BlockIR):
     rows: list[list[list[InlineUnion]]] = Field(default_factory=list)
     caption: list[InlineUnion] = Field(default_factory=list)
     table_id: str | None = None  # e.g. "table-1"
+    # arXiv element id of the wrapping figure (e.g. "S3.T1"); NumberingPass
+    # uses it for the label→anchor fragment map, mirroring FigureIR.label.
+    label: str | None = None
 
 
 class AlgorithmIR(BlockIR):

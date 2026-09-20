@@ -95,6 +95,60 @@ def simplify_display_math(content: str) -> str:
     return content
 
 
+# ── Fenced-code protection ───────────────────────────────────────────────────
+# Regex-based postprocessing rules must not rewrite the *contents* of code
+# blocks (dollar amounts read as math, ``**Table 1**`` turned into a quote,
+# blank lines collapsed inside a fence...). Callers wrap their rule passes in
+# :func:`protect_fenced_code` / :func:`restore_protected_code`: fences are
+# lifted out into a placeholder line and put back verbatim afterwards.
+
+_FENCE_OPEN_RE = re.compile(r"( {0,7})(`{3,}|~{3,})")
+_FENCED_PLACEHOLDER_RE = re.compile(r"^\x00FENCED_CODE_(\d+)\x00$", re.MULTILINE)
+
+
+def protect_fenced_code(text: str) -> tuple[str, list[str]]:
+    """Lift fenced code blocks out of *text*, leaving one placeholder line each.
+
+    Returns ``(protected_text, saved_blocks)``; pass both to
+    :func:`restore_protected_code` after the rule passes. Unclosed fences are
+    safe: the whole tail is saved and restored verbatim.
+    """
+    saved: list[str] = []
+    out: list[str] = []
+    current: list[str] | None = None
+    fence_char: str | None = None
+    for line in text.split("\n"):
+        if fence_char is None:
+            m = _FENCE_OPEN_RE.match(line)
+            if m:
+                fence_char = m.group(2)[0]
+                current = [line]
+                saved.append("")  # slot for this block, filled on close
+                out.append(f"\x00FENCED_CODE_{len(saved) - 1}\x00")
+                continue
+            out.append(line)
+        else:
+            assert current is not None  # fence open implies a block in progress
+            current.append(line)
+            # Concatenated (not an f-string): "{0,7}" is a regex quantifier;
+            # inside an f-string it would be a format field, silently
+            # breaking closing-fence detection.
+            if re.match(r" {0,7}" + re.escape(fence_char) + r"{3,}\s*$", line):
+                saved[-1] = "\n".join(current)
+                current = None
+                fence_char = None
+    if current is not None:  # unclosed fence — restore the tail verbatim
+        saved[-1] = "\n".join(current)
+    return "\n".join(out), saved
+
+
+def restore_protected_code(text: str, saved: list[str]) -> str:
+    """Put fenced blocks saved by :func:`protect_fenced_code` back in place."""
+    if not saved:
+        return text
+    return _FENCED_PLACEHOLDER_RE.sub(lambda m: saved[int(m.group(1))], text)
+
+
 # ── Markdown output formatting ───────────────────────────────────────────────
 
 _ANCHOR_TAG_NEWLINE_RE = re.compile(r'(<a id="[^"]+"></a>)\n(?!\n)(?!\s*$)')
@@ -114,9 +168,14 @@ def format_markdown_output(markdown: str) -> str:
       with a newline before the table.
     - Simplify display math (``$$...$$``) to remove ``$`` that break Markdown parsing.
     - Collapse duplicate bullet markers (e.g. ``- • item`` → ``- item``).
+
+    Fenced code blocks are lifted out first: none of the rules may rewrite
+    their contents.
     """
     if not markdown:
         return markdown
+
+    markdown, saved_fences = protect_fenced_code(markdown)
 
     # 1. Ensure newline after anchor tags when followed immediately by non-blank content
     markdown = _ANCHOR_TAG_NEWLINE_RE.sub(r"\1\n\n", markdown)
@@ -137,6 +196,7 @@ def format_markdown_output(markdown: str) -> str:
     # Blank-line collapsing happens once, in finalize_markdown (the last
     # postprocess step) — no per-step collapse here.
 
+    markdown = restore_protected_code(markdown, saved_fences)
     return markdown.strip()
 
 

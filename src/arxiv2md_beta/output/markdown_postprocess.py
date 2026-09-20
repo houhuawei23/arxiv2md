@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from arxiv2md_beta.schemas import IngestionResult
 
+from arxiv2md_beta.output.markdown_utils import protect_fenced_code, restore_protected_code
 from arxiv2md_beta.settings import get_settings
 
 _ANCHOR_TAG_RE = re.compile(r'<a id="[^"]*"></a>')
@@ -19,14 +20,24 @@ _DISPLAY_MATH_BLOCK_RE = re.compile(
 )
 # Step-1 protection placeholder (\x00 sentinel + index).
 _DISPLAY_MATH_PLACEHOLDER_RE = re.compile(r"\x00DISPLAY_MATH_(\d+)\x00")
+# Single-line inline code spans (`` `$x$` ``): the math scanner must not pair
+# the dollars inside them. Multi-line code spans don't occur in emitted docs.
+_INLINE_CODE_RE = re.compile(r"`{1,3}[^`\n]+`{1,3}")
+_INLINE_CODE_PLACEHOLDER_RE = re.compile(r"\x00INLINE_CODE_(\d+)\x00")
 
 
 def _remove_anchor_tags(text: str) -> str:
-    r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines."""
+    r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines.
+
+    Fenced code blocks are lifted out first: blank-line collapsing and per-line
+    ``rstrip`` must not touch their contents.
+    """
+    text, saved_fences = protect_fenced_code(text)
     text = _ANCHOR_TAG_RE.sub("", text)
     # Collapse 3+ newlines to 2 and trim trailing whitespace per line.
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = "\n".join(line.rstrip() for line in text.split("\n"))
+    text = restore_protected_code(text, saved_fences)
     return text.strip()
 
 
@@ -50,8 +61,18 @@ def _clean_math_and_spacing(text: str) -> str:
     The scanner tokenizes on single ``$`` characters (``re.split``) instead of
     walking the string character by character — same semantics, ~50x faster on
     megabyte documents. Two consecutive ``$`` tokens are a display-math
-    delimiter pair opener; a lone ``$`` opens inline math.
+    delimiter pair opener; a lone ``$`` opens inline math. Inline candidates
+    follow pandoc's flanking rule: a ``$`` pair whose content starts or ends
+    with whitespace is literal text (so prose like ``price $5 and $10`` is
+    left alone). A lone ``$$`` anywhere makes the rest of its segment literal
+    — accepted degradation for pathological input.
+
+    Fenced code blocks and inline code spans are lifted out first: neither the
+    display-block pass nor the ``$`` scanner may rewrite their contents.
     """
+    # Step 0: lift fenced code blocks out of the way entirely.
+    text, saved_fences = protect_fenced_code(text)
+
     # Step 1: protect multi-line display math blocks and preserve indentation.
     protected: list[str] = []
 
@@ -63,6 +84,15 @@ def _clean_math_and_spacing(text: str) -> str:
         return f"\x00DISPLAY_MATH_{len(protected) - 1}\x00"
 
     text = _DISPLAY_MATH_BLOCK_RE.sub(_protect_display, text)
+
+    # Step 1b: protect inline code spans (`` `$x$` ``) from the dollar scanner.
+    inline_protected: list[str] = []
+
+    def _protect_inline(m: re.Match) -> str:
+        inline_protected.append(m.group(0))
+        return f"\x00INLINE_CODE_{len(inline_protected) - 1}\x00"
+
+    text = _INLINE_CODE_RE.sub(_protect_inline, text)
 
     # Step 2: tokenize the remaining text on "$" and parse math regions.
     # tokens alternates literal text and "$" markers: re.split(r"(\$)", s).
@@ -114,15 +144,27 @@ def _clean_math_and_spacing(text: str) -> str:
             i = close + 2
             continue
 
-        # Inline math: the next "$" token closes it.
-        close = _next_dollar(i + 1)
-        if close is None:
+        # Inline math: the first "$" whose content has no flanking whitespace
+        # closes it (pandoc's rule — ``$5 and $10`` never becomes math).
+        content: str | None = None
+        close = None
+        k = i + 1
+        while True:
+            close = _next_dollar(k)
+            if close is None:
+                break
+            candidate = "".join(v for _, v in tokens[i + 1 : close])
+            if candidate and not candidate[0].isspace() and not candidate[-1].isspace():
+                content = candidate
+                break
+            k = close + 1
+        if content is None:
             # Unmatched "$": literal, merges into the following text.
             text_buf.append("$")
             i += 1
             continue
+        assert close is not None  # set whenever content was found
         _flush_text()
-        content = "".join(v for _, v in tokens[i + 1 : close])
         if "\n" in content:
             # Inline math spanning a newline (pandoc SoftBreak inside
             # ``$...$``). A literal newline inside ``$...$`` breaks most
@@ -146,7 +188,8 @@ def _clean_math_and_spacing(text: str) -> str:
         # Inline math: clean and add surrounding spaces when adjacent to non-space text.
         cleaned = _clean_math_latex(val)
         prev = out_parts[-1][-1] if out_parts else ""
-        nxt = regions[idx + 1][1][0] if idx + 1 < len(regions) else ""
+        # ``[:1]`` — a region value can be empty ("$$$$" inline form).
+        nxt = regions[idx + 1][1][:1] if idx + 1 < len(regions) else ""
         s = f"${cleaned}$"
         if prev and prev.isalnum():
             s = " " + s
@@ -156,11 +199,14 @@ def _clean_math_and_spacing(text: str) -> str:
 
     result = "".join(out_parts)
 
-    # Step 3: restore protected display math blocks in a single pass.
+    # Step 3: restore protected spans in a single pass each.
+    result = _INLINE_CODE_PLACEHOLDER_RE.sub(lambda m: inline_protected[int(m.group(1))], result)
+
     def _restore(m: re.Match) -> str:
         return protected[int(m.group(1))]
 
-    return _DISPLAY_MATH_PLACEHOLDER_RE.sub(_restore, result)
+    result = _DISPLAY_MATH_PLACEHOLDER_RE.sub(_restore, result)
+    return restore_protected_code(result, saved_fences)
 
 
 def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> str:
@@ -183,11 +229,15 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
         include_anchors = get_settings().output.include_anchors
     if not text:
         return text
+    # Lift fences out first: the final blank-line collapse below must not
+    # touch their contents (the sub-passes protect fences on their own too).
+    text, saved_fences = protect_fenced_code(text)
     if not include_anchors:
         text = _remove_anchor_tags(text)
     text = _clean_math_and_spacing(text)
     # Ensure no excessive blank lines remain.
     text = re.sub(r"\n{3,}", "\n\n", text)
+    text = restore_protected_code(text, saved_fences)
     # Emit a single trailing newline (POSIX text convention; keeps written
     # .md files and goldens stable under end-of-file-fixer).
     return text.strip() + "\n"

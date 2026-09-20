@@ -424,15 +424,24 @@ def _extract_authors_from_cells(cells: list[Tag]) -> list[ParsedAuthor]:
 
 def _pair_bold_italic_spans(bolds: list[Tag], italics: list[Tag]) -> list[ParsedAuthor]:
     """Pair bold spans (names) with the nearest following italic spans (affiliations)."""
-    # Build a position map using the order they appear in the DOM
-    # (BeautifulSoup iterates in document order)
-    all_nodes: list[tuple[Tag, str]] = []
-    for b in bolds:
-        all_nodes.append((b, "bold"))
-    for i in italics:
-        all_nodes.append((i, "italic"))
-    # Sort by sourceline; if equal, use the original list order as tie-breaker
-    all_nodes.sort(key=lambda x: (x[0].sourceline or 0, id(x[0])))
+    # Merge into true document order. Sorting the two find_all lists by
+    # sourceline cannot interleave tags sharing a line, and fragments
+    # re-parsed via BeautifulSoup(str(tag)) carry sourceline=None entirely —
+    # both degenerate to "all bolds first", letting the first bold swallow
+    # every italic as its affiliation. A single traversal of the shared root
+    # yields the exact interleaved sequence.
+    bold_ids = {id(b) for b in bolds}
+    italic_ids = {id(i) for i in italics}
+    root: Tag | None = next((t for t in (*bolds, *italics)), None)
+    while root is not None and root.parent is not None:
+        root = root.parent
+    if root is None:
+        return []
+    all_nodes: list[tuple[Tag, str]] = [
+        (node, "bold" if id(node) in bold_ids else "italic")
+        for node in root.descendants
+        if isinstance(node, Tag) and (id(node) in bold_ids or id(node) in italic_ids)
+    ]
 
     results: list[ParsedAuthor] = []
     i = 0  # type: ignore[assignment]
@@ -565,10 +574,12 @@ def _looks_like_name(text: str) -> bool:
     if len(words) < 1 or len(words) > 6:
         return False
 
-    # Affiliation keywords in the text → probably not a name
+    # Affiliation keywords in the text → probably not a name. Word-boundary
+    # match: a substring test would flag "Smith" (mit), "Princeton" (inc),
+    # "Alibaba" (lab) as affiliations and drop real authors.
     lower = cleaned.lower()
     for kw in _AFFILIATION_KEYWORDS:
-        if kw in lower:
+        if re.search(rf"\b{re.escape(kw)}\b", lower):
             return False
 
     # Contains comma → likely affiliation or multi-part address
@@ -730,7 +741,10 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
         return None
-    return abstract.get_text(" ", strip=True)
+    text = abstract.get_text(" ", strip=True)
+    # Drop the "Abstract" heading the div carries — the stored metadata and
+    # the rendered "## Abstract" would otherwise both say it.
+    return re.sub(r"^abstract\b[\s:.-]*", "", text, count=1, flags=re.I) or None
 
 
 def _extract_abstract_html(soup: BeautifulSoup) -> str | None:

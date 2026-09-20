@@ -48,7 +48,9 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
     "heading": [("inlines", "inline")],
     "blockquote": [("blocks", "block")],
     "list": [("items", "block_list")],
-    "figure": [("caption", "inline"), ("grid", "inline_list_list")],
+    # figure.images (ImageRefIR list) must be walked too: TextCollector /
+    # NodeCounter / content fingerprints otherwise miss every figure image.
+    "figure": [("caption", "inline"), ("images", "inline"), ("grid", "inline_list_list")],
     "table": [("headers", "inline_list"), ("rows", "inline_list_list"), ("caption", "inline")],
     "algorithm": [("steps", "block"), ("caption", "inline")],
     "code": [("caption", "inline")],

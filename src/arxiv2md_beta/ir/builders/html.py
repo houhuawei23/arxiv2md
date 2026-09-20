@@ -718,7 +718,14 @@ class HTMLBuilder(IRBuilder):
         if "ltx_table" in tag_classes:
             inner_table = tag.find("table")
             if isinstance(inner_table, Tag):
-                return self._build_table(inner_table, section_id, base_idx)
+                return self._build_table(
+                    inner_table,
+                    section_id,
+                    base_idx,
+                    figure_caption=caption,
+                    figure_caption_text=caption_text,
+                    figure_label=tag_id,
+                )
 
         # Image figure (default) — resolve local image paths
         imgs: list[Tag] = list(tag.find_all("img"))
@@ -805,8 +812,23 @@ class HTMLBuilder(IRBuilder):
             return src
         return self._image_resolver.resolve(src, figure_index=figure_index)
 
-    def _build_table(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
-        """Build a TableIR or EquationIR from a <table> tag."""
+    def _build_table(
+        self,
+        tag: Tag,
+        section_id: str,
+        base_idx: int,
+        *,
+        figure_caption: list | None = None,
+        figure_caption_text: str = "",
+        figure_label: str | None = None,
+    ) -> BlockUnion | None:
+        """Build a TableIR or EquationIR from a <table> tag.
+
+        When the table sits inside a ``<figure class="ltx_table">`` (the usual
+        ar5iv shape), the figure-level ``<figcaption>`` is passed in via
+        ``figure_caption``/``figure_caption_text`` — ar5iv puts the caption
+        there, not inside ``<table><caption>``.
+        """
         classes = " ".join(css_classes(tag))
 
         # Equation tables
@@ -827,14 +849,17 @@ class HTMLBuilder(IRBuilder):
         if not rows and not headers:
             return None
 
-        # Caption
+        # Caption: <table><caption> wins; figcaption of the wrapping figure
+        # is the fallback (and, for ar5iv output, the usual source).
+        caption: list = []
+        caption_text = ""
         caption_tag = tag.find("caption")
         if isinstance(caption_tag, Tag):
             caption = self._tag_to_inlines(caption_tag)
             caption_text = self._get_text(caption_tag)
-        else:
-            caption = []
-            caption_text = ""
+        elif figure_caption or figure_caption_text:
+            caption = figure_caption or []
+            caption_text = figure_caption_text
         table_id = _extract_table_id(caption_text)
 
         return TableIR(
@@ -844,6 +869,7 @@ class HTMLBuilder(IRBuilder):
             headers=headers,
             rows=rows,
             caption=caption,
+            label=figure_label,
         )
 
     def _build_listing(self, tag: Tag, section_id: str, base_idx: int) -> CodeIR | None:

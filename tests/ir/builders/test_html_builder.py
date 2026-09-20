@@ -253,6 +253,51 @@ class TestBlockConversion:
         tables = [b for b in doc.sections[0].blocks if b.type == "table"]
         assert len(tables) == 1
 
+    def test_ltx_table_figure_keeps_figcaption(self, builder):
+        # ar5iv wraps data tables in <figure class="ltx_table"> and puts the
+        # caption in a figure-level <figcaption> — it must reach TableIR
+        # (caption + table_id + element-id label), not be dropped.
+        html = """
+        <figure class="ltx_table" id="S3.T1">
+        <table>
+        <tr><th>A</th><th>B</th></tr>
+        <tr><td>1</td><td>2</td></tr>
+        </table>
+        <figcaption>Table 1: Comparison of methods</figcaption>
+        </figure>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        tables = [b for b in doc.sections[0].blocks if b.type == "table"]
+        assert len(tables) == 1
+        table = tables[0]
+        assert table.table_id == "table-1"
+        assert table.label == "S3.T1"
+        caption_text = " ".join(getattr(inline, "text", "") for inline in table.caption)
+        assert "Comparison of methods" in caption_text
+
+    def test_inner_table_caption_still_wins(self, builder):
+        # When both <table><caption> and figure figcaption exist, the
+        # table-level caption takes precedence.
+        html = """
+        <figure class="ltx_table" id="S9.T9">
+        <table>
+        <caption>Table 2: Inner caption</caption>
+        <tr><th>A</th></tr>
+        <tr><td>1</td></tr>
+        </table>
+        <figcaption>Table 1: Outer caption</figcaption>
+        </figure>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        table = next(b for b in doc.sections[0].blocks if b.type == "table")
+        assert table.table_id == "table-2"
+        caption_text = " ".join(getattr(inline, "text", "") for inline in table.caption)
+        assert "Inner caption" in caption_text
+
     def test_list(self, builder):
         html = """
         <ul>
