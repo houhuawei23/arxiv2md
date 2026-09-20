@@ -8,7 +8,9 @@ http:
   fetch_timeout_s: 10.0
   fetch_max_retries: 3
   fetch_backoff_s: 3.0
-  user_agent: "arxiv2md-beta/0.15.1"
+  # Placeholder: settings injects the package version at load time
+  # (arxiv2md-beta/<__version__>). Override freely with your own agent string.
+  user_agent: "arxiv2md-beta"
   retry_status_codes: [429, 500, 502, 503, 504]
   large_transfer_timeout_multiplier: 5.0
   # Overall wall-clock budget per metadata fetch (retries + enrichment included).

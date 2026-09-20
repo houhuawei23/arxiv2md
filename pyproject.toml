@@ -56,6 +56,9 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Real-network tests are opt-in: `pytest -m real_paper` (they hit arxiv.org
+# and would otherwise run by default on any machine with proxy env vars set).
+addopts = "-m 'not real_paper'"
 markers = [
     "real_paper: tests that download and parse real arXiv papers (requires network + proxy)",
 ]
@@ -101,6 +104,11 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "src/arxiv2md_beta/output/metadata.py" = ["E402"]
+# CLI-layer async functions doing one exists()/stat() guard: offloading each
+# to a thread costs more than the syscall, by design (see AGENTS.md).
+"src/arxiv2md_beta/cli/app.py" = ["ASYNC240"]
+"src/arxiv2md_beta/cli/runner/paper_yml.py" = ["ASYNC240"]
+"tests/test_integration_with_mocks.py" = ["ASYNC240"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["arxiv2md_beta"]

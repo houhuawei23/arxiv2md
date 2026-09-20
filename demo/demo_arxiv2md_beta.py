@@ -1,64 +1,71 @@
-"""Demo script for arxiv2md-beta."""
+"""Demo: convert an arXiv paper to Markdown via the public CLI flow.
+
+Uses the same entry point as the ``arxiv2md-beta convert`` command
+(``run_convert_flow``), so the demo exercises the real pipeline —
+output layout, quality gate, images, sidecars, and the per-paper manifest.
+
+Run from the repo root::
+
+    python demo/demo_arxiv2md_beta.py            # HTML mode (default)
+    python demo/demo_arxiv2md_beta.py --latex    # LaTeX (pandoc) mode
+"""
 
 from __future__ import annotations
 
-import asyncio
+import argparse
 from pathlib import Path
 
-from arxiv2md_beta.ingestion import ingest_paper
-from arxiv2md_beta.query import parse_arxiv_input
+from arxiv2md_beta.cli.runner.convert import run_convert_flow
+from arxiv2md_beta.network.http import run_async
+from arxiv2md_beta.output.manifest import read_paper_manifest
+from arxiv2md_beta.params import ConvertParams
+
+DEMO_ARXIV_ID = "1706.03762"  # "Attention Is All You Need"
 
 
-async def main():
-    """Demo main function."""
-    # Example arXiv ID
-    arxiv_id = "2501.11120"  # Replace with a real arXiv ID for testing
+def build_params(output_dir: Path, *, parser: str) -> ConvertParams:
+    return ConvertParams(
+        input_text=DEMO_ARXIV_ID,
+        parser=parser,
+        output=str(output_dir),
+        source="Arxiv",
+        short=None,
+        no_images=True,  # keep the demo fast; set False to fetch TeX images
+        remove_refs=False,
+        remove_inline_citations=False,
+        section_filter_mode="exclude",
+        sections=None,
+        section=None,
+        include_tree=True,
+        structured_output="none",
+        emit_graph_csv=False,
+    )
 
-    print(f"Demo: Converting arXiv paper {arxiv_id} to Markdown")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="arxiv2md-beta demo")
+    parser.add_argument("--latex", action="store_true", help="use the LaTeX (pandoc) parser")
+    parser.add_argument("--output", default="demo_output", help="base output directory")
+    args = parser.parse_args()
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    params = build_params(output_dir, parser="latex" if args.latex else "html")
+
+    print(f"Demo: converting arXiv paper {DEMO_ARXIV_ID} to Markdown ({params.parser} mode)")
     print("=" * 60)
 
-    # Parse input
-    query = parse_arxiv_input(arxiv_id)
-    print(f"Parsed arXiv ID: {query.arxiv_id}")
-    print(f"Version: {query.version}")
+    # run_async tears the shared HTTP client down cleanly afterwards.
+    paper_dir = run_async(run_convert_flow(params))
 
-    # Create output directory
-    output_dir = Path("demo_output")
-    output_dir.mkdir(exist_ok=True)
-
-    # Ingest paper (HTML mode)
-    print("\nIngesting paper in HTML mode...")
-    try:
-        result, metadata = await ingest_paper(
-            arxiv_id=query.arxiv_id,
-            version=query.version,
-            html_url=query.html_url,
-            ar5iv_url=query.ar5iv_url,
-            parser="html",
-            remove_refs=False,
-            remove_toc=False,
-            remove_inline_citations=False,
-            section_filter_mode="exclude",
-            sections=[],
-            output_dir=output_dir,
-            images_dir_name="images",
-            no_images=False,  # Set to True to skip images for faster demo
-        )
-
-        # Write output
-        output_file = output_dir / f"{query.arxiv_id}.md"
-        output_text = f"{result.summary}\n\n{result.content}"
-        output_file.write_text(output_text, encoding="utf-8")
-
-        print(f"\n✓ Success! Output written to: {output_file}")
-        print(f"\nSummary:\n{result.summary}")
-
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        import traceback
-
-        traceback.print_exc()
+    print("\n✓ Success!")
+    print(f"  Output directory: {paper_dir}")
+    for generated in sorted(paper_dir.iterdir()):
+        print(f"  - {generated.name}")
+    manifest = read_paper_manifest(paper_dir)
+    if manifest:
+        print(f"  Status: {manifest.get('status')} ({manifest.get('content_bytes', 0)} bytes)")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

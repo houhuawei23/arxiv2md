@@ -33,15 +33,22 @@ pytestmark = pytest.mark.real_paper
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
+def _cache_root() -> Path:
+    """The tool's real cache root (respects XDG_CACHE_HOME / config)."""
+    from arxiv2md_beta.settings import get_settings
+
+    return Path(get_settings().resolved_cache_path())
+
+
 def _load_cached_html(arxiv_id: str) -> str | None:
     """Load HTML from local cache if available."""
-    cache_path = Path.home() / ".cache" / "arxiv2md-beta" / f"{arxiv_id}__latest" / "source.html"
+    cache_root = _cache_root()
+    cache_path = cache_root / f"{arxiv_id}__latest" / "source.html"
     if cache_path.exists():
         return cache_path.read_text(encoding="utf-8")
     # Try versioned cache
-    cache_dir = Path.home() / ".cache" / "arxiv2md-beta"
-    if cache_dir.exists():
-        for subdir in cache_dir.iterdir():
+    if cache_root.exists():
+        for subdir in cache_root.iterdir():
             if arxiv_id.replace("v", "_v") in subdir.name or arxiv_id in subdir.name:
                 candidate = subdir / "source.html"
                 if candidate.exists():
@@ -57,8 +64,8 @@ def _fetch_and_cache_html(arxiv_id: str) -> str:
     resp = httpx.get(url, follow_redirects=True, timeout=60)
     resp.raise_for_status()
 
-    # Save to cache
-    cache_dir = Path.home() / ".cache" / "arxiv2md-beta" / f"{arxiv_id}__latest"
+    # Save to the tool's own cache (same layout, safe to reuse).
+    cache_dir = _cache_root() / f"{arxiv_id}__latest"
     cache_dir.mkdir(parents=True, exist_ok=True)
     (cache_dir / "source.html").write_text(resp.text, encoding="utf-8")
     return resp.text
@@ -108,9 +115,9 @@ class TestAttentionIsAllYouNeed:
         # Most authors should have affiliations.
         # (Illia Polosukhin in 1706.03762 HTML has no explicit affiliation line.)
         authors_with_affils = [a for a in authors if a.affiliations]
-        assert (
-            len(authors_with_affils) >= len(authors) - 1
-        ), f"Too many authors missing affiliations: {[a.name for a in authors if not a.affiliations]}"
+        assert len(authors_with_affils) >= len(authors) - 1, (
+            f"Too many authors missing affiliations: {[a.name for a in authors if not a.affiliations]}"
+        )
 
     def test_html_builder_produces_clean_equations(self, html: str) -> None:
         """Equations must be pure LaTeX — no duplicated Unicode math symbols."""

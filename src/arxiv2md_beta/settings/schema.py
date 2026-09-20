@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AppSection(BaseModel):
@@ -22,6 +22,19 @@ class HttpSection(BaseModel):
     fetch_max_retries: int = Field(ge=0)
     fetch_backoff_s: float = Field(ge=0)
     user_agent: str
+    # Version single-sourcing: the bundled YAML carries the bare placeholder;
+    # the package's own __version__ is injected here so a release cannot
+    # drift between pyproject, default_config.yml, and the live UA string.
+    _UA_PLACEHOLDER = "arxiv2md-beta"
+
+    @model_validator(mode="after")
+    def _inject_versioned_user_agent(self) -> HttpSection:
+        if self.user_agent == self._UA_PLACEHOLDER:
+            from arxiv2md_beta import __version__
+
+            self.user_agent = f"arxiv2md-beta/{__version__}"
+        return self
+
     retry_status_codes: list[int]
     large_transfer_timeout_multiplier: float = Field(gt=0)
     max_connections: int = Field(default=100, ge=1, description="httpx connection pool size")

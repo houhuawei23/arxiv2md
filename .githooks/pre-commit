@@ -81,7 +81,19 @@ if findings:
 sys.exit(0)
 PYCODE
 
-# Run pre-commit framework checks (ruff, mypy, etc.) if installed
-if command -v pre-commit >/dev/null 2>&1; then
-  exec pre-commit run --show-diff-on-failure
+# Run pre-commit framework checks only when configured for this repo
+if [ -f .pre-commit-config.yaml ] && command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --show-diff-on-failure || exit 1
 fi
+
+# Lint + type gates (fast, repo-wide). Kept unconditional so they cannot be
+# silently skipped when the pre-commit framework is absent.
+if command -v ruff >/dev/null 2>&1; then
+  ruff check src tests || exit 1
+  ruff format --check src >/dev/null || exit 1
+fi
+if command -v mypy >/dev/null 2>&1; then
+  mypy src || exit 1
+fi
+
+exit 0

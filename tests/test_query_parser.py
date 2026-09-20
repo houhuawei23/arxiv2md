@@ -71,11 +71,21 @@ class TestLocalHtmlParsing:
     """Tests for parsing local HTML file paths."""
 
     def test_is_local_html_path(self, tmp_path: Path):
-        """Check if path is local HTML file."""
+        """The predicate covers real files, bare extensions, and non-paths."""
+        from arxiv2md_beta.query.parser import is_local_html_path
+
         html_file = tmp_path / "paper.html"
         html_file.write_text("<html></html>")
-        # Check extension rather than file existence
-        assert html_file.suffix.lower() in (".html", ".htm")
+        assert is_local_html_path(str(html_file)) is True
+
+        # .htm works; non-HTML suffixes and IDs/URLs do not.
+        htm_file = tmp_path / "paper.htm"
+        htm_file.write_text("<html></html>")
+        assert is_local_html_path(str(htm_file)) is True
+        assert is_local_html_path(str(tmp_path / "paper.txt")) is False
+        assert is_local_html_path("2501.11120") is False
+        assert is_local_html_path("https://arxiv.org/abs/2501.11120") is False
+        assert is_local_html_path("") is False
 
     def test_parse_local_html(self, tmp_path: Path):
         """Parse valid local HTML file."""
@@ -95,17 +105,28 @@ class TestLocalArchiveParsing:
     """Tests for parsing local archive file paths."""
 
     def test_is_local_archive_path_tar_gz(self, tmp_path: Path):
-        """Check tar.gz as archive path."""
+        """The predicate recognizes tar.gz/tgz and rejects other paths."""
+        from arxiv2md_beta.query.parser import is_local_archive_path
+
         archive = tmp_path / "paper.tar.gz"
         archive.write_bytes(b"fake tar.gz content")
-        # Check extension
-        assert archive.suffixes == [".tar", ".gz"] or archive.suffix == ".tgz"
+        assert is_local_archive_path(str(archive)) is True
+
+        tgz = tmp_path / "paper.tgz"
+        tgz.write_bytes(b"fake tgz content")
+        assert is_local_archive_path(str(tgz)) is True
+        assert is_local_archive_path(str(tmp_path / "paper.zip")) is True
+        assert is_local_archive_path(str(tmp_path / "paper.txt")) is False
+        assert is_local_archive_path("2501.11120") is False
+        assert is_local_archive_path("") is False
 
     def test_is_local_archive_path_zip(self, tmp_path: Path):
-        """Check zip as archive path."""
+        """The predicate recognizes zip archives."""
+        from arxiv2md_beta.query.parser import is_local_archive_path
+
         archive = tmp_path / "paper.zip"
         archive.write_bytes(b"fake zip content")
-        assert archive.suffix == ".zip"
+        assert is_local_archive_path(str(archive)) is True
 
     def test_parse_local_archive_tar_gz(self, tmp_path: Path):
         """Parse valid tar.gz archive."""

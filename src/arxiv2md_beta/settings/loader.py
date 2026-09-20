@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from loguru import logger
 from pydantic import ValidationError
 
 from arxiv2md_beta.exceptions import UserInputError
@@ -155,6 +156,33 @@ def _read_path(path: Path) -> dict[str, Any]:
         ) from e
 
 
+def _warn_unknown_keys(user_cfg: dict) -> None:
+    """Log a warning for user-config keys the schema does not know.
+
+    ``extra="ignore"`` stays (env overlays rely on it), but a typo'd user
+    YAML key like ``outputs:`` would otherwise silently do nothing.
+    """
+
+    def _walk(mapping: Any, model: Any, path: str) -> None:
+        fields = getattr(model, "model_fields", None)
+        if not fields or not isinstance(mapping, dict):
+            return
+        for key, value in mapping.items():
+            field = fields.get(key)
+            if field is None:
+                logger.warning(f"Unknown configuration key ignored: '{path}{key}'")
+                continue
+            sub_model = field.annotation
+            for arg in getattr(sub_model, "__args__", ()) or ():
+                if hasattr(arg, "model_fields"):
+                    sub_model = arg
+                    break
+            if hasattr(sub_model, "model_fields"):
+                _walk(value, sub_model, f"{path}{key}.")
+
+    _walk(user_cfg, AppSettings, "")
+
+
 def load_settings(
     *,
     config_path: Path | None = None,
@@ -209,7 +237,9 @@ def load_settings(
         merged = deep_merge(merged, _load_yaml_bytes(prof_raw))
 
     if user_path is not None:
-        merged = deep_merge(merged, _read_path(user_path))
+        user_raw = _read_path(user_path)
+        _warn_unknown_keys(user_raw)
+        merged = deep_merge(merged, user_raw)
 
     # Env wins over all YAML (init kwargs previously blocked pydantic-settings env)
     merged = deep_merge(merged, env_overlay_from_os())
