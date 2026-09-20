@@ -7,7 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进。
+批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
+
+### Fixed（2026-09-20 审计，P1 确定性 bug）
+
+- **Markdown 后处理不再破坏代码块**：`$5 and $10` 曾被当作 inline math 改写、fence 内 `**Table N**` 被改成引用块、fence 内空行被折叠；现所有后处理规则先摘出 fenced code 再处理（inline code 亦保护 math 清理），`$` 配对采用 pandoc flanking 规则（内容首尾空白视为字面量）。
+- **math 清理 IndexError**：`$x$$$$$` 一类输入在 inline 区后跟空 display 区时崩溃。
+- **引用年份解析**：fallback 年份提取 `group(1)` 恒取 "19"/"20"，所有无 ID 引用条目年份全错；改 `group(0)`。
+- **`ltx_table` 表格题注丢失**：ar5iv 把题注放在 `figure.ltx_table > figcaption`，此前整体被丢（表格无题注、编号与正文引用错位）；现 figcaption 兜底进入 `TableIR.caption`，并新增 `TableIR.label` 携带元素 id。
+- **LaTeX 图片 label 错配**：`\includegraphics` label 映射此前用被 float 重排过的位置索引查全量图片列表，有内联图或失败图时标签会拿到别的图；现按源文件身份（`ProcessedImages.source_paths`）直查。
+- **引用 run 吞空格**：`[12] the method` 曾渲染为 `(12)the method`；分隔符现仅在其两侧都是引用时才合并。
+- **`\if0` 内 bibitem 占号**：bibitem 编号统计先于 `\if0` 死代码剥离执行，其后所有 `\cite` 编号整体偏移；已调整顺序。
+- **TeX 下载限流不再杀死 HTML 转换**：镜像回退失败抛出的裸 `NetworkError`（如 429）此前未被降级捕获，整篇转换失败；现按设计降级为无图转换。
+- **PDF-only 论文的 PDF 兜底可用**：质量门槛此前在任何写入（含 PDF 下载任务）前执行，PDF-only 论文默认必抛 exit 5 且 PDF 不落盘；现 `pdf_only` 路径跳过门槛、不写 paper.md（stub 永不落盘）、正常下载 PDF 并记录 `status="pdf_only"` manifest。
+- **输出目录并发覆盖**：并发转换同一论文的 v1/v2（不同 identity、同名目录）此前互相覆盖 marker 与输出；现以 marker 排他创建选举 + 确定性碰撞后缀，各得各目录，同 identity 重跑仍幂等复用。
+- **demo 脚本重写**：旧 demo 使用两代前的 API（一跑即 TypeError/ValueError），现走与 CLI 相同的 `run_convert_flow` 公开入口。
+
+### Fixed（2026-09-20 审计，P2 健壮性）
+
+- `close_http_client` 同步重置全局限速锁（跨 `asyncio.run` 复用进程时曾抛 "bound to a different event loop"）；stale client 重建时尽力关闭旧连接池；删除显式 proxy 读取（恢复 httpx `trust_env` 的 NO_PROXY 语义）。
+- 毒化 HTML 缓存自愈：占位页守卫命中缓存时删除坏缓存并重取，不再在 TTL 内每次运行都失败。
+- arXiv API 重试收敛到 `request_with_retries`：404 立即放弃、不可重试 4xx 不再满重试、不再吞异常；删除 `_merge_metadata` 恒假 elif 死代码；Atom feed `author.name=null` 不再导致整条 bibtex 静默丢失。
+- orchestrator `tex_task` 与 finalize `pdf_task` 在异常路径上不再泄漏；sidecar `unlink` 加 `missing_ok`；manifest `pdf_path` 仅下载成功后记录。
+- pass 顺序修正：`SectionFilterPass` 移到 `SectionNumberingPass` 之后，`--sections sec_x`（struct_id 选择）此前**静默无效**，现生效；被滤节连同编号前缀一起删除，"过滤节不编号"语义保持。
+- struct_id 去重：unnumbered 节子节不再与正常编号节撞车；JSON emitter 位置回填跳过已占用 id（unnumbered References 曾与 §4 撞出重复 `sec_4`）。
+- ar5iv `#S4` 式节内链接以元素 id 为权威映射 key，过滤删节后不再被位置推导改写到错误锚点。
+- Abstract 双重标题消除：metadata 与正文均剥 "Abstract " 前缀/标题块。
+- 作者解析：机构关键词改词边界匹配（"Smith" 不再因含 "mit" 被当机构丢弃）；bold/italic 配对改共享根文档序遍历（片段重解析下不再全部 bold 优先）。
+- 嵌套有序列表缩进按父标记宽（CommonMark），嵌套结构不再退化为段落延续文本。
+- IR visitor 补 `figure.images`（文本统计/内容指纹不再漏图）；`emit()` 与 `write_bundle()` 统一 struct_id 回填；graph 资产节点按 path 去重。
+- TeX 解压改任务私有临时目录 + 原子替换（并发同论文时一方失败不再删掉另一方的解压目录）。
+- `math.GT/0309136` 等带点旧式 arXiv ID 现可解析。
+- real_paper 测试缓存路径改由 settings 解析（尊重 XDG），并默认排除出常规测试运行（见下）。
+
+### Changed（2026-09-20 审计）
+
+- **golden 快照改锁实跑产物**：`test_golden_snapshot` 弃用手搭 pass 序列（含已废弃 AnchorPass），改用 `build_default_pipeline`；补 `sample_paper.bbl` + `\cite` fixture，references 路径首次纳入快照；LaTeX 节标题现带编号（`## 1 Introduction`）、`paper.meta/document.json` 的 struct_id 与 tool_version 修正。
+- **user_agent 版本单源**：default_config.yml 改为占位符，加载时由包 `__version__` 注入；JSON meta 的 `tool_version` 以 `__version__` 为主（dist 元数据可能陈旧）。pyproject 与 `__init__.py` 仍需发版时同步（见 REVIEW §六）。
+- settings：user YAML 未知键打 warning（`extra="ignore"` 保留）；`real_paper` 标记测试默认排除（`addopts = "-m 'not real_paper'"`，显式 `-m real_paper` 运行）。
+- pre-commit：`core.hooksPath` 现已配置（`.githooks/`），hook 追加 ruff + mypy 强制门禁（此前 ruff/mypy/密钥扫描三道门实际均不生效）。
+- `mypy src` 清零（原 17 错集中收敛于 pandoc AST 提取点与 `arxiv_abs_html.py`）。
+
+### Removed（2026-09-20 审计）
+
+- 恒写空的 `paper.bib.json`（无下游消费者；参考文献在 split References markdown 中）。
+- 永久 skip 的占位测试文件 `tests/test_integration.py`；`test_query_parser.py` 中从不调用被测函数的恒真断言（改为真实调用）。
+- `_merge_metadata` 中恒假 elif 的 30 行作者匹配合并死代码。
 
 ### Added
 
