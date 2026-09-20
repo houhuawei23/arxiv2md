@@ -23,15 +23,11 @@ from pathlib import Path
 import pytest
 
 from arxiv2md_beta.ir import (
-    AnchorPass,
-    FigureReorderPass,
     LaTeXBuilder,
-    NumberingPass,
-    PassPipeline,
-    SectionFilterPass,
 )
 from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter
 from arxiv2md_beta.ir.resolvers import ImageResolver
+from arxiv2md_beta.ir.transforms import build_default_pipeline
 from arxiv2md_beta.latex.includes import resolve_latex_includes
 from arxiv2md_beta.settings import get_settings
 
@@ -43,11 +39,12 @@ _REGEN = os.environ.get("GOLDEN_REGEN") == "1"
 def _build_doc():
     tex = resolve_latex_includes(FIXTURE, FIXTURE.parent)
     doc = LaTeXBuilder(image_resolver=ImageResolver()).build(tex, arxiv_id="sample", title="A Sample Paper for Testing")
-    pipeline = PassPipeline()
-    pipeline.add(SectionFilterPass(mode="exclude", selected=[]))
-    pipeline.add(NumberingPass())
-    pipeline.add(FigureReorderPass())
-    pipeline.add(AnchorPass())
+    # The canonical pass factory — the golden must lock the same sequence the
+    # ingestion paths run, not a parallel hand-built pipeline.
+    pipeline = build_default_pipeline(
+        parser="latex",
+        reference_section_titles=get_settings().ingestion.reference_section_titles,
+    )
     pipeline.run(doc)
     return doc
 
@@ -118,7 +115,11 @@ def json_parts(doc):
 def test_markdown_golden(parts, idx, name):
     actual = parts[idx]
     if actual is None:
-        pytest.skip(f"{name} is empty (no references/appendix sections in fixture)")
+        if name == "sample_paper.refs.md":
+            # The fixture ships a .bbl, so references must always split out —
+            # None here means a fixture/builder regression, not "no coverage".
+            pytest.fail("references split is empty; sample_paper.bbl went missing?")
+        pytest.skip(f"{name} is empty (no appendix section in fixture)")
     _check(name, actual)
 
 

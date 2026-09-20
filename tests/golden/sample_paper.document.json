@@ -37,7 +37,7 @@
       "type": "author"
     }
   ],
-  "content_sha256": "deb5561fcf9a19e34c3eb0b1937973bb17b7e1634a69d9d841073b35c5fe2209",
+  "content_sha256": "14307a49998ea9352cc4754f07707602755135d6a5c43e8b9c561643fc146db6",
   "front_matter": [],
   "parser": "latex",
   "schema_version": "2.0",
@@ -46,7 +46,7 @@
       "anchor": "sec:intro",
       "blocks": [
         {
-          "id": "sec_0:b0:paragraph",
+          "id": "sec_1:b0:paragraph",
           "inlines": [
             {
               "id": "",
@@ -108,7 +108,87 @@
               "id": "",
               "order_index": 0,
               "section_id": "",
-              "text": "section.",
+              "text": "section,",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "building",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "on",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "prior",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "work\u00a0",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "inlines": [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "2",
+                  "type": "text"
+                }
+              ],
+              "kind": "citation",
+              "order_index": 0,
+              "section_id": "",
+              "target_id": "2",
+              "type": "link"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": ".",
               "type": "text"
             },
             {
@@ -190,7 +270,7 @@
             }
           ],
           "order_index": 0,
-          "section_id": "sec_0",
+          "section_id": "sec_1",
           "source": {
             "parser": "latex"
           },
@@ -199,10 +279,10 @@
         {
           "anchor": "eq-1",
           "equation_number": "(1)",
-          "id": "sec_0:b1:equation",
-          "latex": "E = mc^2",
+          "id": "sec_1:b1:equation",
+          "latex": "\\begin{equation}\n E = mc^2\n \n\\end{equation}",
           "order_index": 1,
-          "section_id": "sec_0",
+          "section_id": "sec_1",
           "source": {
             "parser": "latex"
           },
@@ -211,14 +291,14 @@
       ],
       "children": [],
       "level": 2,
-      "struct_id": "sec_0",
-      "title": "Introduction"
+      "struct_id": "sec_1",
+      "title": "1 Introduction"
     },
     {
       "anchor": "sec:methods",
       "blocks": [
         {
-          "id": "sec_1:b0:paragraph",
+          "id": "sec_2:b0:paragraph",
           "inlines": [
             {
               "id": "",
@@ -365,7 +445,7 @@
             }
           ],
           "order_index": 0,
-          "section_id": "sec_1",
+          "section_id": "sec_2",
           "source": {
             "parser": "latex"
           },
@@ -439,7 +519,7 @@
             }
           ],
           "figure_id": "fig:setup",
-          "id": "sec_1:b1:figure",
+          "id": "sec_2:b1:figure",
           "images": [
             {
               "alt": "",
@@ -452,7 +532,7 @@
           ],
           "kind": "image",
           "order_index": 1,
-          "section_id": "sec_1",
+          "section_id": "sec_2",
           "source": {
             "parser": "latex"
           },
@@ -461,14 +541,14 @@
       ],
       "children": [],
       "level": 2,
-      "struct_id": "sec_1",
-      "title": "Methods"
+      "struct_id": "sec_2",
+      "title": "2 Methods"
     },
     {
       "anchor": "sec:results",
       "blocks": [
         {
-          "id": "sec_2:b0:paragraph",
+          "id": "sec_3:b0:paragraph",
           "inlines": [
             {
               "id": "",
@@ -573,7 +653,7 @@
             }
           ],
           "order_index": 0,
-          "section_id": "sec_2",
+          "section_id": "sec_3",
           "source": {
             "parser": "latex"
           },
@@ -638,7 +718,7 @@
               }
             ]
           ],
-          "id": "sec_2:b1:table",
+          "id": "sec_3:b1:table",
           "order_index": 1,
           "rows": [
             [
@@ -682,24 +762,24 @@
               ]
             ]
           ],
-          "section_id": "sec_2",
+          "section_id": "sec_3",
           "source": {
             "parser": "latex"
           },
-          "table_id": "table-1",
+          "table_id": "tab:comparison",
           "type": "table"
         }
       ],
       "children": [],
       "level": 2,
-      "struct_id": "sec_2",
-      "title": "Results"
+      "struct_id": "sec_3",
+      "title": "3 Results"
     },
     {
       "anchor": "sec:conclusion",
       "blocks": [
         {
-          "id": "sec_3:b0:paragraph",
+          "id": "sec_4:b0:paragraph",
           "inlines": [
             {
               "id": "",
@@ -780,7 +860,7 @@
             }
           ],
           "order_index": 0,
-          "section_id": "sec_3",
+          "section_id": "sec_4",
           "source": {
             "parser": "latex"
           },
@@ -789,8 +869,405 @@
       ],
       "children": [],
       "level": 2,
-      "struct_id": "sec_3",
-      "title": "Conclusion"
+      "struct_id": "sec_4",
+      "title": "4 Conclusion"
+    },
+    {
+      "anchor": "references",
+      "blocks": [
+        {
+          "id": "sec_4-2:b0:list",
+          "items": [
+            [
+              {
+                "id": "",
+                "inlines": [
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "J.\u00a0Doe",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "and",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "J.\u00a0Smith,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "\u201c",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "A",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "sample",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "paper",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "for",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "testing,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "\u201d",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Journal",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "of",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Testing,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "vol.\u00a01,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "2024.",
+                    "type": "text"
+                  }
+                ],
+                "order_index": 0,
+                "section_id": "",
+                "source": {
+                  "parser": "latex"
+                },
+                "type": "paragraph"
+              }
+            ],
+            [
+              {
+                "id": "",
+                "inlines": [
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "A.\u00a0Vaswani",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "et",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "al.,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "\u201c",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Attention",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "is",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "all",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "you",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "need,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "\u201d",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "in",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "NeurIPS,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "2017.",
+                    "type": "text"
+                  }
+                ],
+                "order_index": 0,
+                "section_id": "",
+                "source": {
+                  "parser": "latex"
+                },
+                "type": "paragraph"
+              }
+            ]
+          ],
+          "order_index": 0,
+          "ordered": false,
+          "section_id": "sec_4-2",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "list"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_4-2",
+      "title": "References"
     }
   ],
   "source_url": null,
