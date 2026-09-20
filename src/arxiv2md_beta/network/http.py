@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
+import contextlib
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from typing import TypeVar
@@ -36,17 +36,15 @@ def _build_client(timeout_s: float | None = None) -> httpx.AsyncClient:
         max_connections=h.max_connections,
         max_keepalive_connections=h.max_keepalive_connections,
     )
-    kwargs: dict = {
-        "timeout": timeout,
-        "headers": headers,
-        "follow_redirects": True,
-        "limits": limits,
-    }
-    # Pick up proxy from environment (HTTP_PROXY / HTTPS_PROXY) or explicit override
-    proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
-    if proxy_url:
-        kwargs["proxy"] = proxy_url
-    return httpx.AsyncClient(**kwargs)
+    # Proxy environment variables (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY and
+    # NO_PROXY) are honored by httpx's default trust_env handling — an
+    # explicit ``proxy=`` override here would silently drop NO_PROXY.
+    return httpx.AsyncClient(
+        timeout=timeout,
+        headers=headers,
+        follow_redirects=True,
+        limits=limits,
+    )
 
 
 def get_http_client() -> httpx.AsyncClient:
@@ -63,9 +61,25 @@ def get_http_client() -> httpx.AsyncClient:
         current_loop = None
     stale = _client_loop is not None and _client_loop is not current_loop
     if _client is None or _client.is_closed or stale:
+        old = _client
         _client = _build_client()
         _client_loop = current_loop
+        if old is not None and not old.is_closed:
+            # Best-effort cleanup of the superseded client's connection pool.
+            # Only possible on a running loop; without one (sync caller) the
+            # old pool is simply dropped for the GC to collect.
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                asyncio.ensure_future(_aclose_quietly(old))
     return _client
+
+
+async def _aclose_quietly(client: httpx.AsyncClient) -> None:
+    with contextlib.suppress(Exception):
+        await client.aclose()
 
 
 async def close_http_client() -> None:
@@ -73,13 +87,16 @@ async def close_http_client() -> None:
 
     Runners should call this at the end of their async flow (via
     :func:`run_async`) so connections are released and the next ``asyncio.run``
-    starts from a clean state.
+    starts from a clean state. Also resets the rate-limit lock, which would
+    otherwise stay bound to a dead loop and raise on the next ``asyncio.run``.
     """
-    global _client, _client_loop
+    global _client, _client_loop, _rate_lock, _rate_next_slot
     if _client is not None and not _client.is_closed:
         await _client.aclose()
     _client = None
     _client_loop = None
+    _rate_lock = None
+    _rate_next_slot = 0.0
 
 
 async def _await_then_close(coro: Awaitable[T]) -> T:

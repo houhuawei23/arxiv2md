@@ -150,17 +150,43 @@ def create_paper_output_dir(
     """Create output directory for paper with format [date]-[source]-[short]-[title]."""
     s = settings or get_settings()
     dir_name = build_output_basename(submission_date, title, source, short, settings=s)
-    output_dir = base_output_dir / dir_name
-    marker = output_dir / ".arxiv2md-paper"
-    if identity and output_dir.exists() and marker.exists():
-        existing_identity = marker.read_text(encoding="utf-8", errors="replace").strip()
-        if existing_identity and existing_identity != identity:
-            output_dir = base_output_dir / f"{dir_name}-{_stable_collision_suffix(identity)}"
-            marker = output_dir / ".arxiv2md-paper"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if identity and not marker.exists():
-        marker.write_text(identity + "\n", encoding="utf-8")
-    return output_dir
+    return _claim_paper_output_dir(base_output_dir, dir_name, identity)
+
+
+def _claim_paper_output_dir(base_output_dir: Path, dir_name: str, identity: str | None) -> Path:
+    """Claim a paper directory via exclusive marker creation.
+
+    Concurrent conversions whose names sanitize to the same directory name
+    (e.g. the same paper's v1 and v2 — distinct identities by design) must
+    not share a directory. The marker is created with ``O_EXCL`` semantics:
+    the winner keeps the plain name, the loser retries under a deterministic
+    collision suffix instead of overwriting the winner's outputs. Re-running
+    the same identity reuses its directory (idempotency contract).
+    """
+    candidate_name = dir_name
+    for _ in range(4):
+        output_dir = base_output_dir / candidate_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        marker = output_dir / ".arxiv2md-paper"
+        if identity is None:
+            return output_dir
+        try:
+            with marker.open("x", encoding="utf-8") as f:
+                f.write(identity + "\n")
+            return output_dir
+        except FileExistsError:
+            existing = marker.read_text(encoding="utf-8", errors="replace").strip()
+            if existing in ("", identity):
+                # Empty marker: a crashed writer (or an unrelated empty dir) —
+                # adopt it, mirroring find_completed_output_dir semantics,
+                # and record our identity for future collision checks.
+                if not existing:
+                    marker.write_text(identity + "\n", encoding="utf-8")
+                return output_dir
+        candidate_name = f"{dir_name}-{_stable_collision_suffix(f'{identity}:{candidate_name}')}"
+    # Every candidate occupied by other papers — deterministic last resort.
+    assert identity is not None  # narrowed by every loop path taken here
+    return base_output_dir / f"{dir_name}-{_stable_collision_suffix(identity)}"
 
 
 def _stable_collision_suffix(identity: str) -> str:

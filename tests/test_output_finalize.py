@@ -186,3 +186,114 @@ def test_save_paper_metadata_failure_logs_exactly_once(tmp_path, caplog):
     warnings = [r for r in records if r["level"].name == "WARNING"]
     assert len(warnings) == 1
     assert "Failed to save paper.yml" in warnings[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_pdf_only_bypasses_stub_gate_and_downloads_pdf(tmp_path: Path) -> None:
+    """The pdf_only flag must route to the dedicated finalize branch.
+
+    Regression: the pdf-only fallback produced a ~150-byte stub note and
+    relied on finalize to download the PDF — but the quality gate ran first
+    and aborted the flow, so PDF-only papers died with exit 5 and no PDF.
+    """
+    from arxiv2md_beta.cli.output_finalize import finalize_convert_output
+    from arxiv2md_beta.output.manifest import read_paper_manifest
+
+    result = IngestionResult(summary="Sum", sections_tree="", content="tiny note")
+    meta = {
+        "submission_date": "20200101",
+        "title": "PDF Only Paper",
+        "paper_output_dir": None,
+        "arxiv_id": "1234.5678",
+        "pdf_only": True,
+    }
+    params = ConvertParams(
+        input_text="1234.5678",
+        parser="html",
+        output=str(tmp_path),
+        source="Arxiv",
+        short=None,
+        no_images=True,
+        remove_refs=False,
+        remove_inline_citations=False,
+        section_filter_mode="exclude",
+        sections=None,
+        section=None,
+        include_tree=False,
+        emit_result_json=False,
+        structured_output="none",
+        emit_graph_csv=False,
+    )
+
+    async def fake_pdf(arxiv_id, output_path, version=None, use_cache=True):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"%PDF-1.4 fake")
+        return output_path
+
+    with patch(
+        "arxiv2md_beta.cli.output_finalize.fetch_arxiv_pdf",
+        new=AsyncMock(side_effect=fake_pdf),
+    ):
+        out = await finalize_convert_output(
+            result=result,
+            metadata=meta,
+            params=params,
+            base_output_dir=tmp_path,
+            fallback_md_stem="1234.5678",
+            pdf_fetch=("1234.5678", None),
+            log_local_success=False,
+        )
+    # No Markdown: the stub never lands on disk.
+    assert not list(out.glob("*.md"))
+    pdfs = list(out.glob("*.pdf"))
+    assert pdfs and pdfs[0].read_bytes().startswith(b"%PDF")
+    manifest = read_paper_manifest(out)
+    assert manifest is not None
+    assert manifest["status"] == "pdf_only"
+    assert manifest["pdf_path"] == str(pdfs[0])
+    assert manifest["markdown_file"] is None
+
+
+@pytest.mark.asyncio
+async def test_pdf_only_records_no_pdf_path_when_download_fails(tmp_path: Path) -> None:
+    from arxiv2md_beta.cli.output_finalize import finalize_convert_output
+    from arxiv2md_beta.exceptions import NetworkError
+    from arxiv2md_beta.output.manifest import read_paper_manifest
+
+    result = IngestionResult(summary="Sum", sections_tree="", content="tiny note")
+    meta = {"title": "PDF Only Paper", "paper_output_dir": None, "arxiv_id": "1234.5678", "pdf_only": True}
+    params = ConvertParams(
+        input_text="1234.5678",
+        parser="html",
+        output=str(tmp_path),
+        source="Arxiv",
+        short=None,
+        no_images=True,
+        remove_refs=False,
+        remove_inline_citations=False,
+        section_filter_mode="exclude",
+        sections=None,
+        section=None,
+        include_tree=False,
+        emit_result_json=False,
+        structured_output="none",
+        emit_graph_csv=False,
+    )
+    with patch(
+        "arxiv2md_beta.cli.output_finalize.fetch_arxiv_pdf",
+        new=AsyncMock(side_effect=NetworkError("network down", status_code=503)),
+    ):
+        out = await finalize_convert_output(
+            result=result,
+            metadata=meta,
+            params=params,
+            base_output_dir=tmp_path,
+            fallback_md_stem="1234.5678",
+            pdf_fetch=("1234.5678", None),
+            log_local_success=False,
+        )
+    assert not list(out.glob("*.pdf"))
+    manifest = read_paper_manifest(out)
+    assert manifest is not None
+    assert manifest["status"] == "pdf_only"
+    assert manifest["pdf_path"] is None

@@ -52,6 +52,13 @@ def build_default_pipeline(
     """
     selected = list(selected_sections or [])
     pipeline = PassPipeline()
+    # LaTeX section numbering runs BEFORE the filter: ``--sections`` may
+    # select by struct_id ("sec_2_1"), which only exists once
+    # SectionNumberingPass has assigned it. Filtering afterwards still
+    # satisfies "filtered sections are not numbered" — a dropped section
+    # takes its number prefix with it and never reaches the output.
+    if parser == "latex":
+        pipeline.add(SectionNumberingPass())
     if selected:
         pipeline.add(SectionFilterPass(mode=section_filter_mode, selected=selected))
     if remove_refs:
@@ -62,7 +69,5 @@ def build_default_pipeline(
             )
         )
     pipeline.add(NumberingPass())
-    if parser == "latex":
-        pipeline.add(SectionNumberingPass())
     pipeline.add(FigureReorderPass())
     return pipeline

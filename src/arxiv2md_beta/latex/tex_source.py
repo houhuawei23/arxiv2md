@@ -149,15 +149,21 @@ async def fetch_and_extract_tex_source(
     except RuntimeError as e:
         raise TexSourceNotFoundError(f"Failed to download TeX source for {arxiv_id}: {e}") from e
 
-    # Extract archive
+    # Extract archive into a task-private temp dir, then move into place.
+    # Two concurrent conversions of the same paper share the cache path; a
+    # shared extract dir let one task's failure rmtree delete the other's
+    # freshly extracted files mid-read.
     logger.info(f"Extracting TeX source to {extracted_dir}")
+    staging_dir = extracted_dir.with_name(f"{extracted_dir.name}.tmp-{uuid.uuid4().hex}")
     try:
-        extracted_dir.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(_extract_archive, tex_source_path, extracted_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(_extract_archive, tex_source_path, staging_dir)
+        if extracted_dir.exists():
+            shutil.rmtree(extracted_dir, ignore_errors=True)
+        staging_dir.replace(extracted_dir)
     except Exception as e:
-        # Remove the partial extract so a later run does not mistake a half-
-        # extracted directory for a valid cache entry (cache poisoning).
-        shutil.rmtree(extracted_dir, ignore_errors=True)
+        # Remove only our own partial extract — never a shared directory.
+        shutil.rmtree(staging_dir, ignore_errors=True)
         raise ImageExtractionError(f"Failed to extract TeX source: {e}") from e
 
     # Extract images and find main tex file (rglob + per-file reads are IO-bound)

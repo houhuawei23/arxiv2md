@@ -13,8 +13,10 @@ from arxiv2md_beta.schemas import ArxivQuery, LocalArchiveQuery, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
 
 _ARXIV_PATH_KINDS: Final = {"abs", "pdf", "html"}
+# Old-style ids also come classified ("math.GT/0309136") — the subject class
+# may carry a dot-suffix before the slash.
 _ARXIV_ID_RE: Final = re.compile(
-    r"^(?P<base>(\d{4}\.\d{4,5}|[a-zA-Z-]+/\d{7}))(v(?P<version>\d+))?$",
+    r"^(?P<base>(\d{4}\.\d{4,5}|[a-zA-Z-]+(?:\.[a-zA-Z]{2})?/\d{7}))(v(?P<version>\d+))?$",
 )
 
 

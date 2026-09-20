@@ -54,8 +54,16 @@ async def fetch_arxiv_html(
 
     if use_cache and _is_cache_fresh(html_path):
         html_text = html_path.read_text(encoding="utf-8")
-        _reject_no_content_placeholder(html_text)
-        return html_text
+        try:
+            _reject_no_content_placeholder(html_text)
+        except NetworkError:
+            # Poisoned cache: a placeholder written by an older version (before
+            # the write-side guard existed) would fail every run until its TTL
+            # expired. Drop it and fall through to a fresh download.
+            logger.warning(f"Discarding poisoned HTML cache for {arxiv_id}: placeholder page")
+            html_path.unlink(missing_ok=True)
+        else:
+            return html_text
 
     try:
         html_text = await _fetch_with_retries(html_url)

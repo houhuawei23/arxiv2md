@@ -33,7 +33,7 @@ def parse_abs_page_for_authors(html: str) -> tuple[list[str], list[str]]:
     hints: list[str] = []
     for meta in soup.find_all("meta"):
         if attr_optional(meta, "name") == "citation_author_institution" and attr_optional(meta, "content"):
-            hints.append(meta["content"].strip())
+            hints.append(str(meta["content"]).strip())
 
     abs_block = soup.select_one("#abs") or soup.select_one("div#abs")
     root = abs_block or soup

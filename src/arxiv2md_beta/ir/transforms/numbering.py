@@ -34,11 +34,26 @@ class SectionNumberingPass(IRPass):
     def run(self, doc: DocumentIR) -> DocumentIR:
         if doc.metadata.parser != "latex":
             return doc
+        self._seen_struct_ids: set[str] = set()
         self._number_sections(doc.sections, counter=None)
         return doc
 
-    @staticmethod
-    def _number_sections(sections: list[SectionIR], counter: list[int] | None) -> None:
+    def _unique_struct_id(self, base: str) -> str:
+        """*base*, suffixed when a previous section already claimed it.
+
+        Unnumbered sections' children re-enter numbering with their parent's
+        sibling path, so two different sections can derive the same id
+        (e.g. an unnumbered appendix overview's child vs. §1's child);
+        duplicates would collide in the JSON graph and in anchors.
+        """
+        sid, n = base, 2
+        while sid in self._seen_struct_ids:
+            sid = f"{base}-{n}"
+            n += 1
+        self._seen_struct_ids.add(sid)
+        return sid
+
+    def _number_sections(self, sections: list[SectionIR], counter: list[int] | None) -> None:
         """Walk *sections* depth-first, numbering each in place.
 
         *counter* is a mutable list of ints representing the current path
@@ -54,16 +69,16 @@ class SectionNumberingPass(IRPass):
                 # Children of unnumbered sections continue the sibling
                 # sequence (LaTeX convention); restarting from 1 would
                 # duplicate struct_ids like "sec_1" and break anchors.
-                SectionNumberingPass._number_sections(sec.children, list(counter))
+                self._number_sections(sec.children, list(counter))
                 continue
 
             counter[-1] += 1
             number_str = ".".join(str(n) for n in counter)
-            sec.struct_id = f"sec_{number_str.replace('.', '_')}"
+            sec.struct_id = self._unique_struct_id(f"sec_{number_str.replace('.', '_')}")
             sec.title = f"{number_str} {sec.title}"
 
             # Descend into children.
-            SectionNumberingPass._number_sections(sec.children, counter)
+            self._number_sections(sec.children, counter)
         counter.pop()
 
 
@@ -216,18 +231,31 @@ class NumberingPass(IRPass):
         slugified anchors actually emitted, so in-document section links were
         dead. Figure/table/algorithm fragments keep their build-time mapping
         (those ids coincide with NumberingPass ids).
+
+        On the HTML path sections carry the ar5iv element id ("S4") as their
+        anchor — that id is the *authoritative* key for a link written
+        against the source numbering. Positional keys (computed after any
+        section filtering) only fill gaps; otherwise deleting one section
+        would shift every later link onto the wrong anchor.
         """
         fragment_map: dict[str, str] = {}
+        positional: dict[str, str] = {}
 
         def index_section(section: SectionIR, path: list[int]) -> None:
             key = ".".join(("S" if i == 0 else "SS" if i == 1 else "SSS") + str(n) for i, n in enumerate(path))
             if section.anchor:
-                fragment_map[key] = section.anchor
+                if _SECTION_FRAGMENT_RE.match(section.anchor):
+                    fragment_map[section.anchor] = section.anchor
+                else:
+                    positional[key] = section.anchor
             for j, child in enumerate(section.children, start=1):
                 index_section(child, [*path, j])
 
         for i, section in enumerate(doc.sections, start=1):
             index_section(section, [i])
+
+        for key, anchor in positional.items():
+            fragment_map.setdefault(key, anchor)
 
         if not fragment_map:
             return

@@ -10,7 +10,7 @@ from typing import Any, cast
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
+from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.html_attrs import attr_str
@@ -181,65 +181,42 @@ async def _fetch_arxiv_metadata_impl(arxiv_id: str) -> dict[str, str | list | di
     base_id = strip_version(arxiv_id)
 
     s = get_settings()
-    h = s.http
     urls = s.urls
-    retry_status = set(h.retry_status_codes)
     api_url = urls.arxiv_api_query_template.format(base_id=base_id)
 
-    headers = {"User-Agent": h.user_agent}
+    headers = {"User-Agent": s.http.user_agent}
 
-    for attempt in range(h.fetch_max_retries + 1):
-        response: httpx.Response | None = None
-        try:
-            client = get_http_client()
-            await acquire_rate_slot()
-            async with http_request_slot():
-                response = await client.get(api_url, headers=headers)
+    # Shared best-effort retry loop: 2xx → response, 404 → None (expected for
+    # unknown ids), retryable 429/5xx → backoff, other 4xx → None without
+    # wasting retries. ``None`` falls through to the id-derived fallbacks.
+    response = await request_with_retries(api_url, headers=headers, label=f"arxiv-api:{base_id}")
 
-            # Check if status needs retry (429, 5xx)
-            if response.status_code in retry_status:
-                response.raise_for_status()  # Triggers retry via except block
+    if response is not None and response.is_success:
+        arxiv_metadata = _parse_api_response(response.text)
 
-            # Success path - raise for 4xx errors that shouldn't be retried
-            response.raise_for_status()
-
-            # Parse successful response
-            arxiv_metadata = _parse_api_response(response.text)
-
-            # Try to enrich with Crossref API if DOI is available
-            doi = arxiv_metadata.get("doi")
-            if doi:
-                try:
-                    from arxiv2md_beta.network.crossref_api import (
-                        fetch_crossref_metadata,
-                        is_arxiv_doi,
-                    )
-
-                    # Skip arXiv DOIs
-                    if not is_arxiv_doi(cast("str", doi)):
-                        crossref_metadata = await fetch_crossref_metadata(cast("str", doi))
-                        if crossref_metadata:
-                            # Merge metadata: arXiv as base, Crossref as supplement
-                            merged = _merge_metadata(arxiv_metadata, crossref_metadata)
-                            filled = fill_arxiv_metadata_defaults(merged, base_id)
-                            return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
-                except (httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError) as e:
-                    # Crossref failure should not break the flow
-                    logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
-
-            filled = fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
-            return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
-        except (httpx.RequestError, httpx.HTTPStatusError):
-            pass
-
-        if attempt < h.fetch_max_retries:
-            backoff = h.fetch_backoff_s * (2**attempt)
-            if response is not None and response.status_code == 429:
-                logger.warning(
-                    f"arXiv API rate-limited (429) for {base_id}; "
-                    f"retry {attempt + 1}/{h.fetch_max_retries + 1} after {backoff}s"
+        # Try to enrich with Crossref API if DOI is available
+        doi = arxiv_metadata.get("doi")
+        if doi:
+            try:
+                from arxiv2md_beta.network.crossref_api import (
+                    fetch_crossref_metadata,
+                    is_arxiv_doi,
                 )
-            await asyncio.sleep(backoff)
+
+                # Skip arXiv DOIs
+                if not is_arxiv_doi(cast("str", doi)):
+                    crossref_metadata = await fetch_crossref_metadata(cast("str", doi))
+                    if crossref_metadata:
+                        # Merge metadata: arXiv as base, Crossref as supplement
+                        merged = _merge_metadata(arxiv_metadata, crossref_metadata)
+                        filled = fill_arxiv_metadata_defaults(merged, base_id)
+                        return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
+            except (httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError) as e:
+                # Crossref failure should not break the flow
+                logger.debug(f"Failed to fetch Crossref metadata for DOI {doi}: {e}")
+
+        filled = fill_arxiv_metadata_defaults(arxiv_metadata, base_id)
+        return await _enrich_authors_and_refresh_citation(filled, arxiv_id)
 
     logger.warning(
         f"arXiv API metadata fetch failed for {base_id} after retries; "
@@ -291,36 +268,10 @@ def _merge_metadata(arxiv_metadata: dict, crossref_metadata: dict) -> dict:
     if crossref_metadata.get("page"):
         merged["pages"] = crossref_metadata["page"]
 
-    # Authors: prefer Crossref if available (more detailed)
+    # Authors: prefer Crossref if available (more detailed); otherwise keep
+    # the arXiv authors as-is.
     if crossref_metadata.get("crossref_authors"):
         merged["authors"] = crossref_metadata["crossref_authors"]
-    # Otherwise keep arXiv authors but try to enrich with Crossref data if names match
-    elif arxiv_metadata.get("authors") and crossref_metadata.get("crossref_authors"):
-        # Try to match and merge author information
-        arxiv_authors = arxiv_metadata["authors"]
-        crossref_authors = crossref_metadata["crossref_authors"]
-        merged_authors = []
-        for arxiv_author in arxiv_authors:
-            arxiv_name = (arxiv_author.get("name") or "").lower()
-            # Try to find matching Crossref author
-            matched = False
-            for crossref_author in crossref_authors:
-                crossref_name = (crossref_author.get("name") or "").lower()
-                # Simple matching: check if last name matches
-                if arxiv_name and crossref_name:
-                    arxiv_last = arxiv_name.split()[-1] if arxiv_name.split() else ""
-                    crossref_last = crossref_name.split()[-1] if crossref_name.split() else ""
-                    if arxiv_last and crossref_last and arxiv_last == crossref_last:
-                        # Merge: use Crossref details but keep arXiv name format if different
-                        merged_author = crossref_author.copy()
-                        if arxiv_author.get("name"):
-                            merged_author["name"] = arxiv_author["name"]
-                        merged_authors.append(merged_author)
-                        matched = True
-                        break
-            if not matched:
-                merged_authors.append(arxiv_author)
-        merged["authors"] = merged_authors
 
     # Funding information (only from Crossref)
     if crossref_metadata.get("funding"):
@@ -578,8 +529,10 @@ def _generate_bibtex(
     if not title or not authors or not year or not arxiv_id:
         return ""
 
-    # Generate citation key from first author and year
-    first_author = authors[0]["name"] if authors else "author"
+    # Generate citation key from first author and year. The Atom feed can
+    # carry ``{"name": None}`` — skip None names instead of TypeError-ing the
+    # whole entry into the silent-fallback bucket.
+    first_author = next((a.get("name") for a in authors if a.get("name")), "author")
     # Extract last name (assume format "First Last" or "Last, First")
     if "," in first_author:
         last_name = first_author.split(",")[0].strip()

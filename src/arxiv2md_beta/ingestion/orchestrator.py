@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import subprocess
 import unicodedata
 from pathlib import Path
 from typing import Any, cast
 
-from arxiv2md_beta.exceptions import NetworkError
+from arxiv2md_beta.exceptions import (
+    ImageProcessingError,
+    NetworkError,
+    StorageError,
+)
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown, run_structured_export
@@ -23,7 +28,6 @@ from arxiv2md_beta.ir.resolvers import ImageResolver
 from arxiv2md_beta.ir.transforms import build_default_pipeline
 from arxiv2md_beta.latex.tex_source import (
     TexSourceInfo,
-    TexSourceNotFoundError,
     fetch_and_extract_tex_source,
 )
 from arxiv2md_beta.network.arxiv_api import (
@@ -120,9 +124,22 @@ class IngestionOrchestrator:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await tex_task
             return self._run_pdf_only_fallback()
-        self._filter_sections()
-        self._setup_output_dir()
-        await self._fetch_tex_and_images(tex_task)
+        try:
+            self._filter_sections()
+            self._setup_output_dir()
+            await self._fetch_tex_and_images(tex_task)
+        except asyncio.CancelledError:
+            if tex_task is not None and not tex_task.done():
+                tex_task.cancel()
+            raise
+        except BaseException:
+            # A failure before the TeX task was awaited (e.g. mkdir in
+            # _setup_output_dir) must not leak a pending task into the loop.
+            if tex_task is not None and not tex_task.done():
+                tex_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await tex_task
+            raise
         # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
         # offloaded so the event loop can advance other papers in batch mode.
         logger.info(f"[{self._query.arxiv_id}] Building IR from HTML (CPU-bound, may take a while)...")
@@ -213,6 +230,11 @@ class IngestionOrchestrator:
             "paper_output_dir": self._paper_output_dir,
             "arxiv_id": self._query.arxiv_id,
             "structured_export": {},
+            # Tells finalize_convert_output to skip the stub quality gate and
+            # persist only the PDF + manifest — a metadata note can never pass
+            # the 5000-byte gate, so without this flag the PDF fallback would
+            # be unreachable (exit 5 with no artifacts).
+            "pdf_only": True,
         }
         return result, metadata
 
@@ -377,9 +399,21 @@ class IngestionOrchestrator:
                 )
                 image_map = processed.image_map
                 image_stem_map = processed.stem_to_image_path
-            except TexSourceNotFoundError as e:
-                logger.debug(f"No TeX source available for image processing: {e}")
-            except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired) as e:
+            except NetworkError as e:
+                # Includes TexSourceNotFoundError and the bare NetworkError the
+                # mirror-fallback path re-raises (e.g. 429 on both hosts).
+                # Image fetching is best-effort: the HTML conversion must
+                # finish without images rather than abort.
+                logger.warning(f"TeX source unavailable; converting without images: {e}")
+            except (
+                ImageProcessingError,
+                StorageError,
+                OSError,
+                ValueError,
+                TypeError,
+                RuntimeError,
+                subprocess.TimeoutExpired,
+            ) as e:
                 logger.warning(f"Failed to process images: {e}")
 
         # Affiliation-only TeX fetch
@@ -398,9 +432,9 @@ class IngestionOrchestrator:
                         version=self._query.version,
                         use_cache=not self.params.no_cache,
                     )
-            except TexSourceNotFoundError as e:
+            except NetworkError as e:
                 logger.debug(f"No TeX source available for affiliation enrichment: {e}")
-            except (OSError, ValueError, TypeError, RuntimeError) as e:
+            except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired) as e:
                 logger.warning(f"TeX fetch for affiliations failed: {e}")
 
         self._image_resolver = ImageResolver(
@@ -654,21 +688,38 @@ class IngestionOrchestrator:
 
 
 def _strip_abstract_heading(doc: DocumentIR) -> None:
-    """Remove the redundant ``Abstract`` heading block from ``doc.abstract``.
+    """Remove the redundant ``Abstract`` label from ``doc.abstract``.
 
     arXiv HTML abstracts often contain ``<h6>Abstract</h6>`` which the HTML
-    builder converts to a ``HeadingIR``. The emitter already renders its own
-    ``## Abstract`` heading, so this duplicate is removed in-place.
+    builder converts to a ``HeadingIR`` (dropped here), or bakes the word
+    into the first paragraph's text (trimmed here). The emitter already
+    renders its own ``## Abstract`` heading, so any duplicate is removed
+    in-place.
     """
+    from arxiv2md_beta.ir.blocks import HeadingIR, ParagraphIR
+    from arxiv2md_beta.ir.inlines import TextIR
+
     if not doc.abstract:
         return
-    keep = []
+    keep: list = []
     for blk in doc.abstract:
-        if hasattr(blk, "type") and blk.type == "heading":
-            text = (
-                " ".join(il.text for il in (getattr(blk, "inlines", []) or []) if hasattr(il, "text")).strip().lower()
-            )
-            if text in ("abstract",):
+        if isinstance(blk, HeadingIR):
+            text = " ".join(il.text for il in blk.inlines if isinstance(il, TextIR)).strip().lower()
+            if text == "abstract":
                 continue
         keep.append(blk)
-    doc.abstract = keep
+
+    # "Abstract This paper ..." baked into the first paragraph's first text.
+    for blk in keep:
+        if not isinstance(blk, ParagraphIR) or not blk.inlines:
+            continue
+        first = blk.inlines[0]
+        if not isinstance(first, TextIR):
+            break
+        stripped = re.sub(r"^abstract\b[\s:.-]*", "", first.text, count=1, flags=re.I)
+        if stripped != first.text:
+            first.text = stripped.lstrip()
+            if not first.text:
+                blk.inlines.pop(0)
+        break
+    doc.abstract = [b for b in keep if not (isinstance(b, ParagraphIR) and not b.inlines)]

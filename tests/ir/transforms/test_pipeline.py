@@ -48,11 +48,106 @@ def test_remove_refs_adds_exclude_filter():
 def test_canonical_order_preserved():
     """Lock canonical pass order.
 
-    SectionNumbering after Numbering; FigureReorder last (anchors merged into
+    SectionNumbering runs BEFORE the filter (struct_id selection in
+    --sections needs the ids it assigns; a dropped section takes its number
+    prefix with it, so "filtered sections are not numbered" still holds).
+    Numbering before FigureReorder; FigureReorder last (anchors merged into
     NumberingPass).
     """
     pipeline = build_default_pipeline(parser="latex", selected_sections=["X"])
     types = _types(pipeline)
-    assert types.index("NumberingPass") < types.index("SectionNumberingPass")
-    assert types.index("SectionNumberingPass") < types.index("FigureReorderPass")
+    assert types.index("SectionNumberingPass") < types.index("SectionFilterPass")
+    assert types.index("SectionFilterPass") < types.index("NumberingPass")
+    assert types.index("NumberingPass") < types.index("FigureReorderPass")
     assert "AnchorPass" not in types
+
+
+class TestStructIdSelectionAfterNumbering:
+    """The filter must run AFTER SectionNumberingPass.
+
+    Regression: it used to run before, so struct_id-based --sections
+    selection could never match.
+    """
+
+    def _latex_doc(self):
+        from arxiv2md_beta.ir import LaTeXBuilder
+
+        tex = (
+            "\\documentclass{article}\n"
+            "\\begin{document}\n"
+            "\\section{Intro}\nIntro body.\n"
+            "\\section{Method}\nMethod body.\n"
+            "\\section{Results}\nResults body.\n"
+            "\\end{document}"
+        )
+        return LaTeXBuilder().build(tex, arxiv_id="test")
+
+    def test_filter_by_struct_id_finds_sections(self):
+        from arxiv2md_beta.ir.transforms import build_default_pipeline
+
+        doc = self._latex_doc()
+        pipeline = build_default_pipeline(
+            parser="latex",
+            section_filter_mode="include",
+            selected_sections=["sec_2"],
+        )
+        pipeline.run(doc)
+        titles = [s.title for s in doc.sections]
+        assert any("Method" in t for t in titles)
+        assert not any("Results" in t for t in titles)
+        assert not any("Intro" in t for t in titles)
+
+    def test_exclude_by_numbered_title_still_matches(self):
+        from arxiv2md_beta.ir.transforms import build_default_pipeline
+
+        doc = self._latex_doc()
+        pipeline = build_default_pipeline(parser="latex", selected_sections=["Results"])
+        pipeline.run(doc)
+        titles = [s.title for s in doc.sections]
+        assert not any("Results" in t for t in titles)
+        assert any("Method" in t for t in titles)
+
+
+class TestStructIdDedup:
+    def test_unnumbered_children_do_not_collide(self):
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata, SectionIR
+        from arxiv2md_beta.ir.transforms.numbering import SectionNumberingPass
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="latex"),
+            sections=[
+                SectionIR(
+                    title="Appendix Overview",
+                    level=1,
+                    unnumbered=True,
+                    blocks=[],
+                    children=[SectionIR(title="Details", level=2, blocks=[])],
+                ),
+                SectionIR(title="Real First", level=1, blocks=[]),
+            ],
+        )
+        SectionNumberingPass().run(doc)
+
+        def ids(sections):
+            out = []
+            for s in sections:
+                out.append(s.struct_id)
+                out.extend(ids(s.children))
+            return out
+
+        all_ids = ids(doc.sections)
+        assert len(all_ids) == len(set(all_ids)), f"duplicate struct_ids: {all_ids}"
+
+    def test_json_fill_never_duplicates_pass_ids(self):
+        from arxiv2md_beta.ir import SectionIR
+        from arxiv2md_beta.ir.emitters.json_emitter import _assign_struct_ids
+
+        doc_sections = [
+            SectionIR(title="1 Intro", level=1, struct_id="sec_1", blocks=[]),
+            SectionIR(title="References", level=1, blocks=[]),  # unnumbered
+        ]
+        _assign_struct_ids(doc_sections)
+        assert doc_sections[0].struct_id == "sec_1"
+        # Positional fill for index 1 would be "sec_1" — must get a suffix.
+        assert doc_sections[1].struct_id != "sec_1"
+        assert doc_sections[1].struct_id.startswith("sec_1-") or doc_sections[1].struct_id.startswith("sec_")

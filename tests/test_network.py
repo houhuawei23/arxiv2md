@@ -287,6 +287,33 @@ def test_get_http_client_rebuilds_across_loops():
     asyncio.run(_cleanup())
 
 
+def test_rate_lock_reset_across_loops(monkeypatch):
+    """close_http_client must reset the rate-lock along with the client.
+
+    Regression: the lock stayed bound to the first loop, so the next
+    asyncio.run crashed with "attached to a different event loop" as soon as
+    max_requests_per_second was enabled.
+    """
+    import asyncio
+
+    from arxiv2md_beta.network import http as httpmod
+
+    base = httpmod.get_settings()
+    rate_limited = base.model_copy(update={"http": base.http.model_copy(update={"max_requests_per_second": 50.0})})
+    monkeypatch.setattr(httpmod, "get_settings", lambda: rate_limited)
+
+    async def _use_rate_slot():
+        await httpmod.acquire_rate_slot()
+
+    asyncio.run(_use_rate_slot())
+    asyncio.run(_use_rate_slot())  # crashed before the lock reset
+
+    async def _cleanup():
+        await httpmod.close_http_client()
+
+    asyncio.run(_cleanup())
+
+
 class TestFetch404NoRetry:
     """404 is deterministic: exactly one HTTP request, no retry backoff."""
 
@@ -479,3 +506,41 @@ class TestExportMirror:
         from arxiv2md_beta.network.mirror import mirror_worth_try
 
         assert not mirror_worth_try(ValueError("nope"))
+
+
+class TestPoisonedCacheSelfHeal:
+    """A cached placeholder page must not fail every run until TTL expiry.
+
+    The guard now drops the poisoned entry and re-downloads.
+    """
+
+    def test_placeholder_cache_is_discarded_and_refetched(self, tmp_path, monkeypatch):
+        from arxiv2md_beta.network import fetch as fetch_module
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir(parents=True)
+        html_path = cache_dir / "source.html"
+        html_path.write_text("<html><head><title> No content available </title></head></html>", encoding="utf-8")
+        monkeypatch.setattr(fetch_module, "_cache_dir_for", lambda arxiv_id, version: cache_dir)
+
+        good_html = "<html><head><title>Real Paper</title></head><body>ok</body></html>"
+
+        async def fake_fetch(url: str) -> str:
+            return good_html
+
+        monkeypatch.setattr(fetch_module, "_fetch_with_retries", fake_fetch)
+
+        async def _run():
+            return await fetch_module.fetch_arxiv_html(
+                "https://arxiv.org/html/2501.11120",
+                arxiv_id="2501.11120",
+                version=None,
+                use_cache=True,
+            )
+
+        import asyncio
+
+        result = asyncio.run(_run())
+        assert result == good_html
+        # The poisoned entry was replaced with the fresh download.
+        assert html_path.read_text(encoding="utf-8") == good_html
