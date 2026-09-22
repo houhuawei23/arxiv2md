@@ -21,8 +21,12 @@ from arxiv2md_beta.ir.inlines import (
 )
 from arxiv2md_beta.ir.transforms.base import IRPass
 
-# Match "Figure 3", "Fig. 3", "Fig 3", "figure3" — case-insensitive.
-_FIGURE_CITATION_RE = re.compile(r"Fig(?:ure)?\.?\s*(\d+)", re.I)
+# Match "Figure 3", "Figures 3", "Fig. 3", "Fig 3", "figure3" —
+# case-insensitive — plus conventional continuation lists ("… and 4",
+# "…, 5", "…-7"): "Figures 3 and 4" is the standard multi-reference and the
+# plural form used to match nothing at all (audit4 S4.1).
+_FIGURE_CITATION_RE = re.compile(r"Fig(?:ures?|s)?\.?\s*(\d+)((?:\s*(?:,|and|&|to|-|–)\s*\d+)*)", re.I)
+_CONTINUATION_NUM_RE = re.compile(r"\d+")
 
 
 class FigureReorderPass(IRPass):
@@ -65,16 +69,29 @@ class FigureReorderPass(IRPass):
             if block.type != "paragraph":
                 continue
             text = _inlines_to_text(getattr(block, "inlines", []))
-            # Look for "Figure N" / "Fig. N" citations
+            # Look for "Figure N" / "Fig. N" citations, including continuations
             for m in _FIGURE_CITATION_RE.finditer(text):
-                fig_id = f"figure-{m.group(1)}"
-                if fig_id in figures and fig_id not in first_cite:
-                    first_cite[fig_id] = block
+                nums = [m.group(1)] + _CONTINUATION_NUM_RE.findall(m.group(2))
+                for n in nums:
+                    fig_id = f"figure-{n}"
+                    if fig_id in figures and fig_id not in first_cite:
+                        first_cite[fig_id] = block
+            # LaTeX path: a \ref{label} arrives as an internal link whose
+            # target_id equals the figure's label (builder convention, audit4
+            # B4). Without this, figure reordering was a structural no-op on
+            # the LaTeX pipeline.
+            for target in _link_target_ids(getattr(block, "inlines", [])):
+                for fig_id, figure in figures.items():
+                    if getattr(figure, "label", None) == target and fig_id not in first_cite:
+                        first_cite[fig_id] = block
 
         # Move each figure to after its first citation. Positions live in an
         # identity-keyed dict, updated incrementally after each pop/insert —
         # replaces the O(F×B) linear identity rescan per move.
         pos: dict[int, int] = {id(b): i for i, b in enumerate(blocks)}
+        # Figures sharing a citing paragraph stack in document order instead
+        # of all landing on the same slot (which reversed their order).
+        insert_offset: dict[int, int] = {}
         for fig_id, figure in figures.items():
             para = first_cite.get(fig_id)
             if para is None:
@@ -87,12 +104,26 @@ class FigureReorderPass(IRPass):
             for bid, i in pos.items():
                 if i > fig_idx:
                     pos[bid] = i - 1
-            insert_at = para_idx + 1
+            insert_at = para_idx + 1 + insert_offset.get(id(para), 0)
+            insert_offset[id(para)] = insert_offset.get(id(para), 0) + 1
             blocks.insert(insert_at, figure)
             for bid, i in pos.items():
                 if bid != id(figure) and i >= insert_at:
                     pos[bid] = i + 1
             pos[id(figure)] = insert_at
+
+
+def _link_target_ids(inlines: list) -> list[str]:
+    """Collect internal-link target_ids recursively from *inlines*."""
+    out: list[str] = []
+    for il in inlines:
+        if isinstance(il, LinkIR):
+            if il.target_id:
+                out.append(il.target_id)
+            out.extend(_link_target_ids(il.inlines))
+        elif isinstance(il, EmphasisIR | SuperscriptIR | SubscriptIR):
+            out.extend(_link_target_ids(il.inlines))
+    return out
 
 
 def _inlines_to_text(inlines: list) -> str:

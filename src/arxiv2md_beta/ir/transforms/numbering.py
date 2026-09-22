@@ -13,6 +13,11 @@ from arxiv2md_beta.ir.transforms.base import IRPass
 # are title slugs that only exist after this pass.
 _SECTION_FRAGMENT_RE = re.compile(r"^S\d+(?:\.S{2,3}\d+)*$")
 
+# A hierarchical number prefix this pass itself writes ("1 ", "2.3.1 ").
+# Stripping it before re-prefixing makes the pass idempotent (audit4 S4.1:
+# re-running produced "1 1 Introduction").
+_NUMBERED_TITLE_RE = re.compile(r"^\d+(?:\.\d+)*\s+")
+
 
 class SectionNumberingPass(IRPass):
     r"""Prepend hierarchical section numbers to section titles.
@@ -75,7 +80,7 @@ class SectionNumberingPass(IRPass):
             counter[-1] += 1
             number_str = ".".join(str(n) for n in counter)
             sec.struct_id = self._unique_struct_id(f"sec_{number_str.replace('.', '_')}")
-            sec.title = f"{number_str} {sec.title}"
+            sec.title = f"{number_str} {_NUMBERED_TITLE_RE.sub('', sec.title, count=1)}"
 
             # Descend into children.
             self._number_sections(sec.children, counter)

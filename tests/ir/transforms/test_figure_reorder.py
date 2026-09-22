@@ -6,6 +6,7 @@ from arxiv2md_beta.ir import (
     DocumentIR,
     FigureIR,
     ImageRefIR,
+    LinkIR,
     PaperMetadata,
     ParagraphIR,
     SectionIR,
@@ -189,3 +190,58 @@ class TestFigureReorderPass:
         )
         FigureReorderPass().run(doc)
         assert [b.type for b in doc.abstract] == ["paragraph", "figure"]
+
+
+class TestFigureReorderLaTeXAndPlural:
+    def _doc_with(self, blocks: list) -> DocumentIR:
+        return DocumentIR(
+            metadata=PaperMetadata(arxiv_id="test"),
+            sections=[SectionIR(title="T", level=1, blocks=blocks, children=[])],
+        )
+
+    def test_plural_figures_citation_matches(self) -> None:
+        """audit4 S4.1: plural "Figures 3 and 4" must count as a citation."""
+        from arxiv2md_beta.ir.transforms.figure_reorder import FigureReorderPass as P
+
+        # Figures start at the END: they only land right after the citing
+        # paragraph if the plural reference was actually matched.
+        doc = self._doc_with(
+            [
+                ParagraphIR(inlines=[TextIR(text="As shown in Figures 3 and 4, the trend holds.")]),
+                ParagraphIR(inlines=[TextIR(text="tail")]),
+                FigureIR(figure_id="figure-3", images=[ImageRefIR(src="./f3.png")], caption=[]),
+                FigureIR(figure_id="figure-4", images=[ImageRefIR(src="./f4.png")], caption=[]),
+            ]
+        )
+        P().run(doc)
+        blocks = doc.sections[0].blocks
+        assert blocks[1].type == "figure" and blocks[1].figure_id == "figure-3"
+        assert blocks[2].type == "figure" and blocks[2].figure_id == "figure-4"
+
+    def test_latex_label_link_citation_moves_figure(self) -> None:
+        """audit4 S4.1: LaTeX label-ref links must count as citations."""
+        from arxiv2md_beta.ir.transforms.figure_reorder import FigureReorderPass as P
+
+        doc = self._doc_with(
+            [
+                ParagraphIR(
+                    inlines=[
+                        TextIR(text="See "),
+                        LinkIR(kind="internal", target_id="fig:setup", url=None, inlines=[TextIR(text="3")]),
+                        TextIR(text=" for the setup."),
+                    ]
+                ),
+                ParagraphIR(inlines=[TextIR(text="tail")]),
+                FigureIR(
+                    figure_id="fig:setup",
+                    label="fig:setup",
+                    anchor="fig:setup",
+                    images=[ImageRefIR(src="./setup.png")],
+                    caption=[],
+                ),
+            ]
+        )
+        P().run(doc)
+        blocks = doc.sections[0].blocks
+        assert blocks[1].type == "figure" and blocks[1].figure_id == "fig:setup"
+        assert blocks[2].type == "paragraph"

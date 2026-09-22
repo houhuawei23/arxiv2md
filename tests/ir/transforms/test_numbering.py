@@ -273,3 +273,32 @@ def test_label_to_anchor_never_stores_none():
     pass_ = NumberingPass()
     pass_.run(d)
     assert pass_._label_to_anchor.get("fig:x") == "figure-1"
+
+
+class TestSectionNumberingIdempotency:
+    def _doc(self) -> DocumentIR:
+        return DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="latex"),
+            sections=[
+                SectionIR(title="Introduction", level=2, children=[]),
+                SectionIR(
+                    title="Methods",
+                    level=2,
+                    children=[SectionIR(title="Setup", level=3, children=[])],
+                ),
+            ],
+        )
+
+    def test_rerun_does_not_double_number(self) -> None:
+        """audit4 S4.1: re-running the pass must not double-number titles."""
+        from arxiv2md_beta.ir.transforms.numbering import SectionNumberingPass
+
+        doc = self._doc()
+        SectionNumberingPass().run(doc)
+        once = [s.title for s in doc.sections]
+        SectionNumberingPass().run(doc)
+        twice = [s.title for s in doc.sections]
+        assert once == ["1 Introduction", "2 Methods"]
+        assert twice == once
+        sub = doc.sections[1].children[0]
+        assert sub.title == "2.1 Setup"
