@@ -16,25 +16,9 @@ from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.aiofiles_utils import async_write_text
 from arxiv2md_beta.utils.arxiv_ids import strip_version
+from arxiv2md_beta.utils.atomic_io import atomic_write_text
 from arxiv2md_beta.utils.progress import async_byte_download_progress
-
-
-async def _async_write_atomic(path: Path, content: str, encoding: str = "utf-8") -> None:
-    """Write *content* to *path* via a ``.part`` sibling then atomic rename.
-
-    Mirrors the PDF/TeX cache pattern so a concurrent conversion never sees
-    (or overwrites) a half-written cache entry. The ``.part`` file is removed
-    if the write or rename fails.
-    """
-    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.part")
-    try:
-        await async_write_text(tmp_path, content, encoding=encoding)
-        tmp_path.replace(path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
 
 
 async def fetch_arxiv_html(
@@ -68,7 +52,7 @@ async def fetch_arxiv_html(
     try:
         html_text = await _fetch_with_retries(html_url)
         _reject_no_content_placeholder(html_text)
-        await _async_write_atomic(html_path, html_text, encoding="utf-8")
+        await atomic_write_text(html_path, html_text, encoding="utf-8")
         return html_text
     except NetworkError as primary_error:
         # Mirror fallback: the export origin serves from a different backend
@@ -78,7 +62,7 @@ async def fetch_arxiv_html(
             try:
                 html_text = await _fetch_with_retries(mirrored)
                 _reject_no_content_placeholder(html_text)
-                await _async_write_atomic(html_path, html_text, encoding="utf-8")
+                await atomic_write_text(html_path, html_text, encoding="utf-8")
                 logger.info(f"Fetched HTML via export mirror: {mirrored}")
                 return html_text
             except NetworkError as mirror_error:
@@ -87,7 +71,7 @@ async def fetch_arxiv_html(
             try:
                 html_text = await _fetch_with_retries(ar5iv_url)
                 _reject_no_content_placeholder(html_text)
-                await _async_write_atomic(html_path, html_text, encoding="utf-8")
+                await atomic_write_text(html_path, html_text, encoding="utf-8")
                 return html_text
             except (httpx.RequestError, httpx.HTTPStatusError, NetworkError, OSError) as fallback_error:
                 logger.warning(f"ar5iv fallback also failed: {fallback_error}")

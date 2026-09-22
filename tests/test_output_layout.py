@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from arxiv2md_beta.output.layout import create_paper_output_dir
+from arxiv2md_beta.output.layout import create_paper_output_dir, determine_output_dir, find_completed_output_dir
 
 
 def test_same_identity_reuses_directory(tmp_path: Path) -> None:
@@ -71,3 +71,50 @@ def test_no_identity_creates_plain_directory(tmp_path: Path) -> None:
     d = create_paper_output_dir(tmp_path, "20260101", "Some Title")
     assert d.is_dir()
     assert not (d / ".arxiv2md-paper").exists()
+
+
+# ── Idempotency adoption (find_completed_output_dir) ──────────────────────
+
+
+def _make_output(base: Path, name: str, identity: str, files: dict[str, str]) -> Path:
+    d = base / name
+    d.mkdir()
+    (d / ".arxiv2md-paper").write_text(identity + "\n", encoding="utf-8")
+    for fname, content in files.items():
+        (d / fname).write_text(content, encoding="utf-8")
+    return d
+
+
+def test_completed_dir_with_nonempty_markdown_is_adopted(tmp_path: Path) -> None:
+    _make_output(tmp_path, "202601-Arxiv-Paper", "2501.11120", {"paper.md": "# Real content\n\n" * 10})
+    assert find_completed_output_dir(tmp_path, "2501.11120") is not None
+
+
+def test_truncated_write_leaving_only_part_file_is_not_adopted(tmp_path: Path) -> None:
+    """Regression (A5): a `.part` residue must never satisfy the idempotency check."""
+    _make_output(tmp_path, "202601-Arxiv-Paper", "2501.11120", {"paper.md.abc123.part": "# partial wri"})
+    assert find_completed_output_dir(tmp_path, "2501.11120") is None
+
+
+def test_part_residue_alongside_real_markdown_still_adopts(tmp_path: Path) -> None:
+    _make_output(
+        tmp_path,
+        "202601-Arxiv-Paper",
+        "2501.11120",
+        {"paper.md": "# Real content\n" * 5, "paper.md.deadbeef.part": "# partial"},
+    )
+    assert find_completed_output_dir(tmp_path, "2501.11120") is not None
+
+
+def test_empty_markdown_is_not_adopted(tmp_path: Path) -> None:
+    _make_output(tmp_path, "202601-Arxiv-Paper", "2501.11120", {"paper.md": ""})
+    assert find_completed_output_dir(tmp_path, "2501.11120") is None
+
+
+# ── determine_output_dir ──────────────────────────────────────────────────
+
+
+def test_determine_output_dir_expands_user_home() -> None:
+    """Regression (A6): a quoted ``~/...`` must not create a literal ``~`` directory."""
+    resolved = determine_output_dir("~/arxiv2md-out")
+    assert resolved == Path.home() / "arxiv2md-out"

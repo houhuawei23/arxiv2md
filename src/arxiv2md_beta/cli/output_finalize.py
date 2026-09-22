@@ -17,7 +17,7 @@ from arxiv2md_beta.output.quality_gate import ensure_not_stub, is_stub
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.aiofiles_utils import async_write_text
+from arxiv2md_beta.utils.atomic_io import atomic_write_text
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
@@ -42,7 +42,7 @@ async def write_split_markdown_sidecars(
         ref_path = paper_output_dir / f"{stem}-References.md"
         app_path = paper_output_dir / f"{stem}-Appendix.md"
     if has_ref:
-        await async_write_text(ref_path, result.content_references or "", encoding="utf-8")
+        await atomic_write_text(ref_path, result.content_references or "", encoding="utf-8")
         logger.info(f"References written to: {ref_path}")
     elif ref_path.exists():
         # missing_ok: a concurrent run may have unlinked it between the
@@ -50,7 +50,7 @@ async def write_split_markdown_sidecars(
         ref_path.unlink(missing_ok=True)
         logger.info(f"References removed (empty split): {ref_path}")
     if has_app:
-        await async_write_text(app_path, result.content_appendix or "", encoding="utf-8")
+        await atomic_write_text(app_path, result.content_appendix or "", encoding="utf-8")
         logger.info(f"Appendix written to: {app_path}")
     elif app_path.exists():
         app_path.unlink(missing_ok=True)
@@ -271,7 +271,9 @@ async def finalize_convert_output(
         pdf_task = asyncio.create_task(_download_pdf())
 
     try:
-        await async_write_text(output_path, output_text, encoding="utf-8")
+        # Atomic write: a crash mid-write must not leave a torn paper.md that
+        # the idempotency check would later adopt as a completed conversion.
+        await atomic_write_text(output_path, output_text, encoding="utf-8")
         logger.info(f"Output written to: {output_path}")
         await write_split_markdown_sidecars(paper_output_dir, output_filename, result, naming_scheme=naming_scheme)
     finally:

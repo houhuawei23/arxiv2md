@@ -109,6 +109,8 @@ convention = "google"
 "src/arxiv2md_beta/cli/app.py" = ["ASYNC240"]
 "src/arxiv2md_beta/cli/runner/paper_yml.py" = ["ASYNC240"]
 "tests/test_integration_with_mocks.py" = ["ASYNC240"]
+# Atomic-write tests assert on real pathlib results inside async test bodies.
+"tests/test_atomic_io.py" = ["ASYNC240"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["arxiv2md_beta"]

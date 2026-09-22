@@ -14,11 +14,17 @@ FIXED_INTERNAL_SCHEMES = frozenset({"paper-pipeline", "arxiv-ym"})
 
 
 def determine_output_dir(output: str | None, settings: AppSettings | None = None) -> Path:
-    """Resolve base output directory from CLI string or config default."""
+    """Resolve base output directory from CLI string or config default.
+
+    ``~`` is expanded explicitly: Typer passes the raw string through, so a
+    quoted ``-o "~/papers"`` (or a path coming from a batch file / the
+    ``cli_defaults.output_dir`` setting) would otherwise create a literal
+    ``~`` directory relative to the cwd.
+    """
     s = settings or get_settings()
     if output:
-        return Path(output)
-    return Path(s.cli_defaults.output_dir)
+        return Path(output).expanduser()
+    return Path(s.cli_defaults.output_dir).expanduser()
 
 
 def _sanitize_for_filesystem(s: str, max_length: int = 220) -> str:
@@ -240,9 +246,16 @@ def find_completed_output_dir(base_output_dir: Path, identity: str) -> Path | No
 
 
 def _has_nonempty_markdown(directory: Path) -> bool:
-    """True when ``directory`` contains at least one ``.md`` file with size > 0."""
+    """True when ``directory`` contains at least one ``.md`` file with size > 0.
+
+    ``.part`` residues are ignored: they are the in-flight siblings of atomic
+    writes, so a torn transfer must never satisfy the idempotency check.
+    """
     try:
-        return any(p.is_file() and p.suffix.lower() == ".md" and p.stat().st_size > 0 for p in directory.iterdir())
+        return any(
+            p.is_file() and p.suffix.lower() == ".md" and not p.name.endswith(".part") and p.stat().st_size > 0
+            for p in directory.iterdir()
+        )
     except OSError:
         return False
 
