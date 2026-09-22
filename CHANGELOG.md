@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **有序列表起始号丢失（G1-3）**：`<ol start="7">` 与 pandoc ListAttributes 的 start 被忽略，续接列表从 1 重排；`ListIR.start` 全链路贯通（None 不落 JSON），marker 按 start 偏移。
 - **章节编号剥离误伤（G1-1）**：SectionNumberingPass 用正则盲剥标题开头数字，"2000 Years of X" 被剥成 "Years of X"；现记录自身加的前缀、只剥自己加的。
 - **引用链接误分类（G1-4）**：latex builder 用 `"cite" in url` 子串猜链接类型，`https://citecorp.example` 一类 URL 被错标；现按 pandoc 锚点模式（`#bib.bibN` / `#ref-N`）识别。
+- **References 条目静默丢弃（G1-6）**：空段落与子块全被过滤的 Div 条目被跳过，后续 `[N]` 引用错位；现所有不可解析的条目槽位发占位段落（此前仅 `ref_ir=None` 有），纯数字 bibitem 标签段落保留其印刷编号。
+- **Div 锚点重复（G1-7）**：带 id 的 Div 把锚点摊给所有无锚点子块，emitter 每块渲染一个重复 `<a id>`；现只标第一个子块，子块自带锚点不受影响。
 
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
