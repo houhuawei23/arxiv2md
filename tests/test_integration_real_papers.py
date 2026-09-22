@@ -1,11 +1,9 @@
-"""Integration tests against real arXiv papers (requires network + proxy).
+"""Integration tests against real arXiv papers (requires network access).
 
-Set HTTP_PROXY / HTTPS_PROXY env vars before running, e.g.:
-    HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 \
-        pytest tests/test_integration_real_papers.py -v
-
-These tests use the local cache (~/.cache/arxiv2md-beta/) so repeated runs
-are fast. Use --no-cache or clear the cache dir to force re-download.
+Runs when explicitly requested (`pytest -m real_paper`) and skipped
+automatically when arxiv.org is unreachable. These tests use the local cache
+(~/.cache/arxiv2md-beta/) so repeated runs are fast; clear the cache dir to
+force re-download.
 """
 
 from __future__ import annotations
