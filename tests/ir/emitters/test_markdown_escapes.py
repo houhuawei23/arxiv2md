@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from arxiv2md_beta.ir import EmphasisIR, FigureIR, ImageRefIR, MathIR, TableIR, TextIR
+from arxiv2md_beta.ir.emitters.escapes import escape_math_pipes
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 
 
@@ -127,3 +128,39 @@ class TestTableCellMathPipes:
         tbl = TableIR(headers=[[TextIR(text="A | B")]], rows=[])
         out = emitter._emit_block(tbl)
         assert "| A \\| B |" in out
+
+
+# ── Table cells: norm pipes survive (audit5 C3) ───────────────────────
+
+
+class TestTableCellNormPipes:
+    def test_norm_pipes_are_preserved(self, emitter: MarkdownEmitter) -> None:
+        r"""audit5 C3: \| is the norm delimiter and must survive verbatim.
+
+        The audit4 B2 fix replaced *every* pipe with \vert, degrading
+        $\|x\|_F$ (matrix/norm notation) into a single-bar pair.
+        """
+        tbl = TableIR(headers=[[TextIR(text="model")]], rows=[[[MathIR(latex=r"\|x\|_F")]]])
+        out = emitter._emit_block(tbl)
+        assert r"$\|x\|_F$" in out
+
+    def test_norm_and_conditional_in_one_cell(self, emitter: MarkdownEmitter) -> None:
+        tbl = TableIR(headers=[[TextIR(text="m")]], rows=[[[MathIR(latex=r"\|x-y\| \cdot P(a|b)")]]])
+        out = emitter._emit_block(tbl)
+        assert r"\|x-y\|" in out
+        assert r"P(a\vert b)" in out
+
+
+class TestEscapeMathPipes:
+    def test_bare_pipe_replaced(self) -> None:
+        assert escape_math_pipes("P(a|b)") == r"P(a\vert b)"
+
+    def test_norm_pipe_untouched(self) -> None:
+        assert escape_math_pipes(r"\|x\|") == r"\|x\|"
+
+    def test_double_backslash_then_pipe_is_bare(self) -> None:
+        # 'a \\| b': the \\\\ row separator pairs up, so the pipe is bare.
+        assert escape_math_pipes(r"a \\| b") == r"a \\\vert  b"
+
+    def test_plain_text_passthrough(self) -> None:
+        assert escape_math_pipes("no pipes at all") == "no pipes at all"

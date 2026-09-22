@@ -30,6 +30,43 @@ def escape_pipe_cell(text: str) -> str:
     return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
+def escape_math_pipes(latex: str) -> str:
+    r"""Rewrite bare ``|`` in math as ``\vert `` so a pipe table cell survives.
+
+    Math has its own escape character: ``\|`` is the norm delimiter (‖), so a
+    pipe may only be rewritten when it is *not* escaped by an odd backslash
+    run — ``$P(a|b)$`` becomes ``$P(a\vert b)$`` (audit4 B2) while
+    ``$\|x\|_F$`` keeps its norms (audit5 C3: the first cut replaced every
+    pipe and degraded norms into single-bar pairs). The trailing space keeps
+    ``\vert`` from absorbing the next letters into an undefined command name;
+    math mode ignores it.
+    """
+    out: list[str] = []
+    i, n = 0, len(latex)
+    while i < n:
+        ch = latex[i]
+        if ch == "|":
+            out.append(r"\vert ")
+            i += 1
+            continue
+        if ch == "\\":
+            j = i
+            while j < n and latex[j] == "\\":
+                j += 1
+            out.append(latex[i:j])
+            if j < n and latex[j] == "|":
+                if (j - i) % 2 == 0:
+                    out.append(r"\vert ")  # even run: the pipe is bare
+                else:
+                    out.append("|")  # odd run: \| is the norm delimiter
+                j += 1
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 # ── Raw-HTML attribute position ───────────────────────────────────────
 
 

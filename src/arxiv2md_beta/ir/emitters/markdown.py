@@ -16,6 +16,7 @@ from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
 from arxiv2md_beta.ir.emitters.escapes import (
     escape_html_attr,
+    escape_math_pipes,
     escape_md_text,
     escape_pipe_cell,
     escape_url,
@@ -437,9 +438,7 @@ class MarkdownEmitter(IREmitter):
         t = getattr(il, "type", "")
         if t == "math":
             if "|" in il.latex:
-                # Trailing space keeps \vert from absorbing the next letters
-                # into an undefined command name (\vertb); math mode ignores it.
-                return il.model_copy(update={"latex": il.latex.replace("|", "\\vert ")})
+                return il.model_copy(update={"latex": escape_math_pipes(il.latex)})
             return il
         if t in ("emphasis", "superscript", "subscript") and getattr(il, "inlines", None):
             return il.model_copy(update={"inlines": self._cell_inlines(il.inlines)})
