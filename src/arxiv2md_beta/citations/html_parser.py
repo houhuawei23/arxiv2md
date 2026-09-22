@@ -35,8 +35,10 @@ def parse_citations_from_html(html: str) -> list[ParsedCitation]:
     soup = BeautifulSoup(html, "html.parser")
     citations = []
 
-    # Try to find bibliography section
-    bib_section = soup.find("section", class_=re.compile(r"ltx_bibliography"))
+    # Any tag carrying the bibliography class — ar5iv variants emit div/ul
+    # top-level containers, and requiring <section> dropped those papers into
+    # the fragmented fallback (audit5 R-13).
+    bib_section = soup.find(class_=re.compile(r"ltx_bibliography"))
     if isinstance(bib_section, Tag):
         # Look for list items in bibliography
         for i, item in enumerate(bib_section.find_all("li")):

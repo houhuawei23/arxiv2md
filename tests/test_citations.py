@@ -168,6 +168,25 @@ class TestCitationParsing:
         assert "Smith" in citations[0].text
         assert citations[1].identifiers.get("doi") == "10.1234/example"
 
+    def test_parse_citations_from_html_div_bibliography(self):
+        """audit5 R-13: the tag must not matter, only the class.
+
+        ar5iv sometimes emits the bibliography as a div/ul rather than a
+        section.
+        """
+        html = """
+        <div class="ltx_bibliography">
+            <ul>
+                <li id="bib.bib1">Smith, J. (2024). Test paper. Journal, 1(1), 1-10.</li>
+                <li id="bib.bib2">DOI: 10.1234/example</li>
+            </ul>
+        </div>
+        """
+        citations = parse_citations_from_html(html)
+        assert len(citations) == 2
+        assert citations[0].key == "bib1"
+        assert citations[1].identifiers.get("doi") == "10.1234/example"
+
     def test_parse_citations_from_text(self):
         """Parse citations from plain text."""
         text = """
