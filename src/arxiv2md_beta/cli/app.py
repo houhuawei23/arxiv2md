@@ -385,7 +385,7 @@ def paper_yml_cmd(
             update_path=update,
             arxiv_input=None,
             output=None,
-            force=False,
+            force=force,
         )
     else:
         if not arxiv:
