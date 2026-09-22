@@ -421,3 +421,22 @@ class TestNestedWalkerCoverage:
         # the labeled target fig gets figure-2 and the link follows it
         assert target.anchor == "figure-2"
         assert grid_para_link.target_id == target.anchor
+
+
+class TestAppendixSectionFragments:
+    """audit5 I-6: appendix fragments count as section fragments.
+
+    LaTeXML appendix forms ``A1``, ``A1.SS1`` join ``S4``/``S4.SS1``.
+    """
+
+    @pytest.mark.parametrize("frag", ["A1", "A2", "A1.SS1", "A1.SS1.SSS2", "S4", "S4.SS1"])
+    def test_section_fragment_forms_accepted(self, frag):
+        from arxiv2md_beta.ir.transforms.numbering import _SECTION_FRAGMENT_RE
+
+        assert _SECTION_FRAGMENT_RE.match(frag), frag
+
+    @pytest.mark.parametrize("frag", ["Fig1", "S", "A", "S4x", "eq-3"])
+    def test_non_fragments_rejected(self, frag):
+        from arxiv2md_beta.ir.transforms.numbering import _SECTION_FRAGMENT_RE
+
+        assert not _SECTION_FRAGMENT_RE.match(frag), frag

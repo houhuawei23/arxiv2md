@@ -13,5 +13,7 @@ def normalize_section_title(title: str) -> str:
     whitespace, and lowercases.
     """
     title = title.strip().lower()
-    title = re.sub(r"^(?:\d+(?:\.\d+)*\.?|[a-z]\.\d+|[a-z]\.)\s+", "", title)
+    # "1 ", "1.2 ", "4." | "a.1 ", "a. " | "a " (bare appendix letter,
+    # audit5 I-6: "A Overview" failed to normalize and slipped grouping)
+    title = re.sub(r"^(?:\d+(?:\.\d+)*\.?|[a-z](?:\.\d+)*\.?)\s+", "", title)
     return re.sub(r"\s+", " ", title)

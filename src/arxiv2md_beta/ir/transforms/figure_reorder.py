@@ -55,16 +55,21 @@ class FigureReorderPass(IRPass):
     def _reorder_in_blocks(self, blocks: list) -> None:
         # Collect figures by identity; indices go stale as blocks are moved,
         # so every insertion re-locates the figure and its citing paragraph.
-        figures: dict[str, object] = {}  # figure_id → figure block
+        # Multiple figures can share a caption id (appendix "Figure 1" after
+        # body Figure 1); a fig_id-keyed dict let the later one overwrite the
+        # earlier, which then never moved (audit5 I-7) — keep a queue per id.
+        figures: dict[str, list] = {}  # figure_id → figure blocks, document order
         for block in blocks:
             if block.type == "figure" and block.figure_id:
-                figures[block.figure_id] = block
+                figures.setdefault(block.figure_id, []).append(block)
 
         if not figures:
             return
 
-        # Find first citation of each figure in paragraph text
-        first_cite: dict[str, object] = {}  # figure_id → citing paragraph block
+        # Find first citation of each figure in paragraph text; each citation
+        # claims the first not-yet-claimed figure with that id.
+        pending = {fid: list(fs) for fid, fs in figures.items()}
+        moves: list[tuple[object, object]] = []  # (figure, citing paragraph)
         for block in blocks:
             if block.type != "paragraph":
                 continue
@@ -73,29 +78,30 @@ class FigureReorderPass(IRPass):
             for m in _FIGURE_CITATION_RE.finditer(text):
                 nums = [m.group(1)] + _CONTINUATION_NUM_RE.findall(m.group(2))
                 for n in nums:
-                    fig_id = f"figure-{n}"
-                    if fig_id in figures and fig_id not in first_cite:
-                        first_cite[fig_id] = block
+                    queue = pending.get(f"figure-{n}")
+                    if queue:
+                        moves.append((queue.pop(0), block))
             # LaTeX path: a \ref{label} arrives as an internal link whose
             # target_id equals the figure's label (builder convention, audit4
             # B4). Without this, figure reordering was a structural no-op on
             # the LaTeX pipeline.
             for target in _link_target_ids(getattr(block, "inlines", [])):
-                for fig_id, figure in figures.items():
-                    if getattr(figure, "label", None) == target and fig_id not in first_cite:
-                        first_cite[fig_id] = block
+                for queue in pending.values():
+                    if queue and getattr(queue[0], "label", None) == target:
+                        moves.append((queue.pop(0), block))
+                        break
 
         # Move each figure to after its first citation. Positions live in an
         # identity-keyed dict, updated incrementally after each pop/insert —
         # replaces the O(F×B) linear identity rescan per move.
+        if not moves:
+            return
+
         pos: dict[int, int] = {id(b): i for i, b in enumerate(blocks)}
         # Figures sharing a citing paragraph stack in document order instead
         # of all landing on the same slot (which reversed their order).
         insert_offset: dict[int, int] = {}
-        for fig_id, figure in figures.items():
-            para = first_cite.get(fig_id)
-            if para is None:
-                continue
+        for figure, para in moves:
             fig_idx = pos.get(id(figure))
             para_idx = pos.get(id(para))
             if fig_idx is None or para_idx is None or para_idx >= fig_idx:

@@ -9,9 +9,10 @@ from arxiv2md_beta.ir.transforms.base import IRPass
 from arxiv2md_beta.utils.section_titles import normalize_section_title
 
 # Matches a section-number prefix added by SectionNumberingPass, e.g.
-# ``"8 "``, ``"3.1 "``, ``"A "``.  Used by ``split_ir_sections`` to
-# recover the original title for reference / appendix detection.
-_NUMBER_PREFIX_RE = re.compile(r"^[\d.]+\s+")
+# ``"8 "``, ``"3.1 "``, or an appendix letter prefix ``"A "``, ``"B.2 "``.
+# Used by ``split_ir_sections`` to recover the original title for
+# reference / appendix detection (audit5 I-6: digits-only missed "A ").
+_NUMBER_PREFIX_RE = re.compile(r"^(?:\d+(?:\.\d+)*\.?|[A-Za-z](?:\.\d+)*\.?)\s+")
 
 
 def _title_without_number(title: str) -> str:

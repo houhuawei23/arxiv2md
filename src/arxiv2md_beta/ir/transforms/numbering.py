@@ -8,10 +8,11 @@ from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms._anchors import slugify, unique_slug
 from arxiv2md_beta.ir.transforms.base import IRPass
 
-# arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"). The HTML
-# builder leaves these raw in link target_ids because real section anchors
-# are title slugs that only exist after this pass.
-_SECTION_FRAGMENT_RE = re.compile(r"^S\d+(?:\.S{2,3}\d+)*$")
+# arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"; appendix
+# sections use the "A" form: "A1", "A1.SS1", …). The HTML builder leaves
+# these raw in link target_ids because real section anchors are title slugs
+# that only exist after this pass.
+_SECTION_FRAGMENT_RE = re.compile(r"^[SA]\d+(?:\.S{2,3}\d+)*$")
 
 
 def _child_block_lists(block) -> list[list]:

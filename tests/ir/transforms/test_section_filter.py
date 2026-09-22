@@ -94,3 +94,30 @@ class TestIncludeKeepsParentOfMatchedChild:
         SectionFilterPass(mode="exclude", selected=["Datasets"]).run(doc)
         assert [s.title for s in doc.sections] == ["Introduction", "Methods"]
         assert [c.title for c in doc.sections[0].children] == ["Metrics"]
+
+
+class TestAppendixPrefixForms:
+    """audit5 I-6: appendix numbering shapes beyond digits must be handled."""
+
+    def test_letter_prefix_reference_title_split(self):
+        """Digit-only prefix stripping used to miss "A References"."""
+        from arxiv2md_beta.ir import ParagraphIR, TextIR
+        from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
+
+        def sec(title):
+            return SectionIR(title=title, level=1, blocks=[ParagraphIR(inlines=[TextIR(text="x")])])
+
+        sections = [sec("1 Body"), sec("A References"), sec("B Extra")]
+        main, refs, app = split_ir_sections(sections, ["references"])
+        assert [s.title for s in main] == ["1 Body"]
+        assert [s.title for s in refs] == ["A References"]
+        assert [s.title for s in app] == ["B Extra"]
+
+    def test_normalize_strips_bare_appendix_letter(self):
+        from arxiv2md_beta.utils.section_titles import normalize_section_title
+
+        # "A Overview" used to stay "a overview" — the letter prefix only
+        # matched with a trailing dot
+        assert normalize_section_title("A Overview") == "overview"
+        assert normalize_section_title("B.2 Proofs") == "proofs"
+        assert normalize_section_title("4.2 Results") == "results"

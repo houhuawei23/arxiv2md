@@ -245,3 +245,46 @@ class TestFigureReorderLaTeXAndPlural:
         blocks = doc.sections[0].blocks
         assert blocks[1].type == "figure" and blocks[1].figure_id == "fig:setup"
         assert blocks[2].type == "paragraph"
+
+
+class TestDuplicateFigureIds:
+    """audit5 I-7: duplicate caption ids must both stay reorder candidates.
+
+    A fig_id-keyed dict let the later figure overwrite the earlier, which
+    then never moved to its citation.
+    """
+
+    def test_body_and_appendix_figure_both_reorder(self):
+        # Same flat section: citation of Figure 1 sits between two paragraphs;
+        # figure-1 #1 (body) comes after it and must move up even though a
+        # second figure-1 (appendix copy) appears later.
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="test"),
+            sections=[
+                SectionIR(
+                    title="S",
+                    level=1,
+                    blocks=[
+                        ParagraphIR(inlines=[TextIR(text="Intro.")]),
+                        ParagraphIR(inlines=[TextIR(text="See Figure 1 now.")]),
+                        FigureIR(
+                            figure_id="figure-1",
+                            images=[ImageRefIR(src="./body.png")],
+                            caption=[TextIR(text="Figure 1: body")],
+                        ),
+                        ParagraphIR(inlines=[TextIR(text="Filler.")]),
+                        FigureIR(
+                            figure_id="figure-1",
+                            images=[ImageRefIR(src="./appendix.png")],
+                            caption=[TextIR(text="Figure 1: appendix duplicate")],
+                        ),
+                    ],
+                ),
+            ],
+        )
+        sec = doc.sections[0]
+        FigureReorderPass().run(doc)
+        blocks = sec.blocks
+        # the BODY figure moved directly after its citation
+        assert blocks[2].caption[0].text == "Figure 1: body"
+        assert blocks[1].inlines[0].text == "See Figure 1 now."
