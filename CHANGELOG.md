@@ -58,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **include 展开 ×3 + 每 miss 全树 rglob（X2）**：图片解析 / figure-env 解析 / 作者机构解析各自展开 include 树且用两份分歧实现；现合一到 `resolve_latex_includes`（tex-only 模式），展开按 (主 tex, 解压目录 mtime) 记忆化共享，miss 回退走惰性预建的文件名索引（9e6f3eb）。
 - **超宽 token 折行（X-Wrap）**：列表项折行只按空格切，URL/无空格公式/整段 CJK 产出上万字符单行；现超宽 token 按 width 硬切（续行带缩进），正常词折行不变——行为修复，红绿回归覆盖（bc87397）。
 
+### Tests / Build（2026-09-23 audit5 S7：基建与测试，详见 docs/REVIEW_2026-09-22b.md §八）
+
+- **pytest-cov 接入（T-1）**：覆盖率配置入 pyproject（term-missing），工具依赖迁入 uv `[dependency-groups].dev`（`uv sync` 不装 `[project.optional-dependencies]` 的教训）；benchmarks 目录 `norecursedirs` 排除，`pytest tests` 不再误收集（c69a257）。
+- **测试缓存隔离（T-3）**：conftest 把 `ARXIV2MD_BETA_CACHE__DIR` 指到 tmp_path，`-m real_paper` 不再读/写用户真实缓存（b39a712）。
+- **对抗性 corpus 入 golden（根因 5）**：新增 `adversarial_paper.tex`（注释 `\if0`、假条件、verbatim、行首语法、特殊字符标题、ol start、multicolumn/multirow、CJK、内联 thebibliography）+ 6 个 golden 快照；当轮抓到并修复 2 个真 bug——`\end{document}` 被 orphan-end 修复注释掉导致 pandoc 全文解析死亡、CodeBlock `[attr, text]` 被读成三元组导致 verbatim 全部消失。已知限制 N-3（内联 thebibliography 合并渲染）钉住缓议（edb23f0）。
+- **golden regen 可审查（T-4）**：`GOLDEN_REGEN=1` 输出 unified diff、无漂移时报错而非静默通过（a1b2c52）。
+- **dynamic version（T-6）**：版本单源自 `__init__.__version__`，删除漂移的 requirements.txt（2362e8d）。
+- **visitor walk 单源化（根因 4）**：`child_block_lists`/`iter_block_descendants`/`iter_inline_lists` 由 `_CHILD_SPECS` 驱动，NumberingPass 删除 ~60 行自持树遍历（algorithm.steps 被 3 个 walker 之一漏掉的漂移类根除）（076ae5f）。
+- **契约 docstring 校正 + 死代码清理（T-12/T-13）**：白名单实为 3 项、删除无引用的 escape 别名（3044484）。
+
 ### Fixed（2026-09-23 audit5 S5：配置与数据族，详见 docs/REVIEW_2026-09-22b.md）
 
 - **`paper-yml --update --force` 不可达（G4-1）**：CLI 层硬编码 `force=False`，报错文案让用户 "pass --force" 却永远复现同一拒绝；现透传。
