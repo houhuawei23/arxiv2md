@@ -969,3 +969,53 @@ class TestTableRowspanAlignment:
         assert rows[1][0][0].text == "a2"
         assert rows[1][1] == []
         assert rows[1][2][0].text == "c2"
+
+
+class TestMixedSvgImgFigure:
+    """audit5 G2-4: svg→image conversion must have a single entry point.
+
+    A figure mixing <img> and <svg> used to skip svg registration entirely
+    (the fallback only ran with no <img> at all), so the svg vanished from
+    the strip and any svg src computed from the shared counter pointed at a
+    previous figure's file.
+    """
+
+    MIXED_HTML = """
+    <article class='ltx_document'><section class='ltx_section'><h2>T</h2>
+    <figure class="ltx_figure">
+      <img src="./panel_a.png" alt="panel a" />
+      <svg width="100" height="50"><path d="M0 0"/></svg>
+      <figcaption>Figure 1: mixed panels</figcaption>
+    </figure>
+    </section></article>"""
+
+    def test_mixed_figure_registers_svg_and_keeps_img(self) -> None:
+        from arxiv2md_beta.ir.assets import SvgAsset
+
+        doc = HTMLBuilder(images_subdir="imgs").build(self.MIXED_HTML, arxiv_id="t")
+        fig = doc.sections[0].blocks[0]
+        assert fig.type == "figure"
+        srcs = [img.src for img in fig.images]
+        assert len(srcs) == 2, f"svg dropped from mixed figure: {srcs}"
+        assert any(s.endswith("panel_a.png") for s in srcs)
+        assert any(s == "imgs/figure-1.svg" for s in srcs)
+        svgs = [a for a in doc.assets if isinstance(a, SvgAsset)]
+        assert len(svgs) == 1 and svgs[0].path == "imgs/figure-1.svg"
+
+    def test_two_svg_figures_get_distinct_files(self) -> None:
+        from arxiv2md_beta.ir.assets import SvgAsset
+
+        figure = """
+      <figure class="ltx_figure">
+        <svg width="100" height="50"><path d="M0 0"/></svg>
+        <figcaption>{cap}</figcaption>
+      </figure>"""
+        html = (
+            "<article class='ltx_document'><section class='ltx_section'><h2>T</h2>"
+            + figure.format(cap="Figure 1: a")
+            + figure.format(cap="Figure 2: b")
+            + "</section></article>"
+        )
+        doc = HTMLBuilder(images_subdir="imgs").build(html, arxiv_id="t")
+        svgs = [a for a in doc.assets if isinstance(a, SvgAsset)]
+        assert [a.path for a in svgs] == ["imgs/figure-1.svg", "imgs/figure-2.svg"]

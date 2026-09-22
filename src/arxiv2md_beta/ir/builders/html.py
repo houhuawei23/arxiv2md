@@ -751,18 +751,15 @@ class HTMLBuilder(IRBuilder):
                 )
 
         # Image figure (default) — resolve local image paths
-        imgs: list[Tag] = list(tag.find_all("img"))
-        if not imgs:
-            svg = tag.find("svg")
-            if isinstance(svg, Tag):
-                # Inline SVG: no file I/O here. The raw markup is carried in a
-                # SvgAsset (content) and the ingestion layer persists it to
-                # <images_subdir>/figure-N.svg after the build.
-                self._svg_counter += 1
-                filename = f"figure-{self._svg_counter}.svg"
-                svg_src = f"{self._images_subdir}/{filename}"
-                self._svg_assets.append(SvgAsset(path=svg_src, content=str(svg)))
-                imgs.append(svg)
+        # Inline SVG: no file I/O here. Every svg goes through the single
+        # registration entry — the raw markup rides in a SvgAsset and the
+        # ingestion layer persists it to <images_subdir>/figure-N.svg after
+        # the build. A figure mixing <img> and <svg> used to skip this
+        # entirely (the fallback ran only with no <img>), dropping the svg
+        # and leaving the shared svg_src below pointing at a stale counter
+        # value (audit5 G2-4). Both kinds share one document-order strip.
+        imgs: list[Tag] = [t for t in tag.find_all(["img", "svg"]) if isinstance(t, Tag)]
+        svg_srcs: dict[int, str] = {id(t): self._register_svg_asset(t) for t in imgs if t.name == "svg"}
         # ar5iv sometimes renders a table as a vector <svg> inside
         # <figure class="ltx_table"> with no <table> and no <img>. With nothing
         # to show, emitting only the caption produces a misleading orphan
@@ -791,10 +788,9 @@ class HTMLBuilder(IRBuilder):
                 grid = rows
 
         figure_index = self._figure_counter + 1  # 1-based for image_map lookup
-        svg_src = f"{self._images_subdir}/figure-{self._svg_counter}.svg"
         images = [
             ImageRefIR(
-                src=(svg_src if img.name == "svg" else self._resolve_image_src(img, figure_index)),
+                src=(svg_srcs[id(img)] if img.name == "svg" else self._resolve_image_src(img, figure_index)),
                 alt=_clean_image_alt(attr_str(img, "alt")),
             )
             for img in imgs
@@ -894,6 +890,18 @@ class HTMLBuilder(IRBuilder):
             caption=caption,
             label=figure_label,
         )
+
+    def _register_svg_asset(self, svg: Tag) -> str:
+        """Register an inline <svg> for post-build persistence; return its src.
+
+        Single entry for every svg→image conversion (audit5 G2-4): bumps the
+        svg counter, carries the raw markup in a SvgAsset, and returns the
+        ``<images_subdir>/figure-N.svg`` path the ingestion layer will write.
+        """
+        self._svg_counter += 1
+        svg_src = f"{self._images_subdir}/figure-{self._svg_counter}.svg"
+        self._svg_assets.append(SvgAsset(path=svg_src, content=str(svg)))
+        return svg_src
 
     def _build_listing(self, tag: Tag, section_id: str, base_idx: int) -> CodeIR | None:
         """Build a CodeIR from an arXiv ``div.ltx_listing``.
