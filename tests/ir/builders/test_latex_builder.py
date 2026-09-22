@@ -771,3 +771,35 @@ class TestConditionalCommentAwareness:
             out = _sanitize_tex_for_pandoc(tex)
         assert "important tail" in out
         assert "nclosed" in caplog.text or "nterminated" in caplog.text
+
+
+class TestInternalLinkKindClassification:
+    """audit5 G1-4: citation kind requires a citation anchor, not a substring.
+
+    'ref' in url.lower() classified #preface and #careful-look ('pre*ref*ace',
+    'ca*ref*ul') as citations, and the emitter then dropped the href entirely
+    unless linked_citations was on.
+    """
+
+    def _link(self, url: str):
+        from arxiv2md_beta.ir.builders.latex import LaTeXBuilder
+
+        node = {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], [url, ""]]}
+        return LaTeXBuilder()._inline_from_pandoc(node)
+
+    def test_preface_is_internal_not_citation(self) -> None:
+        link = self._link("#preface")
+        assert link.kind == "internal"
+        assert link.target_id == "preface"
+
+    def test_careful_look_is_internal_not_citation(self) -> None:
+        link = self._link("#careful-look")
+        assert link.kind == "internal"
+
+    def test_bib_anchor_is_citation(self) -> None:
+        link = self._link("#bib.bib3")
+        assert link.kind == "citation"
+
+    def test_ref_anchor_is_citation(self) -> None:
+        link = self._link("#ref-3")
+        assert link.kind == "citation"

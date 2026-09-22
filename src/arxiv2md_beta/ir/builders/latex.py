@@ -146,6 +146,13 @@ def _split_math_from_text(m: re.Match[str]) -> str:
 # Pandoc ignores unknown control sequences.
 _GLUE_STRIP_RE = re.compile(r"\\(?:v|h|m)skip(?:\s*\{[^{}]*\})?")
 
+# Citation anchor conventions (same shapes the HTML builder matches): a
+# bibliography anchor is ``#bib.bibN`` (ar5iv) and the sidecar/reference
+# anchors emitted downstream are ``#ref-N``. Anything else starting with
+# ``#`` is an ordinary internal link (audit5 G1-4).
+_BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
+_REF_FRAGMENT_RE = re.compile(r"#ref-\d+")
+
 # TeX conditionals with a statically-false literal condition. Pandoc does NOT
 # evaluate ``\if0...\fi`` / ``\iffalse...\fi`` (it keeps BOTH branches), so a
 # disabled block that carries unbalanced ``\begin{enumerate}``/``\end{...}``
@@ -1126,7 +1133,12 @@ class LaTeXBuilder(IRBuilder):
             fragment: str | None = None
             if url.startswith("#"):
                 kind = "internal"
-                if "cite" in url.lower() or "ref" in url.lower():
+                # A citation anchor follows the precise #bib.bibN / #ref-N
+                # conventions shared with the HTML builder. A substring test
+                # ('ref' in url) classified #preface / #careful-look as
+                # citations and the emitter then dropped the target
+                # (audit5 G1-4).
+                if _BIB_REF_RE.search(url) or _REF_FRAGMENT_RE.match(url):
                     kind = "citation"
                 # IR convention (shared with the HTML builder): an internal
                 # link carries the TARGET fragment in target_id and no url.
