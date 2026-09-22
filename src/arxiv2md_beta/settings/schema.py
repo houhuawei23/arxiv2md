@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AppSection(BaseModel):
@@ -69,14 +69,10 @@ class HttpSection(BaseModel):
 class CacheSection(BaseModel):
     dir: str = Field(
         description="Cache root. Absolute paths (e.g. ~/.cache/arxiv2md-beta) are used as-is. "
-        "Relative paths are resolved under $XDG_CACHE_HOME/arxiv2md-beta (or ~/.cache/arxiv2md-beta), never cwd.",
+        "Relative paths are resolved under $XDG_CACHE_HOME/arxiv2md-beta (or ~/.cache/arxiv2md-beta), never cwd."
+        " Stored verbatim; expansion happens in resolved_cache_path.",
     )
     ttl_seconds: int
-
-    @field_validator("dir")
-    @classmethod
-    def expand_cache_dir(cls, v: str) -> str:
-        return v
 
 
 class PathsSection(BaseModel):

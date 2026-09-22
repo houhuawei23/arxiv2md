@@ -75,6 +75,25 @@ class TestEnvStringEscape:
             os.environ.pop("ARXIV2MD_BETA_HTTP__LOG_PREFIX", None)
 
 
+class TestNoPhantomCacheDirValidator:
+    """audit5 T-7: ``expand_cache_dir`` was a no-op validator in name only.
+
+    Real expansion lives in ``CacheSection.resolved_cache_path``; the raw
+    ``dir`` value must pass through the model untouched.
+    """
+
+    def test_dir_value_preserved_verbatim(self) -> None:
+        from arxiv2md_beta.settings.schema import CacheSection
+
+        c = CacheSection(dir="~/cache WITH spaces/", ttl_seconds=1)
+        assert c.dir == "~/cache WITH spaces/"
+
+    def test_validator_removed(self) -> None:
+        from arxiv2md_beta.settings.schema import CacheSection
+
+        assert not hasattr(CacheSection, "expand_cache_dir")
+
+
 class TestEnvUnknownKeyWarning:
     """audit5 T-8: unknown env overlay keys must warn like YAML ones do."""
 
