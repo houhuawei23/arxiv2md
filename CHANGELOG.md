@@ -58,6 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **include 展开 ×3 + 每 miss 全树 rglob（X2）**：图片解析 / figure-env 解析 / 作者机构解析各自展开 include 树且用两份分歧实现；现合一到 `resolve_latex_includes`（tex-only 模式），展开按 (主 tex, 解压目录 mtime) 记忆化共享，miss 回退走惰性预建的文件名索引（9e6f3eb）。
 - **超宽 token 折行（X-Wrap）**：列表项折行只按空格切，URL/无空格公式/整段 CJK 产出上万字符单行；现超宽 token 按 width 硬切（续行带缩进），正常词折行不变——行为修复，红绿回归覆盖（bc87397）。
 
+### Added（2026-09-23 audit5 S8：功能增强，详见 docs/REVIEW_2026-09-22b.md §六）
+
+- **`--dry-run`（convert/batch，F1）**：计划模式——解析输入模式、输出基础目录与幂等判定后即停；不建目录、不下载、batch 不写 `download_manifest.json`（`_NullRecorder` 保持逐行调用点一致）且跳过限速延迟；`--force` 时明确报告将跳过幂等检查。诚实限制写入输出：最终论文目录名依赖真实运行才能取到的元数据，计划只给到基础目录 + 命名方案。附带收益：跳过已转换条目时不再顺带创建空的输出目录（8940bf6）。
+- **`--concurrency/-c`（convert，F2）**：单篇转换的图片处理并发度（`images.max_concurrency`）不再只能改配置文件；走与其他 convert 选项相同的合并路径，未传时不动配置；batch 的 `-j` 仍是并行论文数，两个旋钮不混淆（34e776c）。
+- **`paper-yml --refresh`（F3）**：`--update` 保护用户字段（audit4 A4）的反向操作——API 值覆盖 `USER_OWNED_PATHS`（阅读状态/标签/bibtex）；两条非破坏边界：用户自建键（urls.website 等）仍保留，API 未提供值的键不丢（bfd862d）。
+- **Crossref 落盘缓存 + 负缓存（F5）**：`fetch_crossref_metadata` 结果进 `cache.dir/crossref/`（小写 DOI sha 键名），TTL 复用 `cache.ttl_seconds`（≤0 禁用）；未命中（死 DOI）同样缓存，R-12 的单进程去重扩展为跨运行；`use_cache=False`（`--no-cache`）读写全旁路，写走原子写、IO 下放线程（c43def8）。
+- **settings 注入库化（F7）**：`ConvertParams.settings` + `settings_context()`（ContextVar）——`run_convert_flow` 内一切 `get_settings()`（含子任务与 to_thread worker）看到注入对象，进程全局单例不动，并发流各自隔离；CLI 路径（未注入）行为不变；batch 共享 base_output_dir 与 `find_completed_for_input` 同步接线（e0a7390）。
+
 ### Tests / Build（2026-09-23 audit5 S7：基建与测试，详见 docs/REVIEW_2026-09-22b.md §八）
 
 - **pytest-cov 接入（T-1）**：覆盖率配置入 pyproject（term-missing），工具依赖迁入 uv `[dependency-groups].dev`（`uv sync` 不装 `[project.optional-dependencies]` 的教训）；benchmarks 目录 `norecursedirs` 排除，`pytest tests` 不再误收集（c69a257）。
