@@ -14,6 +14,31 @@ from arxiv2md_beta.ir.transforms.base import IRPass
 _SECTION_FRAGMENT_RE = re.compile(r"^S\d+(?:\.S{2,3}\d+)*$")
 
 
+def _child_block_lists(block) -> list[list]:
+    """Nested block lists of *block*, mirroring ir/visitor.py's child specs.
+
+    Single source of descent for this module's hand-written walkers: a new
+    container field (audit5 I-5: ``algorithm.steps`` used to be missed by
+    every walker while ``blockquote``/``list`` were handled) gets added here
+    once instead of five times with drift.
+    """
+    t = block.type
+    if t == "blockquote":
+        return [block.blocks]
+    if t == "list":
+        return block.items
+    if t == "algorithm":
+        return [block.steps]
+    return []
+
+
+def _figure_grid_inline_lists(block) -> list[list]:
+    """Inline lists of a figure's grid cells (empty for other blocks)."""
+    if block.type == "figure" and block.grid:
+        return [cell for row in block.grid for cell in row]
+    return []
+
+
 class SectionNumberingPass(IRPass):
     r"""Prepend hierarchical section numbers to section titles.
 
@@ -130,6 +155,9 @@ class NumberingPass(IRPass):
         # never collide with a caption id that appears later in the document.
         self._collect_claimed(doc)
 
+        # Front matter precedes the body in document order: title-page
+        # figure strips claim the first ids (audit5 I-4).
+        self._number_blocks(doc.front_matter, ctx)
         for block in doc.abstract:
             self._number_blocks([block], ctx)
         for section in doc.sections:
@@ -154,14 +182,9 @@ class NumberingPass(IRPass):
             anchor = getattr(block, "anchor", None)
             if anchor:
                 self._used_anchors.add(anchor)
-            t = block.type
-            if t == "blockquote":
-                for child in block.blocks:
+            for sub in _child_block_lists(block):
+                for child in sub:
                     scan_block(child)
-            elif t == "list":
-                for item in block.items:
-                    for child in item:
-                        scan_block(child)
 
         def scan_section(section: SectionIR) -> None:
             if section.anchor:
@@ -227,12 +250,9 @@ class NumberingPass(IRPass):
         elif t == "heading":
             if not block.anchor and block.label:
                 block.anchor = unique_slug(block.label, self._used_anchors)
-        elif t == "blockquote":
-            for child in block.blocks:
-                self._anchor_block(child)
-        elif t == "list":
-            for item in block.items:
-                for child in item:
+        else:
+            for sub in _child_block_lists(block):
+                for child in sub:
                     self._anchor_block(child)
 
     def _repoint_section_fragments(self, doc: DocumentIR) -> None:
@@ -292,6 +312,10 @@ class NumberingPass(IRPass):
                 self._sweep_inline_links(getattr(block, "inlines", []), fragment_map)
             elif t in ("figure", "algorithm"):
                 self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
+                if t == "figure":
+                    # grid cells carry panel links too (audit5 I-5)
+                    for cell in _figure_grid_inline_lists(block):
+                        self._sweep_inline_links(cell, fragment_map)
             elif t == "table":
                 for cell in getattr(block, "headers", []):
                     self._sweep_inline_links(cell, fragment_map)
@@ -299,11 +323,8 @@ class NumberingPass(IRPass):
                     for cell in row:
                         self._sweep_inline_links(cell, fragment_map)
                 self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
-            elif t == "list":
-                for item in block.items:
-                    self._sweep_block_links(item, fragment_map)
-            elif t == "blockquote":
-                self._sweep_block_links(block.blocks, fragment_map)
+            for sub in _child_block_lists(block):
+                self._sweep_block_links(sub, fragment_map)
 
     def _sweep_inline_links(self, inlines: list, fragment_map: dict[str, str]) -> None:
         for il in inlines:
@@ -333,12 +354,11 @@ class NumberingPass(IRPass):
                         self._claimed.add(f"eq-{num}")
                 elif t == "algorithm" and block.algorithm_number:
                     self._claimed.add(f"algorithm-{str(block.algorithm_number).strip()}")
-                elif t == "list":
-                    for item in block.items:
-                        walk(item)
-                elif t == "blockquote":
-                    walk(block.blocks)
+                for sub in _child_block_lists(block):
+                    walk(sub)
 
+        for block in doc.front_matter:
+            walk([block])
         for block in doc.abstract:
             walk([block])
         for section in doc.sections:
@@ -385,6 +405,8 @@ class NumberingPass(IRPass):
 
     def _repoint_fragment_links(self, doc: DocumentIR) -> None:
         """Rewrite internal links whose target is a raw arXiv fragment id."""
+        for block in doc.front_matter:
+            self._sweep_blocks([block])
         for block in doc.abstract:
             self._sweep_blocks([block])
         for section in doc.sections:
@@ -402,6 +424,9 @@ class NumberingPass(IRPass):
                 self._sweep_inlines(getattr(block, "inlines", []))
             elif t in ("figure", "algorithm"):
                 self._sweep_inlines(getattr(block, "caption", []))
+                if t == "figure":
+                    for cell in _figure_grid_inline_lists(block):
+                        self._sweep_inlines(cell)
             elif t == "table":
                 for cell in getattr(block, "headers", []):
                     self._sweep_inlines(cell)
@@ -409,11 +434,8 @@ class NumberingPass(IRPass):
                     for cell in row:
                         self._sweep_inlines(cell)
                 self._sweep_inlines(getattr(block, "caption", []))
-            elif t == "list":
-                for item in block.items:
-                    self._sweep_blocks(item)
-            elif t == "blockquote":
-                self._sweep_blocks(block.blocks)
+            for sub in _child_block_lists(block):
+                self._sweep_blocks(sub)
 
     def _sweep_inlines(self, inlines: list) -> None:
         for il in inlines:
@@ -455,8 +477,8 @@ class NumberingPass(IRPass):
                 if not block.algorithm_number:
                     block.algorithm_number = aid.removeprefix("algorithm-")
                 self._claim_and_anchor(block, aid)
-            elif t == "list":
-                for item in block.items:
-                    self._number_blocks(item, ctx)
-            elif t == "blockquote":
-                self._number_blocks(block.blocks, ctx)
+            # Numbered floats can still contain nested numbered blocks
+            # (algorithm steps, figure grids) — descend on every container
+            # after handling the block itself (audit5 I-5).
+            for sub in _child_block_lists(block):
+                self._number_blocks(sub, ctx)

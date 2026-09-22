@@ -348,3 +348,76 @@ class TestSectionNumberingDigitTitles:
         doc.sections = [doc.sections[2]]
         SectionNumberingPass().run(doc)
         assert doc.sections[0].title == "1 C"
+
+
+class TestFrontMatterCoverage:
+    """audit5 I-4: front_matter blocks must enter numbering and repointing.
+
+    Title-page figure strips live in front_matter; skipping them there meant
+    no figure_id/anchor and dead fragment links in the title block.
+    """
+
+    def _doc_with_front_matter(self):
+        fm_fig = FigureIR(images=[ImageRefIR(src="./title.png")])
+        fm_para = ParagraphIR(inlines=[LinkIR(kind="internal", target_id="S1.F1", inlines=[TextIR(text="overview")])])
+        sec_fig = FigureIR(label="S1.F1", images=[ImageRefIR(src="./a.png")])
+        return (
+            DocumentIR(
+                metadata=PaperMetadata(arxiv_id="t", parser="html"),
+                front_matter=[fm_fig, fm_para],
+                sections=[SectionIR(title="S", level=1, blocks=[sec_fig])],
+            ),
+            fm_fig,
+            sec_fig,
+        )
+
+    def test_front_matter_figure_is_numbered_and_anchored(self) -> None:
+        d, fm_fig, sec_fig = self._doc_with_front_matter()
+        NumberingPass().run(d)
+        assert fm_fig.figure_id == "figure-1", "front-matter figure precedes body in document order"
+        assert fm_fig.anchor
+        assert sec_fig.figure_id == "figure-2"
+
+    def test_front_matter_fragment_link_is_repointed(self) -> None:
+        d, _, sec_fig = self._doc_with_front_matter()
+        NumberingPass().run(d)
+        fm_para = d.front_matter[1]
+        assert fm_para.inlines[0].target_id == sec_fig.anchor
+
+
+class TestNestedWalkerCoverage:
+    """audit5 I-5: nested numbered blocks and links must be reached.
+
+    Block walkers must descend into algorithm.steps and figure.grid like
+    they already do for list/blockquote/table cells.
+    """
+
+    def test_figure_inside_algorithm_steps_is_numbered(self) -> None:
+        from arxiv2md_beta.ir import AlgorithmIR
+
+        nested = FigureIR(images=[ImageRefIR(src="./step.png")])
+        algo = AlgorithmIR(caption=[TextIR(text="Algorithm 1")], steps=[nested])
+        d = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t"),
+            sections=[SectionIR(title="S", level=1, blocks=[algo])],
+        )
+        NumberingPass().run(d)
+        assert nested.figure_id == "figure-1"
+        assert nested.anchor
+
+    def test_link_inside_figure_grid_cell_is_repointed(self) -> None:
+        target = FigureIR(label="S1.F1", images=[])
+        grid_para_link = LinkIR(kind="internal", target_id="S1.F1", inlines=[TextIR(text="panel")])
+        grid_fig = FigureIR(
+            images=[ImageRefIR(src="./p.png")],
+            grid=[[[grid_para_link]]],
+        )
+        d = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="html"),
+            sections=[SectionIR(title="S", level=1, blocks=[grid_fig, target])],
+        )
+        NumberingPass().run(d)
+        # the grid figure itself is a numbered float and claims figure-1;
+        # the labeled target fig gets figure-2 and the link follows it
+        assert target.anchor == "figure-2"
+        assert grid_para_link.target_id == target.anchor
