@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **附录编号形态不可见（I-6）**：`_SECTION_FRAGMENT_RE` 只认 S 系 fragment（补 A1/A1.SS1）；`split_ir_sections` 前缀正则只认数字（"A References" 归组失败）；`normalize_section_title` 要求字母后带点（"A Overview" 剥不掉）。
 - **重复图 id 互覆（I-7）**：figure_reorder 以 figure_id 为 dict key，附录图与正文图同 caption id 时后者覆盖前者、前者永不重排；现按 id 维护文档序队列，引用逐个认领。
 
+### Fixed（2026-09-22 audit5 S3：发射转义族，详见 docs/REVIEW_2026-09-22b.md）
+
+- **代码围栏被内容击穿（G2-1）**：围栏硬编码三个反引号，正文含 ``` 即破块；新增 `escapes.code_fence`，按 CommonMark 取 `max(3, 最长反引号 run + 1)`。
+- **行首语法位零转义（G2-2）**：以 `#`/`-`/`1.`/`>`/`---` 开头的正文段落渲染成伪造标题/列表/引用线；新增 `escapes.escape_line_start`，只处理首行（有序列表转义标点位而非数字位）。
+- **inline code 反引号定界（G2-3）**：固定单反引号定界遇内容反引号即断；新增 `escapes.inline_code_delims` 按内容长度选 run、首尾反引号加空格 pad。
+- **svg→图片单一入口（G2-4）**：img+svg 混合 figure 完全跳过 svg 登记（svg 丢失、共享 src 指向过期 counter 的文件）；现 img/svg 统一文档序成条，每个 svg 走 `_register_svg_asset` 登记。
+- **HTML attr 转义位收口（I-1/I-11/I-12）**：全部 `<a id>` 位过 `escape_html_attr`（共享 `_a_id`）；多图/grid alt 去掉双重转义（`\` 不再显示为 `\\`）、`img.width` 不再裸插值；grid 单元格非图片内容转义 `<`/`>`。
+- **ref 锚点贴列表（I-2）**：`<a id="ref-N">` 前后补空行，与其他锚点路径一致。
+- **占位页检测（R-3）**：ar5iv "No content available" 检测从精确字符串改为大小写/空白容忍正则。
+- **list 内标题拍扁（I-13）**：`_is_block_level_in_list` 补 heading，标题不再变字面 `# Foo`。
+
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
 三路并行审计新发现 11 个 P1 + 20 余个 P2，分 6 阶段修复（S1-S5.2 + S6.1 本轮落地，~20 commits）：
