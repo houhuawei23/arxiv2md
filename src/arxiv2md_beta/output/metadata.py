@@ -67,7 +67,7 @@ def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
         logger.warning(f"Failed to save paper.yml: {e}")
 
 
-def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
+def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict, *, refresh: bool = False) -> dict:
     """Merge API ``fresh`` output into a previously saved ``paper.yml`` (incremental update).
 
     - **Fresh wins** on keys present in both mappings at the same path (scalar or list).
@@ -75,6 +75,10 @@ def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
     - **User-owned paths** (:data:`USER_OWNED_PATHS`) invert the rule: the value
       already on disk wins — fresh data only fills genuine gaps.
     - **Nested dicts** are merged recursively with the same rules.
+    - ``refresh=True`` (``paper-yml --update --refresh``) flips the user-owned
+      rule back: a fresh API value replaces the on-disk one wherever the API
+      provides one. Keys only the user added are still kept — a refresh
+      resets fields, it does not destroy them.
 
     Parameters
     ----------
@@ -82,29 +86,38 @@ def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
         Parsed YAML already on disk (may contain user-added fields).
     fresh
         Result of :func:`_metadata_to_paper_yml` from the latest fetch.
+    refresh
+        Let API values overwrite user-owned fields too (audit5 S8 F3).
     """
     if not isinstance(existing, dict) or not isinstance(fresh, dict):
         return fresh
-    return _deep_merge_preserve_user_only_missing(fresh, existing)
+    return _deep_merge_preserve_user_only_missing(fresh, existing, refresh=refresh)
 
 
-def _deep_merge_preserve_user_only_missing(new: dict, old: dict, _path: tuple[str, ...] = ()) -> dict:
+def _deep_merge_preserve_user_only_missing(
+    new: dict, old: dict, _path: tuple[str, ...] = (), *, refresh: bool = False
+) -> dict:
     """Start from ``new`` (authoritative); add keys from ``old`` only where missing in ``new``.
 
     Paths listed in :data:`USER_OWNED_PATHS` take ``old`` unconditionally: the
     user edited them on disk and fresh API data must not clobber that
     (audit4 A4 — reading status / tags used to reset on every update).
+    With ``refresh=True`` they take ``new`` instead — but only where ``new``
+    actually has a value; a key the API dropped still falls back to ``old``
+    rather than disappearing.
     """
     out = dict(new)
     for k, v_old in old.items():
         path = _path + (k,)
         if path in USER_OWNED_PATHS:
+            if refresh and k in out:
+                continue
             out[k] = v_old
             continue
         if k not in out:
             out[k] = v_old
         elif isinstance(v_old, dict) and isinstance(out[k], dict):
-            out[k] = _deep_merge_preserve_user_only_missing(out[k], v_old, path)
+            out[k] = _deep_merge_preserve_user_only_missing(out[k], v_old, path, refresh=refresh)
     return out
 
 
@@ -113,11 +126,13 @@ def write_paper_yml_file(
     output_path: Path,
     *,
     merge_existing: dict | None = None,
+    refresh: bool = False,
 ) -> None:
     """Serialize metadata to a ``paper.yml`` (or ``*.yml``) file at ``output_path``.
 
     If ``merge_existing`` is set (e.g. from ``paper-yml --update``), user-only keys from the
-    existing file are preserved while fresh API fields overwrite.
+    existing file are preserved while fresh API fields overwrite. ``refresh``
+    additionally lets API values replace user-owned fields (audit5 S8 F3).
     """
     output_path = Path(output_path)
     fresh = _metadata_to_paper_yml(metadata)
@@ -125,7 +140,7 @@ def write_paper_yml_file(
         logger.warning("No metadata to write (missing arxiv_id); skipping")
         return
     if merge_existing is not None:
-        paper_yml_data = merge_paper_yml_preserve_user_fields(merge_existing, fresh)
+        paper_yml_data = merge_paper_yml_preserve_user_fields(merge_existing, fresh, refresh=refresh)
     else:
         paper_yml_data = fresh
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -42,7 +42,7 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
                 )
             query = parse_arxiv_input(aid)
             await fetch_and_merge_tex_affiliations_for_metadata(meta, query.arxiv_id, query.version)
-            write_paper_yml_file(meta, path, merge_existing=existing_yml)
+            write_paper_yml_file(meta, path, merge_existing=existing_yml, refresh=params.refresh)
             print(str(path.resolve()))
             return path
 

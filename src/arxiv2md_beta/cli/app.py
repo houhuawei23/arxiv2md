@@ -383,6 +383,14 @@ def paper_yml_cmd(
         "-f",
         help="Overwrite --output path when it already exists (no numeric suffix).",
     ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help=(
+            "With --update: let API values overwrite user-owned fields too "
+            "(workflow status, tags, related, bibtex); keys only you added are still kept."
+        ),
+    ),
 ) -> None:
     """Fetch arXiv metadata only and write or refresh ``paper.yml`` (no Markdown conversion)."""
     logger = get_logger()
@@ -394,6 +402,7 @@ def paper_yml_cmd(
             arxiv_input=None,
             output=None,
             force=force,
+            refresh=refresh,
         )
     else:
         if not arxiv:
