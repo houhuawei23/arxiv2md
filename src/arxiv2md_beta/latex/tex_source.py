@@ -17,9 +17,10 @@ import aiofiles
 import httpx
 from loguru import logger
 
-from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
+from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, NonRetryableNetworkError, StorageError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
+from arxiv2md_beta.network.retry import compute_backoff
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -337,12 +338,12 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
     """Download TeX source with retries and progress bar."""
     s = get_settings()
     h = s.http
-    retry_status = set(h.retry_status_codes)
     timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
     last_exc: Exception | None = None
     last_status: int | None = None
 
     client = get_http_client()
+    non_retryable = set(h.non_retryable_status_codes)
     for attempt in range(h.fetch_max_retries + 1):
         try:
             await acquire_rate_slot()
@@ -353,12 +354,18 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                         status_code=404,
                     )
 
-                if response.status_code in retry_status:
+                if response.status_code in non_retryable:
+                    # Permanent (403 ban, 410 withdrawn...): give up at once.
+                    # NetworkError subtype → orchestrator degrades to a
+                    # no-images conversion instead of failing the paper.
+                    raise NonRetryableNetworkError(
+                        f"HTTP {response.status_code} from arXiv", status_code=response.status_code
+                    )
+
+                if response.status_code >= 400:
                     last_status = response.status_code
                     last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
                 else:
-                    response.raise_for_status()
-
                     # Some papers have no TeX source (PDF-only submission); arXiv
                     # then serves the rendered PDF from /src/ with HTTP 200, not
                     # 404. Detect it so callers take the no-TeX fallback path
@@ -370,8 +377,13 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                             "the paper was likely submitted as PDF-only."
                         )
 
-                    # Get content length for progress bar
-                    total_size = int(response.headers.get("content-length", 0))
+                    # Get content length for progress bar; malformed headers
+                    # (proxy noise) degrade to an indeterminate bar.
+                    try:
+                        total_size = int(response.headers.get("content-length", 0))
+                    except (TypeError, ValueError):
+                        total_size = 0
+                    total_size = max(0, total_size)
 
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     disable_tqdm = s.images.disable_tqdm
@@ -411,7 +423,7 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
             last_exc = exc
 
         if attempt < h.fetch_max_retries:
-            backoff = h.fetch_backoff_s * (2**attempt)
+            backoff = compute_backoff(h.fetch_backoff_s, attempt)
             await asyncio.sleep(backoff)
 
     raise TexSourceNotFoundError(f"Failed to download TeX source from {url}: {last_exc}", status_code=last_status)

@@ -36,6 +36,10 @@ class HttpSection(BaseModel):
         return self
 
     retry_status_codes: list[int]
+    # Permanent client errors: retrying cannot help and (for 403) only
+    # deepens a ban. Configurable so an aggressive origin can be handled by
+    # adding codes instead of code changes.
+    non_retryable_status_codes: list[int] = Field(default_factory=lambda: [403, 410, 451])
     large_transfer_timeout_multiplier: float = Field(gt=0)
     max_connections: int = Field(default=100, ge=1, description="httpx connection pool size")
     max_keepalive_connections: int = Field(default=20, ge=0, description="httpx keep-alive limit")

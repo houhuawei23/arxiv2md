@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import random
 
 import httpx
 from loguru import logger
 
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.settings import get_settings
+
+
+def compute_backoff(base_s: float, attempt: int, *, jitter: float = 0.5) -> float:
+    """Exponential backoff with multiplicative jitter.
+
+    Deterministic ``base * 2**attempt`` delays make every worker that hits a
+    429 on the same edge re-send at the same instant, so the retry wave
+    re-triggers the rate limit it is backing off from (audit4 A3). Full
+    jitter would be ``random() * delay``; half-jitter (±50%) is enough and
+    keeps delays predictable in tests.
+    """
+    return base_s * (2**attempt) * random.uniform(1.0 - jitter, 1.0 + jitter)
 
 
 async def request_with_retries(
@@ -58,7 +71,7 @@ async def request_with_retries(
             last_err = str(exc)
 
         if attempt < h.fetch_max_retries:
-            await asyncio.sleep(h.fetch_backoff_s * (2**attempt))
+            await asyncio.sleep(compute_backoff(h.fetch_backoff_s, attempt))
 
     logger.debug(f"{who} exhausted retries: {last_err}")
     return None

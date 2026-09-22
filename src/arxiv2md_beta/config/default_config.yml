@@ -12,6 +12,9 @@ http:
   # (arxiv2md-beta/<__version__>). Override freely with your own agent string.
   user_agent: "arxiv2md-beta"
   retry_status_codes: [429, 500, 502, 503, 504]
+  # Permanent client errors: no retry (a 403 ban only deepens). Extend here
+  # if an origin starts answering with additional hard-fail codes.
+  non_retryable_status_codes: [403, 410, 451]
   large_transfer_timeout_multiplier: 5.0
   # Overall wall-clock budget per metadata fetch (retries + enrichment included).
   metadata_timeout_s: 90.0
