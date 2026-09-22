@@ -898,3 +898,27 @@ class TestAlgorithmSteps:
         alg = doc.sections[0].blocks[0]
         assert alg.type == "algorithm"
         assert any(getattr(s, "type", "") == "paragraph" for s in alg.steps)
+
+
+class TestOrderedListStart:
+    """audit5 G1-3: <ol start="N"> keeps its start number and ordered flag."""
+
+    def test_ol_start_attribute_kept(self, builder):
+        html = """<article class='ltx_document'><section class='ltx_section'><h2>T</h2>
+        <ol start="3"><li>third</li><li>fourth</li></ol>
+        </section></article>"""
+        doc = builder.build(html, arxiv_id="test")
+        lst = doc.sections[0].blocks[0]
+        assert lst.type == "list"
+        assert lst.ordered is True
+        assert lst.start == 3
+
+    def test_nested_ol_keeps_ordered_flag(self, builder):
+        html = """<article class='ltx_document'><section class='ltx_section'><h2>T</h2>
+        <ol><li>outer<ol><li>inner-a</li><li>inner-b</li></ol></li></ol>
+        </section></article>"""
+        doc = builder.build(html, arxiv_id="test")
+        outer = doc.sections[0].blocks[0]
+        inner = outer.items[0][1]
+        assert inner.type == "list"
+        assert inner.ordered is True, "a nested <ol> used to degrade to bullets"

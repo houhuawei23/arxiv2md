@@ -31,3 +31,9 @@ NOLINEBREAK_RE = re.compile(r"\\nolinebreak(?:\s*\[[^\]]*\])?")
 
 # Runs of spaces collapse to one.
 MULTI_SPACE_RE = re.compile(r" {2,}")
+
+# An explicit \tag{...} inside the math body. When the emitter adds the
+# authoritative number itself, a source-carried tag would render twice
+# (audit5 G1-2): html.py's equation-table path strips it at build time and
+# the emitter strips defensively before adding its own.
+TAG_RE = re.compile(r"\\tag\{[^{}]*\}\s*")

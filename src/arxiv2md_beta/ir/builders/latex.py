@@ -927,8 +927,20 @@ class LaTeXBuilder(IRBuilder):
             for item in items_list:
                 item_blocks = self._blocks_from_pandoc(item if isinstance(item, list) else [], section_id)
                 items_structure.append(item_blocks)
+            # c[0] is pandoc's ListAttributes [start, style, delimiter]; the
+            # start number was dropped and continued lists restarted at 1
+            # (audit5 G1-3).
+            start: int | None = None
+            if isinstance(c, list) and c and isinstance(c[0], list) and c[0]:
+                try:
+                    parsed_start = int(c[0][0])
+                except (TypeError, ValueError):
+                    parsed_start = 1
+                if parsed_start != 1:
+                    start = parsed_start
             return ListIR(
                 ordered=True,
+                start=start,
                 items=items_structure,
                 source=_SHARED_SOURCE,
                 section_id=section_id,

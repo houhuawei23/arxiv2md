@@ -436,3 +436,50 @@ class TestFrontMatterEmission:
         )
         out = MarkdownEmitter().emit(doc)
         assert out.strip().startswith("## Abstract")
+
+
+class TestEquationTagDedup:
+    r"""audit5 G1-2: an equation already carrying \tag must not get a second."""
+
+    def test_existing_tag_not_duplicated(self, emitter):
+        b = EquationIR(latex=r"x = 1 \tag{2.1}", equation_number="(7)")
+        result = emitter._emit_block(b)
+        assert result.count("\\tag{") == 1
+        assert "\\tag{7}" in result
+        assert "2.1" not in result
+
+    def test_source_tag_preserved_without_extracted_number(self, emitter):
+        b = EquationIR(latex=r"x = 1 \tag{2.1}")
+        result = emitter._emit_block(b)
+        assert "\\tag{2.1}" in result
+        # Only one tag overall.
+        assert result.count("\\tag{") == 1
+
+
+class TestOrderedListStart:
+    """audit5 G1-3: an ordered list's start number must survive to the marker."""
+
+    def test_start_offset_numbering(self, emitter):
+        lst = ListIR(
+            ordered=True,
+            start=3,
+            items=[[ParagraphIR(inlines=[TextIR(text="a")])], [ParagraphIR(inlines=[TextIR(text="b")])]],
+        )
+        out = emitter._emit_list(lst)
+        assert "3. a" in out
+        assert "4. b" in out
+
+    def test_default_start_unchanged(self, emitter):
+        lst = ListIR(ordered=True, items=[[ParagraphIR(inlines=[TextIR(text="a")])]])
+        out = emitter._emit_list(lst)
+        assert "1. a" in out
+
+    def test_wide_start_widens_marker(self, emitter):
+        lst = ListIR(
+            ordered=True,
+            start=9,
+            items=[[ParagraphIR(inlines=[TextIR(text="a")])], [ParagraphIR(inlines=[TextIR(text="b")])]],
+        )
+        out = emitter._emit_list(lst)
+        assert "9. a" in out
+        assert "10. b" in out

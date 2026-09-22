@@ -36,6 +36,7 @@ from arxiv2md_beta.ir.builders._math_norm import (
     NOLINEBREAK_RE,
     PERP_IN_MATH_RE,
     PERP_REPLACEMENT,
+    TAG_RE,
 )
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
@@ -278,10 +279,20 @@ class HTMLBuilder(IRBuilder):
             items = self._build_ar5iv_list_items(tag) if tag_name == "span" else self._build_list_items(tag)
             if not items:
                 return None
+            start: int | None = None
+            if tag_name == "ol":
+                raw_start = attr_optional(tag, "start")
+                try:
+                    parsed_start = int(str(raw_start)) if raw_start is not None else 1
+                except ValueError:
+                    parsed_start = 1
+                if parsed_start != 1:
+                    start = parsed_start
             return ListIR(
                 section_id=section_id,
                 order_index=base_idx,
                 ordered=(tag_name == "ol" or _is_ar5iv_ordered_list(classes)),
+                start=start,
                 items=items,
             )
 
@@ -677,7 +688,7 @@ class HTMLBuilder(IRBuilder):
         # Strip any existing \tag{...} from the LaTeX annotation; the
         # authoritative paper number lives in the HTML table cell and is
         # extracted separately via _extract_equation_number().
-        latex = re.sub(r"\\tag\{[^}]*\}", "", latex).strip()
+        latex = TAG_RE.sub("", latex).strip()
         return latex
 
     # ── Complex block builders ─────────────────────────────────────────
@@ -965,10 +976,20 @@ class HTMLBuilder(IRBuilder):
                     if "ltx_bib_cited" in child_classes:
                         continue
                     if child.name in ("ul", "ol"):
-                        # Nested list
+                        # Nested list — keep the ordered flag (an <ol> used to
+                        # degrade to bullets here) and its start number.
                         nested = self._build_list_items(child)
                         if nested:
-                            item_blocks.append(ListIR(items=nested))
+                            start: int | None = None
+                            if child.name == "ol":
+                                raw_start = attr_optional(child, "start")
+                                try:
+                                    parsed_start = int(str(raw_start)) if raw_start is not None else 1
+                                except ValueError:
+                                    parsed_start = 1
+                                if parsed_start != 1:
+                                    start = parsed_start
+                            item_blocks.append(ListIR(items=nested, ordered=(child.name == "ol"), start=start))
                     elif child.name in ("section", "article", "div", "span"):
                         # Recurse generically so that block-level siblings (e.g.
                         # nested ar5iv lists inside <div class="ltx_para">) are

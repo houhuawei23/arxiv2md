@@ -58,6 +58,11 @@ class ListIR(BlockIR):
 
     type: Literal["list"] = "list"
     ordered: bool = False
+    # First item's number for ordered lists (``<ol start="3">``, pandoc's
+    # ListAttributes); ``None`` means 1. Kept optional so the JSON export
+    # (exclude_none) stays free of default noise (audit5 G1-3 — a continued
+    # list used to restart at 1 and misalign every prose reference like "(3)").
+    start: int | None = None
     items: list[list[BlockUnion]] = Field(default_factory=list)
 
 

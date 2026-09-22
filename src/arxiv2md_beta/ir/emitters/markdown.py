@@ -12,6 +12,7 @@ from arxiv2md_beta.ir.blocks import (
     ListIR,
     TableIR,
 )
+from arxiv2md_beta.ir.builders._math_norm import TAG_RE
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
 from arxiv2md_beta.ir.emitters.escapes import (
@@ -457,6 +458,10 @@ class MarkdownEmitter(IREmitter):
             # its own parens during rendering, so strip surrounding ()/[].
             num_str = num.strip().strip("()")
             if num_str:
+                # The source may already carry \tag{...}; the extracted number
+                # is authoritative and the rendered math must keep exactly one
+                # tag (audit5 G1-2).
+                latex = TAG_RE.sub("", latex).strip()
                 parts.append(f"$$\n{latex} \\tag{{{num_str}}}\n$$")
             else:
                 parts.append(f"$$\n{latex}\n$$")
@@ -467,18 +472,27 @@ class MarkdownEmitter(IREmitter):
     def _emit_list(self, lst: ListIR) -> str:
         lines: list[str] = []
         for idx, item_blocks in enumerate(lst.items):
-            lines.extend(self._emit_list_item(item_blocks, lst.ordered, 0, idx))
+            lines.extend(self._emit_list_item(item_blocks, lst.ordered, 0, idx, start=lst.start))
         return "\n".join(lines)
 
     def _emit_list_item(
-        self, item_blocks: list, ordered: bool, indent: int, index: int = 0, indent_width: int = 0
+        self,
+        item_blocks: list,
+        ordered: bool,
+        indent: int,
+        index: int = 0,
+        indent_width: int = 0,
+        start: int | None = None,
     ) -> list[str]:
         # A nested item's indentation must reach the parent's content column
         # (CommonMark): 2 spaces under "- ", 3 under "1. ", 4 under "10. ".
         # A fixed 2-space indent used to demote nested ordered lists to
         # paragraph continuation text.
         prefix = " " * indent_width
-        marker = f"{prefix}{index + 1}. " if ordered else f"{prefix}- "
+        # start offsets the numbering so a continued list ("<ol start=3>") does
+        # not restart at 1 (audit5 G1-3); None means the default first number.
+        number = (start if start is not None else 1) + index
+        marker = f"{prefix}{number}. " if ordered else f"{prefix}- "
         continuation_indent = " " * len(marker)
         # Block-level content inside a list item must be indented enough for
         # standard Markdown parsers to recognise it as part of the item. We use
@@ -504,6 +518,7 @@ class MarkdownEmitter(IREmitter):
                             indent + 1,
                             nested_idx,
                             indent_width=indent_width + len(marker),
+                            start=blk.start,
                         )
                     )
             elif _is_block_level_in_list(blk):
