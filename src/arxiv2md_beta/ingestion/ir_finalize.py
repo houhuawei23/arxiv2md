@@ -62,9 +62,10 @@ def emit_split_markdown(
 ) -> tuple[str, str | None, str | None]:
     """Emit *doc* into main / references / appendix Markdown sidecars.
 
-    The references and appendix sidecars are emitted with ``doc.abstract``
-    emptied so the abstract is not repeated in every sidecar. The doc is
-    restored to its original state before returning.
+    The references and appendix sidecars are emitted with ``abstract`` and
+    ``front_matter`` emptied so neither is repeated in every sidecar (audit4
+    B3: front_matter used to leak into the sidecars). Emission works on
+    shallow ``model_copy`` views — the input document is never mutated.
 
     Each sidecar is finalized in a single pass (format + clean, including
     optional anchor stripping per ``settings.output.include_anchors``) so the
@@ -84,28 +85,27 @@ def emit_split_markdown(
     )
     main_irs, ref_irs, app_irs = split_ir_sections(doc.sections, reference_section_titles)
 
-    original_sections = doc.sections
-    original_abstract = doc.abstract
+    # Sidecar views drop abstract + front matter; the emitter only reads
+    # those three fields, so a shallow copy per view is enough.
+    content = finalize_markdown(
+        emitter.emit(doc.model_copy(update={"sections": main_irs})),
+        include_anchors=include_anchors,
+    )
 
-    try:
-        doc.sections = main_irs
-        content = finalize_markdown(emitter.emit(doc), include_anchors=include_anchors)
-
-        doc.abstract = []
-        doc.sections = ref_irs
-        ref_raw = emitter.emit(doc) if ref_irs else ""
+    content_references = None
+    if ref_irs:
+        ref_view = doc.model_copy(update={"sections": ref_irs, "abstract": [], "front_matter": []})
+        ref_raw = emitter.emit(ref_view)
         if ref_raw.strip():
             ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
             content_references = _number_reference_entries(ref_final, include_anchors=include_anchors)
-        else:
-            content_references = None
 
-        doc.sections = app_irs
-        app_raw = emitter.emit(doc) if app_irs else ""
+    content_appendix = None
+    if app_irs:
+        app_view = doc.model_copy(update={"sections": app_irs, "abstract": [], "front_matter": []})
+        app_raw = emitter.emit(app_view)
         content_appendix = finalize_markdown(app_raw, include_anchors=include_anchors) if app_raw.strip() else None
-    finally:
-        doc.sections = original_sections
-        doc.abstract = original_abstract
+
     return content, content_references, content_appendix
 
 
