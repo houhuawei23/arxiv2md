@@ -269,7 +269,11 @@ def _extract_from_url(url: str) -> tuple[str, str | None]:
 
     parsed = urlparse(url)
     host = get_settings().urls.arxiv_host
-    if parsed.netloc and host not in parsed.netloc:
+    # Exact hostname compare: the old substring test admitted hosts like
+    # "evil-arxiv.org" and "arxiv.org.evil.com" (audit4 P3; mirror.py already
+    # compared exactly).
+    hostname = parsed.hostname or ""
+    if parsed.netloc and hostname != host:
         raise UserInputError(f"Unsupported host: {parsed.netloc}")
 
     path_parts = [part for part in parsed.path.split("/") if part]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.ingestion.latex import ingest_paper_latex
 from arxiv2md_beta.schemas import IngestionResult
 
@@ -15,7 +16,7 @@ async def ingest_paper(
     version: str | None,
     html_url: str,
     ar5iv_url: str | None = None,
-    parser: str = "html",
+    parser: str = "latex",
     remove_refs: bool = False,
     remove_inline_citations: bool = False,
     linked_citations: bool = False,
@@ -70,7 +71,9 @@ async def ingest_paper(
     sections = sections or []
 
     if parser != "latex":
-        raise ValueError(
+        # Typed error (audit4 P3): the raw ValueError escaped _handle_command_error
+        # as exit 1 and was the last bare raise in src/.
+        raise UserInputError(
             "ingest_paper only supports the LaTeX parser; the remote HTML path "
             "is IngestionOrchestrator (routed by cli.runner.convert)."
         )

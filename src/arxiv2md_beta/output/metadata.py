@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections import OrderedDict
 from contextlib import suppress
 from datetime import datetime
@@ -15,6 +16,7 @@ with suppress(ImportError):
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ParseError, UserInputError
+from arxiv2md_beta.utils.atomic_io import atomic_write_text_sync
 
 # Paths (relative to the serialized root) the user owns once present in a
 # saved paper.yml: ``paper-yml --update`` and re-conversions must never let
@@ -121,8 +123,13 @@ def write_paper_yml_file(
     else:
         paper_yml_data = fresh
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        yaml.dump(paper_yml_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    # Atomic write + one-step backup: the file may carry hand-edited user
+    # fields, so a crash mid-write must not destroy it (audit4 S5.2).
+    if output_path.exists():
+        backup = output_path.with_suffix(output_path.suffix + ".bak")
+        shutil.copy2(output_path, backup)
+    content = yaml.dump(paper_yml_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    atomic_write_text_sync(output_path, content)
     logger.info(f"Paper metadata written to: {output_path}")
 
 

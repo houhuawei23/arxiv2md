@@ -196,8 +196,6 @@ async def finalize_convert_output(
     if not isinstance(structured, dict):
         structured = None
 
-    emit_result_json_line(paper_output_dir, params=params, structured=structured)
-
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
     naming_scheme = s.output_naming.naming_scheme
@@ -207,6 +205,9 @@ async def finalize_convert_output(
     # further postprocessing is needed here.
 
     if metadata.get("pdf_only"):
+        # pdf_only products are just the PDF + paper.yml; the JSON line
+        # contract stays "emitted once the record exists".
+        emit_result_json_line(paper_output_dir, params=params, structured=structured)
         return await _finalize_pdf_only_output(
             paper_output_dir=paper_output_dir,
             metadata=metadata,
@@ -301,6 +302,12 @@ async def finalize_convert_output(
         status=manifest_status,
     )
     write_paper_manifest(paper_output_dir, manifest)
+
+    # Machine-readable result line: emitted only after the quality gate has
+    # passed and main markdown + sidecars + manifest are on disk, so a parent
+    # process reading the line never races a torn or rejected output
+    # (audit4 S5.2 — it used to print before the gate).
+    emit_result_json_line(paper_output_dir, params=params, structured=structured)
 
     if log_local_success:
         logger.info("Local archive processed successfully (no PDF download for local archives)")

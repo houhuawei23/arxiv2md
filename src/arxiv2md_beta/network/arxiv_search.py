@@ -39,9 +39,16 @@ def build_search_query(query: str, authors: list[str] | None = None, *, field: s
     q = query.strip()
     if not q:
         raise UserInputError("Search query cannot be empty.")
-    expr = q if _FIELD_PREFIX_RE.search(q) else f'{field}:"{q}"'
+    if _FIELD_PREFIX_RE.search(q):
+        # Already field syntax: passthrough verbatim, quotes included.
+        return q
+    # Auto-quoted phrase: embedded quotes would terminate the phrase early
+    # and let arbitrary field syntax through (audit4 P3); inside a quoted
+    # phrase they carry no meaning, so drop them rather than interpolate raw.
+    q = q.replace('"', "")
+    expr = f'{field}:"{q}"'
     for author in authors or []:
-        name = author.strip()
+        name = author.strip().replace('"', "")
         if name:
             expr += f' AND au:"{name}"'
     return expr

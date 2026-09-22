@@ -95,11 +95,13 @@ def search_cmd(
         )
         if not results:
             typer.echo(f"No results for: {query}", err=True)
-        return
+            raise typer.Exit(code=1)
 
     if not results:
+        # Distinct from success so scripts can tell "nothing found" apart
+        # from a valid empty answer (audit4 P3).
         typer.echo(f"No results for: {query}", err=True)
-        raise typer.Exit(code=0)
+        raise typer.Exit(code=1)
 
     table = Table(title=f'arXiv search: "{query}"', show_lines=False)
     table.add_column("arxiv_id", style="cyan", no_wrap=True)
