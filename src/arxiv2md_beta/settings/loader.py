@@ -34,10 +34,17 @@ _ENV_PREFIX = "ARXIV2MD_BETA_"
 
 
 def _parse_env_scalar(raw: str) -> Any:
-    """Coerce env string to bool / int / float / JSON / str."""
+    """Coerce env string to bool / int / float / JSON / str.
+
+    A value wrapped in matching single/double quotes is taken verbatim as a
+    string — otherwise strings like ``"true"`` or ``"007"`` would be coerced
+    with no way to opt out (audit5 T-8).
+    """
     v = raw.strip()
     if v == "":
         return None
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        return v[1:-1]
     if v.lower() in ("true", "false"):
         return v.lower() == "true"
     if v[0] in "[{":
@@ -210,7 +217,24 @@ def load_settings(
         if env_p:
             user_path = Path(env_p).expanduser()
 
-    key = (user_path, environment, os.environ.get("ARXIV2MD_BETA_APP__ENVIRONMENT"))
+    # Cache key must cover everything that feeds the merge: a stale key made
+    # in-process env changes and YAML edits return the old object forever
+    # (audit5 G4-2).
+    env_overlay = env_overlay_from_os()
+    user_sig: Any = None
+    if user_path is not None:
+        try:
+            st = user_path.stat()
+            user_sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            user_sig = "missing"
+    key = (
+        user_path,
+        environment,
+        os.environ.get("ARXIV2MD_BETA_APP__ENVIRONMENT"),
+        user_sig,
+        json.dumps(env_overlay, sort_keys=True),
+    )
     if not force_reload and _SETTINGS is not None and key == _LAST_LOAD_KEY:
         return _SETTINGS
 
@@ -241,8 +265,10 @@ def load_settings(
         _warn_unknown_keys(user_raw)
         merged = deep_merge(merged, user_raw)
 
-    # Env wins over all YAML (init kwargs previously blocked pydantic-settings env)
-    merged = deep_merge(merged, env_overlay_from_os())
+    # Env wins over all YAML (init kwargs previously blocked pydantic-settings env).
+    # Unknown env keys get the same typo warning user YAML keys already had (audit5 T-8).
+    _warn_unknown_keys(env_overlay)
+    merged = deep_merge(merged, env_overlay)
 
     try:
         settings = AppSettings.model_validate(merged)
