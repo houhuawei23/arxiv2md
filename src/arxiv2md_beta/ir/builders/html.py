@@ -511,12 +511,16 @@ class HTMLBuilder(IRBuilder):
                     inlines=inlines,
                 )
 
-            # Internal link
+            # Internal link — the raw fragment stays in target_id verbatim.
+            # Real anchors only exist after NumberingPass, whose label→anchor
+            # map (keyed by the ar5iv element id kept as block label) repoints
+            # these links post-transform. Guessing a global counter here
+            # pointed §2+ references at the wrong figure/table (audit5 C1:
+            # LaTeXML ids are section-local, caption numbers are global).
             if href.startswith("#"):
-                anchor = _map_fragment_to_anchor(href)
                 return LinkIR(
                     kind="internal",
-                    target_id=anchor or href[1:],
+                    target_id=href[1:],
                     inlines=inlines,
                 )
 
@@ -1298,30 +1302,6 @@ def _extract_citation_ref(href: str) -> str | None:
     m = _BIB_REF_RE.search(href)
     if m:
         return f"ref-{m.group(1)}"
-    return None
-
-
-def _map_fragment_to_anchor(href: str) -> str | None:
-    fragment = href.lstrip("#")
-    return _map_arxiv_fragment_to_anchor(fragment)
-
-
-def _map_arxiv_fragment_to_anchor(fragment: str) -> str | None:
-    # Figure: S1.F1 -> figure-1
-    m = re.match(r"S\d+\.F(\d+)$", fragment)
-    if m:
-        return f"figure-{m.group(1)}"
-    # Table: S5.T1 -> table-1
-    m = re.match(r"[SA]\d*\.?T(\d+)$", fragment)
-    if m:
-        return f"table-{m.group(1)}"
-    # Section fragments (S4, S4.SS1) are deliberately NOT guessed here: real
-    # section anchors are title slugs assigned by AnchorPass. The raw fragment
-    # stays in target_id and is repointed to the real anchor post-transform.
-    # Algorithm: alg1 -> algorithm-1
-    m = re.match(r"alg(\d+)$", fragment)
-    if m:
-        return f"algorithm-{m.group(1)}"
     return None
 
 

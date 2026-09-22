@@ -234,8 +234,10 @@ class NumberingPass(IRPass):
 
         The builder's old positional guess (``section-4-1``) never matched the
         slugified anchors actually emitted, so in-document section links were
-        dead. Figure/table/algorithm fragments keep their build-time mapping
-        (those ids coincide with NumberingPass ids).
+        dead. Figure/table/algorithm fragments are repointed separately, via
+        the ``_label_to_anchor`` map in :meth:`_repoint_fragment_links` (the
+        builder keeps the raw ``S2.F1`` fragment — LaTeXML ids are
+        section-local, caption numbers are global).
 
         On the HTML path sections carry the ar5iv element id ("S4") as their
         anchor — that id is the *authoritative* key for a link written

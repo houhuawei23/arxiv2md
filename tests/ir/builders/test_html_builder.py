@@ -6,6 +6,7 @@ import pytest
 
 from arxiv2md_beta.ir.builders.html import HTMLBuilder, _normalize_math_latex
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+from arxiv2md_beta.ir.transforms.numbering import NumberingPass
 
 
 @pytest.fixture
@@ -778,3 +779,65 @@ class TestSvgFigures:
         out = tmp_path / "images" / "figure-1.svg"
         assert out.is_file()
         assert "<svg" in out.read_text(encoding="utf-8")
+
+
+class TestInternalFragmentLinks:
+    """audit5 C1: internal links keep the raw arXiv fragment; NumberingPass repoints.
+
+    LaTeXML element ids are section-local ("S2.F1" = 1st figure of §2) while
+    caption numbers are global ("Figure 2"). The builder must not guess a
+    global counter: a `#S2.F1` reference used to become `figure-1` and pointed
+    at the *wrong* figure whenever §1 had figures of its own.
+    """
+
+    TWO_FIGURES_HTML = """
+    <article class='ltx_document'>
+    <section class='ltx_section' id='S1'><h2>One</h2>
+    <figure class="ltx_figure" id="S1.F1">
+      <img src="./a.png" alt="Refer to caption" />
+      <figcaption>Figure 1: First</figcaption>
+    </figure>
+    </section>
+    <section class='ltx_section' id='S2'><h2>Two</h2>
+    <figure class="ltx_figure" id="S2.F1">
+      <img src="./b.png" alt="Refer to caption" />
+      <figcaption>Figure 2: Second</figcaption>
+    </figure>
+    <p>See <a class="ltx_ref" href="#S2.F1">Figure 2</a> and <a class="ltx_ref" href="#S1.F1">Figure 1</a>.</p>
+    </section>
+    </article>"""
+
+    def _links_after_pipeline(self, builder):
+        doc = builder.build(self.TWO_FIGURES_HTML, arxiv_id="test")
+        doc = NumberingPass().run(doc)
+        para = doc.sections[1].blocks[1]
+        return [il for il in para.inlines if getattr(il, "type", "") == "link"]
+
+    def test_builder_keeps_raw_fragment(self, builder):
+        doc = builder.build(self.TWO_FIGURES_HTML, arxiv_id="test")
+        para = doc.sections[1].blocks[1]
+        links = [il for il in para.inlines if getattr(il, "type", "") == "link"]
+        assert [link.target_id for link in links] == ["S2.F1", "S1.F1"]
+
+    def test_numbering_repoints_to_correct_global_figure(self, builder):
+        # S2.F1 is the *second* global figure; the old build-time guess
+        # mapped it to figure-1 (§1's figure) and the label repoint could
+        # never fire because the raw fragment was already overwritten.
+        links = self._links_after_pipeline(builder)
+        assert [link.target_id for link in links] == ["figure-2", "figure-1"]
+
+    def test_algorithm_link_repoints_via_label(self, builder):
+        html = """
+        <article class='ltx_document'>
+        <section class='ltx_section' id='S1'><h2>One</h2>
+        <figure class="ltx_float_algorithm" id="alg1">
+          <span class="ltx_caption">Algorithm 1: Do things</span>
+        </figure>
+        <p>Alg <a class="ltx_ref" href="#alg1">1</a>.</p>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        doc = NumberingPass().run(doc)
+        para = doc.sections[0].blocks[1]
+        link = next(il for il in para.inlines if getattr(il, "type", "") == "link")
+        assert link.target_id == "algorithm-1"
