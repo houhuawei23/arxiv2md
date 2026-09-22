@@ -229,3 +229,49 @@ Inline $\displaystyle x + y$ here.
     assert any("\\displaystyle" in m.latex for m in maths), (
         "latex builder started stripping \\displaystyle — update the math_normalization whitelist entry"
     )
+
+
+class TestVisitorWalkSingleSource:
+    """audit5 根因 4: spec-driven iterators replace per-transform tree walks."""
+
+    def test_child_block_lists_covers_all_block_containers(self):
+        from arxiv2md_beta.ir.blocks import AlgorithmIR, BlockQuoteIR, ListIR, ParagraphIR
+        from arxiv2md_beta.ir.inlines import TextIR
+        from arxiv2md_beta.ir.visitor import child_block_lists
+
+        inner = TextIR(text="x")
+        bq = BlockQuoteIR(blocks=[ParagraphIR(inlines=[inner])])
+        lst = ListIR(items=[[ParagraphIR(inlines=[inner])]])
+        alg = AlgorithmIR(steps=[ParagraphIR(inlines=[inner])])
+        assert child_block_lists(bq) == [bq.blocks]
+        assert child_block_lists(lst) == lst.items
+        assert child_block_lists(alg) == [alg.steps]
+        assert child_block_lists(ParagraphIR(inlines=[inner])) == []
+
+    def test_iter_inline_lists_reaches_nested_and_grid_inlines(self):
+        from arxiv2md_beta.ir.blocks import FigureIR, ParagraphIR, TableIR
+        from arxiv2md_beta.ir.inlines import EmphasisIR, LinkIR, TextIR
+        from arxiv2md_beta.ir.visitor import iter_inline_lists
+
+        nested = EmphasisIR(inlines=[TextIR(text="nested")])
+        para = ParagraphIR(inlines=[nested])
+        grid_cell = [LinkIR(kind="internal", target_id="S2.F1")]
+        fig = FigureIR(caption=[TextIR(text="cap")], grid=[[grid_cell]])
+        table = TableIR(
+            headers=[[TextIR(text="h")]],
+            rows=[[[TextIR(text="c")]]],
+            caption=[TextIR(text="tcap")],
+        )
+        # paragraph: outer list + nested emphasis list
+        lists = list(iter_inline_lists(para))
+        assert lists[0] is para.inlines
+        assert any(sub is nested.inlines for sub in lists)
+        # figure: caption + grid cell
+        fig_lists = list(iter_inline_lists(fig))
+        assert fig_lists[0] is fig.caption
+        assert grid_cell in fig_lists
+        # table: headers + rows + caption all present
+        t_lists = list(iter_inline_lists(table))
+        assert table.headers[0] in t_lists
+        assert table.rows[0][0] in t_lists
+        assert table.caption in t_lists

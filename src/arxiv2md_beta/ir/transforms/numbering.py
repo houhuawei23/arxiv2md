@@ -7,37 +7,13 @@ import re
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.transforms._anchors import slugify, unique_slug
 from arxiv2md_beta.ir.transforms.base import IRPass
+from arxiv2md_beta.ir.visitor import child_block_lists, iter_block_descendants, iter_inline_lists
 
 # arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"; appendix
 # sections use the "A" form: "A1", "A1.SS1", …). The HTML builder leaves
 # these raw in link target_ids because real section anchors are title slugs
 # that only exist after this pass.
 _SECTION_FRAGMENT_RE = re.compile(r"^[SA]\d+(?:\.S{2,3}\d+)*$")
-
-
-def _child_block_lists(block) -> list[list]:
-    """Nested block lists of *block*, mirroring ir/visitor.py's child specs.
-
-    Single source of descent for this module's hand-written walkers: a new
-    container field (audit5 I-5: ``algorithm.steps`` used to be missed by
-    every walker while ``blockquote``/``list`` were handled) gets added here
-    once instead of five times with drift.
-    """
-    t = block.type
-    if t == "blockquote":
-        return [block.blocks]
-    if t == "list":
-        return block.items
-    if t == "algorithm":
-        return [block.steps]
-    return []
-
-
-def _figure_grid_inline_lists(block) -> list[list]:
-    """Inline lists of a figure's grid cells (empty for other blocks)."""
-    if block.type == "figure" and block.grid:
-        return [cell for row in block.grid for cell in row]
-    return []
 
 
 class SectionNumberingPass(IRPass):
@@ -179,28 +155,29 @@ class NumberingPass(IRPass):
     # ── anchor assignment (absorbed AnchorPass) ────────────────────────
 
     def _prescan_anchors(self, doc: DocumentIR) -> None:
-        def scan_block(block) -> None:
-            anchor = getattr(block, "anchor", None)
+        for block in doc.abstract:
+            self._scan_block_anchors(block)
+        for block in doc.front_matter:
+            self._scan_block_anchors(block)
+        for section in doc.sections:
+            self._scan_section_anchors(section)
+
+    def _scan_block_anchors(self, block) -> None:
+        anchor = getattr(block, "anchor", None)
+        if anchor:
+            self._used_anchors.add(anchor)
+        for descendant in iter_block_descendants(block):
+            anchor = getattr(descendant, "anchor", None)
             if anchor:
                 self._used_anchors.add(anchor)
-            for sub in _child_block_lists(block):
-                for child in sub:
-                    scan_block(child)
 
-        def scan_section(section: SectionIR) -> None:
-            if section.anchor:
-                self._used_anchors.add(section.anchor)
-            for block in section.blocks:
-                scan_block(block)
-            for child in section.children:
-                scan_section(child)
-
-        for block in doc.abstract:
-            scan_block(block)
-        for block in doc.front_matter:
-            scan_block(block)
-        for section in doc.sections:
-            scan_section(section)
+    def _scan_section_anchors(self, section: SectionIR) -> None:
+        if section.anchor:
+            self._used_anchors.add(section.anchor)
+        for block in section.blocks:
+            self._scan_block_anchors(block)
+        for child in section.children:
+            self._scan_section_anchors(child)
 
     def _anchor_front_matter(self, doc: DocumentIR) -> None:
         for block in doc.front_matter:
@@ -252,7 +229,7 @@ class NumberingPass(IRPass):
             if not block.anchor and block.label:
                 block.anchor = unique_slug(block.label, self._used_anchors)
         else:
-            for sub in _child_block_lists(block):
+            for sub in child_block_lists(block):
                 for child in sub:
                     self._anchor_block(child)
 
@@ -308,24 +285,12 @@ class NumberingPass(IRPass):
 
     def _sweep_block_links(self, blocks: list, fragment_map: dict[str, str]) -> None:
         for block in blocks:
-            t = block.type
-            if t in ("paragraph", "heading"):
-                self._sweep_inline_links(getattr(block, "inlines", []), fragment_map)
-            elif t in ("figure", "algorithm"):
-                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
-                if t == "figure":
-                    # grid cells carry panel links too (audit5 I-5)
-                    for cell in _figure_grid_inline_lists(block):
-                        self._sweep_inline_links(cell, fragment_map)
-            elif t == "table":
-                for cell in getattr(block, "headers", []):
-                    self._sweep_inline_links(cell, fragment_map)
-                for row in getattr(block, "rows", []):
-                    for cell in row:
-                        self._sweep_inline_links(cell, fragment_map)
-                self._sweep_inline_links(getattr(block, "caption", []), fragment_map)
-            for sub in _child_block_lists(block):
-                self._sweep_block_links(sub, fragment_map)
+            self._sweep_links_in_block(block, fragment_map)
+
+    def _sweep_links_in_block(self, block, fragment_map: dict[str, str]) -> None:
+        """Repoint raw section fragments on every link reachable from *block*."""
+        for inline_list in iter_inline_lists(block):
+            self._sweep_inline_links(inline_list, fragment_map)
 
     def _sweep_inline_links(self, inlines: list, fragment_map: dict[str, str]) -> None:
         for il in inlines:
@@ -337,38 +302,39 @@ class NumberingPass(IRPass):
                 mapped = fragment_map.get(il.target_id or "")
                 if mapped:
                     il.target_id = mapped
-            nested = getattr(il, "inlines", None)
-            if nested:
-                self._sweep_inline_links(nested, fragment_map)
 
     def _collect_claimed(self, doc: DocumentIR) -> None:
-        def walk(blocks: list) -> None:
-            for block in blocks:
-                t = block.type
-                if t == "figure" and block.figure_id:
-                    self._claimed.add(block.figure_id)
-                elif t == "table" and block.table_id:
-                    self._claimed.add(block.table_id)
-                elif t == "equation":
-                    num = (block.equation_number or "").strip().strip("()[]")
-                    if num:
-                        self._claimed.add(f"eq-{num}")
-                elif t == "algorithm" and block.algorithm_number:
-                    self._claimed.add(f"algorithm-{str(block.algorithm_number).strip()}")
-                for sub in _child_block_lists(block):
-                    walk(sub)
+        def claim(block) -> None:
+            t = block.type
+            if t == "figure" and block.figure_id:
+                self._claimed.add(block.figure_id)
+            elif t == "table" and block.table_id:
+                self._claimed.add(block.table_id)
+            elif t == "equation":
+                num = (block.equation_number or "").strip().strip("()[]")
+                if num:
+                    self._claimed.add(f"eq-{num}")
+            elif t == "algorithm" and block.algorithm_number:
+                self._claimed.add(f"algorithm-{str(block.algorithm_number).strip()}")
 
         for block in doc.front_matter:
-            walk([block])
+            claim(block)
+            for descendant in iter_block_descendants(block):
+                claim(descendant)
         for block in doc.abstract:
-            walk([block])
+            claim(block)
+            for descendant in iter_block_descendants(block):
+                claim(descendant)
         for section in doc.sections:
-            self._walk_sections(section, walk)
+            self._walk_sections(section, claim)
 
-    def _walk_sections(self, section: SectionIR, walk) -> None:
-        walk(section.blocks)
+    def _walk_sections(self, section: SectionIR, claim) -> None:
+        for block in section.blocks:
+            claim(block)
+            for descendant in iter_block_descendants(block):
+                claim(descendant)
         for child in section.children:
-            self._walk_sections(child, walk)
+            self._walk_sections(child, claim)
 
     # ── id / anchor helpers ────────────────────────────────────────────
 
@@ -420,23 +386,8 @@ class NumberingPass(IRPass):
 
     def _sweep_blocks(self, blocks: list) -> None:
         for block in blocks:
-            t = block.type
-            if t == "paragraph" or t == "heading":
-                self._sweep_inlines(getattr(block, "inlines", []))
-            elif t in ("figure", "algorithm"):
-                self._sweep_inlines(getattr(block, "caption", []))
-                if t == "figure":
-                    for cell in _figure_grid_inline_lists(block):
-                        self._sweep_inlines(cell)
-            elif t == "table":
-                for cell in getattr(block, "headers", []):
-                    self._sweep_inlines(cell)
-                for row in getattr(block, "rows", []):
-                    for cell in row:
-                        self._sweep_inlines(cell)
-                self._sweep_inlines(getattr(block, "caption", []))
-            for sub in _child_block_lists(block):
-                self._sweep_blocks(sub)
+            for inline_list in iter_inline_lists(block):
+                self._sweep_inlines(inline_list)
 
     def _sweep_inlines(self, inlines: list) -> None:
         for il in inlines:
@@ -444,9 +395,6 @@ class NumberingPass(IRPass):
                 mapped = self._label_to_anchor.get(il.target_id or "")
                 if mapped:
                     il.target_id = mapped
-            nested = getattr(il, "inlines", None)
-            if nested:
-                self._sweep_inlines(nested)
 
     def _number_section(self, section: SectionIR, ctx: dict) -> None:
         self._number_blocks(section.blocks, ctx)
@@ -481,5 +429,5 @@ class NumberingPass(IRPass):
             # Numbered floats can still contain nested numbered blocks
             # (algorithm steps, figure grids) — descend on every container
             # after handling the block itself (audit5 I-5).
-            for sub in _child_block_lists(block):
+            for sub in child_block_lists(block):
                 self._number_blocks(sub, ctx)

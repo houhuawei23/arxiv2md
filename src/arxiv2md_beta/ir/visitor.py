@@ -67,6 +67,73 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+def child_block_lists(block: Any) -> list[list[Any]]:
+    """Nested block lists of *block* per ``_CHILD_SPECS`` (may be empty).
+
+    Single source of descent for block containers (``blockquote.blocks``,
+    ``list.items``, ``algorithm.steps``): transforms previously kept their
+    own copies, and a new container field (audit5 I-5: ``algorithm.steps``)
+    got missed by every walker but one. ``block``-kind specs hold nodes
+    directly; ``block_list``-kind specs (``list.items``) hold lists of them.
+    """
+    specs = _CHILD_SPECS.get(getattr(block, "type", ""), [])
+    lists: list[list[Any]] = []
+    for attr, kind in specs:
+        if kind not in ("block", "block_list"):
+            continue
+        children = getattr(block, attr, None)
+        if not children:
+            continue
+        if kind == "block":
+            lists.append(children)
+        else:  # ``block_list``: the value already is a list of block lists
+            lists.extend(children)
+    return lists
+
+
+def iter_block_descendants(node: Any) -> Any:
+    """Yield every block strictly below *node*, depth-first in document order.
+
+    Covers front-matter/abstract/section callers uniformly; order matches the
+    hand-written section+block recursions it replaces (prescans feed
+    collision-sensitive sets, so order must not change).
+    """
+    for sub in child_block_lists(node):
+        for child in sub:
+            yield child
+            yield from iter_block_descendants(child)
+
+
+def iter_inline_lists(node: Any, _top: bool = True) -> Any:
+    """Yield every inline list reachable from *node* per ``_CHILD_SPECS``.
+
+    Includes nested emphasis/link inlines (their ``inlines`` lists are
+    yielded as separate lists). Consumers sweep each list flat; the
+    per-type dispatch this replaces previously drifted (figure grid cells
+    were missed by one of the two link sweeps, audit5 I-5).
+    """
+    specs = _CHILD_SPECS.get(getattr(node, "type", ""), [])
+    for attr, kind in specs:
+        children = getattr(node, attr, None)
+        if not children:
+            continue
+        if kind == "inline":
+            yield children
+            for il in children:
+                yield from iter_inline_lists(il, _top=False)
+        elif kind == "inline_list":
+            for row in children:
+                yield row
+                for il in row:
+                    yield from iter_inline_lists(il, _top=False)
+        elif kind == "inline_list_list":
+            for row in children:
+                for cell in row:
+                    yield cell
+                    for il in cell:
+                        yield from iter_inline_lists(il, _top=False)
+
+
 class IRVisitor:
     """Double-dispatch visitor for IR nodes.
 
