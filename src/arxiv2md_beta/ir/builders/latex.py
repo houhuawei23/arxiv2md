@@ -518,6 +518,10 @@ class LaTeXBuilder(IRBuilder):
                 for ref_blk in inner_blocks:
                     ref_ir = self._block_from_pandoc(ref_blk, section_id="", order=0)
                     if ref_ir is None:
+                        # The entry still occupies a reference number: dropping
+                        # it would shift every later inline [N] citation onto
+                        # the wrong entry (audit4 P2). Emit a placeholder.
+                        ref_items.append([ParagraphIR(inlines=[TextIR(text="[reference entry could not be parsed]")])])
                         continue
                     # Skip empty paragraphs and bibitem label paragraphs
                     # (text is only a number like "10").
@@ -575,10 +579,21 @@ class LaTeXBuilder(IRBuilder):
         sec = _flush_section()
         if sec:
             sections.append(sec)
-
-        # When the document has no section headings, wrap orphan blocks
-        # (e.g. a minimal ``\begin{document} Hello. \end{document}``) into
-        # a single unnamed section so they are not silently dropped.
+        elif current_blocks and sections:
+            # Trailing content after the bibliography (e.g. acknowledgements
+            # text following thebibliography with no later header):
+            # _flush_section returns None there, which used to silently drop
+            # the blocks (audit4 P2). Only when a References section already
+            # exists — the no-headings-at-all orphan case is handled below.
+            sections.append(
+                SectionIR(
+                    title="",
+                    level=2,
+                    unnumbered=True,
+                    blocks=self._blocks_from_pandoc(current_blocks, section_id=""),
+                )
+            )
+            current_blocks = []
         if not sections and current_blocks:
             sections.append(
                 SectionIR(
@@ -1302,7 +1317,13 @@ class LaTeXBuilder(IRBuilder):
                             cell_inlines.extend(
                                 self._inlines_from_pandoc(b.get("c", []) if isinstance(b.get("c"), list) else [])
                             )
-                cells.append(cell_inlines)
+                # Repeat a colspan-N cell N times so the row keeps its column
+                # alignment (pipe tables cannot express spans, audit4 P2).
+                try:
+                    span = max(1, min(int(cell_c[3]) if len(cell_c) >= 4 else 1, 16))
+                except (TypeError, ValueError):
+                    span = 1
+                cells.extend(cell_inlines for _ in range(span))
         return cells if cells else None
 
     # ------------------------------------------------------------------

@@ -1384,7 +1384,12 @@ def _extract_table_data(
         for row in section.find_all("tr", recursive=False):
             cells: list[list[InlineUnion]] = []
             for cell in row.find_all(["th", "td"], recursive=False):
-                cells.append(tag_to_inlines(cell))
+                # A cell spanning N columns is repeated N times: pipe tables
+                # cannot express spans, and ignoring the attribute shifted
+                # every following column (audit4 P2).
+                span = _column_span(cell)
+                inlines = tag_to_inlines(cell)
+                cells.extend(inlines for _ in range(span))
             if cells:
                 if section.name == "thead":
                     if not headers:
@@ -1397,16 +1402,27 @@ def _extract_table_data(
         all_rows = table.find_all("tr", recursive=False)
         if all_rows:
             for cell in all_rows[0].find_all(["th", "td"], recursive=False):
-                headers.append(tag_to_inlines(cell))
+                headers.extend(tag_to_inlines(cell) for _ in range(_column_span(cell)))
             for row in all_rows[1:]:
                 cells = []
                 for cell in row.find_all(["th", "td"], recursive=False):
-                    cells.append(tag_to_inlines(cell))
+                    span = _column_span(cell)
+                    inlines = tag_to_inlines(cell)
+                    cells.extend(inlines for _ in range(span))
                 if cells:
                     all_data_rows.append(cells)
 
     rows = all_data_rows
     return headers, rows
+
+
+def _column_span(cell: Tag) -> int:
+    """Column span declared on a ``<th>/<td>``, clamped to a safe range."""
+    raw = cell.get("colspan")
+    try:
+        return max(1, min(int(str(raw)), 16)) if raw else 1
+    except (TypeError, ValueError):
+        return 1
 
 
 def _is_ltx_listing_container(tag: Tag) -> bool:

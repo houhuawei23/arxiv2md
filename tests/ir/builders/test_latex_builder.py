@@ -656,3 +656,63 @@ Body text \cite{real}.
         # must not have shifted the number.
         assert "Body text (1)." in md
         assert "(2)" not in md
+
+
+class TestBibliographyTrailingContent:
+    """audit4 PR4.2: content after thebibliography must survive."""
+
+    def test_blocks_after_bibliography_are_kept(self) -> None:
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        tex = r"""\documentclass{article}
+\begin{document}
+\section{Intro}
+Body text.
+\begin{thebibliography}{9}
+\bibitem{a} Author One. Paper A.
+\bibitem{b} Author Two. Paper B.
+\end{thebibliography}
+Acknowledgement text about funding.
+\end{document}"""
+        doc = B().build(tex, arxiv_id="t")
+        titles = [s.title for s in doc.sections]
+        assert "References" in titles
+        all_text = "\n".join(
+            b.inlines[0].text if b.type == "paragraph" and b.inlines else "" for s in doc.sections for b in s.blocks
+        )
+        assert "Acknowledgement" in all_text, f"post-bibliography content dropped: {titles}"
+
+
+class TestTableColspanAlignment:
+    """audit4 PR4.2: colspan cells repeat so column alignment is preserved."""
+
+    def test_pandoc_colspan_cell_repeats(self) -> None:
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        tex = r"""\documentclass{article}
+\begin{document}
+\begin{tabular}{lll}
+\multicolumn{2}{l}{Wide} & Right \\
+a & b & c \\
+\end{tabular}
+\end{document}"""
+        doc = B().build(tex, arxiv_id="t")
+
+        def cells_of(sec):
+            for blk in sec.blocks:
+                if blk.type == "table":
+                    return sec, blk
+            return None, None
+
+        rows = []
+
+        def collect(secs):
+            for s in secs:
+                for blk in s.blocks:
+                    if blk.type == "table":
+                        rows.extend(blk.rows)
+                collect(s.children)
+
+        collect(doc.sections)
+        assert rows, "table not built"
+        assert all(len(r) == 3 for r in rows), f"ragged rows: {[len(r) for r in rows]}"
