@@ -14,6 +14,12 @@ from arxiv2md_beta.ir.blocks import (
 )
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
+from arxiv2md_beta.ir.emitters.escapes import (
+    escape_html_attr,
+    escape_md_text,
+    escape_pipe_cell,
+    escape_url,
+)
 from arxiv2md_beta.ir.inlines import ImageRefIR, InlineUnion
 
 # ── inline delimiter map ──────────────────────────────────────────────
@@ -64,14 +70,10 @@ def _next_is_citation(items: list, idx: int) -> bool:
     return False
 
 
-def _escape_md_text(text: str) -> str:
-    r"""Escape characters that would break ``[text](url)`` link/image syntax."""
-    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
-
-
-def _escape_url(url: str) -> str:
-    r"""Percent-encode whitespace/parens so they cannot terminate ``(url)``."""
-    return re.sub(r"([ ()])", lambda m: f"%{ord(m.group(1)):02X}", url)
+# Escape policies live in ir/emitters/escapes.py (single source for all
+# syntax positions); keep module-local aliases for the historic names.
+_escape_md_text = escape_md_text
+_escape_url = escape_url
 
 
 def _blockquote_lines(text: str) -> str:
@@ -317,7 +319,11 @@ class MarkdownEmitter(IREmitter):
             lines.append(f'<a id="{fid}"></a>')
             lines.append("")
 
-        # Images
+        # Images — every path routes alt/src through the escape policies
+        # (escapes.py): GFM syntax position for the single-image case, raw
+        # HTML attributes otherwise. The LaTeX builder derives alt from
+        # caption plain text with no bracket cleaning, so an unescaped ']'
+        # here breaks the image (audit4 B1).
         images = fig.images
         if fig.grid:
             lines.append(self._emit_figure_grid(fig.grid))
@@ -325,13 +331,13 @@ class MarkdownEmitter(IREmitter):
             img = images[0]
             alt = img.alt or ""
             src = img.src or ""
-            lines.append(f"![{alt}]({src})")
+            lines.append(f"![{escape_md_text(alt)}]({escape_url(src)})")
         elif len(images) > 1:
             lines.append('<div align="center">')
             width = "45%" if len(images) == 2 else f"{max(14, min(90 // len(images), 45))}%"
             for img in images:
-                alt = img.alt or "Figure panel"
-                src = img.src or ""
+                alt = escape_html_attr(escape_md_text(img.alt or "Figure panel"))
+                src = escape_html_attr(escape_url(img.src or ""))
                 w_attr = f' width="{img.width}"' if img.width else f' width="{width}"'
                 lines.append(f'  <img src="{src}"{w_attr} alt="{alt}" />')
             lines.append("</div>")
@@ -360,8 +366,8 @@ class MarkdownEmitter(IREmitter):
                 parts: list[str] = []
                 for inline in cell:
                     if isinstance(inline, ImageRefIR):
-                        src = _escape_url(inline.src or "")
-                        alt = _escape_md_text(inline.alt or "Figure panel")
+                        src = escape_html_attr(escape_url(inline.src or ""))
+                        alt = escape_html_attr(escape_md_text(inline.alt or "Figure panel"))
                         parts.append(f'<img src="{src}" width="100%" alt="{alt}" />')
                     else:
                         parts.append(self._emit_inlines([inline]))
@@ -569,6 +575,4 @@ def _cell_text(rendered: str) -> str:
 
 def _escape_pipe_cell(text: str) -> str:
     """Escape unescaped ``|`` characters inside a pipe-table cell."""
-    import re
-
-    return re.sub(r"(?<!\\)\|", r"\\|", text)
+    return escape_pipe_cell(text)
