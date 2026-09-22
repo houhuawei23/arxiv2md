@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from pathlib import Path
 
 from arxiv2md_beta.settings import get_settings
@@ -176,23 +178,40 @@ def _claim_paper_output_dir(base_output_dir: Path, dir_name: str, identity: str 
         marker = output_dir / ".arxiv2md-paper"
         if identity is None:
             return output_dir
-        try:
-            with marker.open("x", encoding="utf-8") as f:
-                f.write(identity + "\n")
+        if _claim_marker(marker, identity):
             return output_dir
-        except FileExistsError:
-            existing = marker.read_text(encoding="utf-8", errors="replace").strip()
-            if existing in ("", identity):
-                # Empty marker: a crashed writer (or an unrelated empty dir) —
-                # adopt it, mirroring find_completed_output_dir semantics,
-                # and record our identity for future collision checks.
-                if not existing:
-                    marker.write_text(identity + "\n", encoding="utf-8")
-                return output_dir
+        existing = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if existing in ("", identity):
+            # Empty marker: legacy debris from an older tool version (the
+            # claim below is atomic, so it can no longer be a live writer's
+            # half-written state) — adopt it and record our identity.
+            if not existing:
+                marker.write_text(identity + "\n", encoding="utf-8")
+            return output_dir
         candidate_name = f"{dir_name}-{_stable_collision_suffix(f'{identity}:{candidate_name}')}"
     # Every candidate occupied by other papers — deterministic last resort.
     assert identity is not None  # narrowed by every loop path taken here
     return base_output_dir / f"{dir_name}-{_stable_collision_suffix(identity)}"
+
+
+def _claim_marker(marker: Path, identity: str) -> bool:
+    """Atomically create *marker* pre-filled with *identity* (exclusive).
+
+    ``open("x")`` + ``write`` left a window where a concurrent claimant could
+    read an empty marker and adopt a live writer's directory (observed as a
+    flaky test under full-suite load). Hard-linking a fully written temp file
+    is an exclusive, atomic create, so a reader either sees no marker or the
+    complete identity — never a half-written one.
+    """
+    tmp = marker.with_name(f"{marker.name}.{uuid.uuid4().hex}.part")
+    tmp.write_text(identity + "\n", encoding="utf-8")
+    try:
+        os.link(tmp, marker)
+        return True
+    except FileExistsError:
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _stable_collision_suffix(identity: str) -> str:
