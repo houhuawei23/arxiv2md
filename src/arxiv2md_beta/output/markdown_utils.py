@@ -15,6 +15,8 @@ import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from arxiv2md_beta.settings import get_settings
 
 if TYPE_CHECKING:
@@ -31,12 +33,25 @@ _tiktoken_encoding_cache: dict[str, Any] = {}
 
 
 def _get_cached_encoding(encoding_name: str) -> Any:
-    """Return a cached tiktoken encoding, or None if tiktoken is unavailable."""
+    """Return a cached tiktoken encoding, or None if tiktoken is unavailable.
+
+    A failure to *load* the encoding (tiktoken downloads it on first use, so
+    this fails offline) is logged once — the token half of the stub quality
+    gate then silently passes, and users should know why (audit4 S5.1).
+    """
     if encoding_name in _tiktoken_encoding_cache:
         return _tiktoken_encoding_cache[encoding_name]
     if tiktoken is None:
         return None
-    enc = tiktoken.get_encoding(encoding_name)
+    try:
+        enc = tiktoken.get_encoding(encoding_name)
+    except Exception as exc:  # noqa: BLE001 - tiktoken raises varied network/parse errors
+        logger.warning(
+            f"Could not load tiktoken encoding {encoding_name!r} ({exc}); "
+            "token counting is disabled for this run (quality gate falls back to the byte threshold only)."
+        )
+        _tiktoken_encoding_cache[encoding_name] = None
+        return None
     _tiktoken_encoding_cache[encoding_name] = enc
     return enc
 

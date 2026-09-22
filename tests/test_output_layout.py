@@ -118,3 +118,16 @@ def test_determine_output_dir_expands_user_home() -> None:
     """Regression (A6): a quoted ``~/...`` must not create a literal ``~`` directory."""
     resolved = determine_output_dir("~/arxiv2md-out")
     assert resolved == Path.home() / "arxiv2md-out"
+
+
+def test_cjk_long_title_truncated_by_utf8_bytes(tmp_path: Path) -> None:
+    """audit4 S5.1: CJK titles must truncate on UTF-8 byte boundaries."""
+    from arxiv2md_beta.output.layout import create_paper_output_dir, sanitize_title_for_filesystem
+
+    title = "基于多尺度时序建模的长文本自动摘要方法研究" * 20  # ~880 CJK chars
+    safe = sanitize_title_for_filesystem(title)
+    assert len(safe.encode("utf-8")) <= 220, f"{len(safe.encode('utf-8'))} bytes"
+
+    d = create_paper_output_dir(tmp_path, "20260101", title)  # must not raise
+    assert d.is_dir()
+    assert len(d.name.encode("utf-8")) <= 255

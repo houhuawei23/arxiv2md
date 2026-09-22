@@ -30,7 +30,14 @@ def determine_output_dir(output: str | None, settings: AppSettings | None = None
 
 
 def _sanitize_for_filesystem(s: str, max_length: int = 220) -> str:
-    """Sanitize a string for use in file/directory names (alphanumeric, hyphen, underscore only)."""
+    """Sanitize a string for use in file/directory names (alphanumeric, hyphen, underscore only).
+
+    *max_length* counts UTF-8 **bytes**, not characters: filesystem limit is
+    255 bytes, and CJK titles pack 3 bytes per character — the old
+    character-count truncation produced ~660-byte CJK directory names and
+    crashed mkdir with ``ENAMETOOLONG`` after the whole conversion had run
+    (audit4 S5.1).
+    """
     if not s:
         return ""
     safe = "".join(c if c.isalnum() or c in (" ", "-", "_") else "" for c in s)
@@ -38,10 +45,12 @@ def _sanitize_for_filesystem(s: str, max_length: int = 220) -> str:
     while "--" in safe:
         safe = safe.replace("--", "-")
     safe = safe.strip("-")
-    if len(safe) > max_length:
-        truncated = safe[:max_length]
+    encoded = safe.encode("utf-8")
+    if len(encoded) > max_length:
+        # Cut on the byte boundary, then drop a trailing partial character.
+        truncated = encoded[:max_length].decode("utf-8", errors="ignore")
         last_hyphen = truncated.rfind("-")
-        safe = truncated[:last_hyphen] if last_hyphen > max_length * 0.8 else truncated
+        safe = truncated[:last_hyphen] if last_hyphen > len(truncated) * 0.8 else truncated
     return safe
 
 
