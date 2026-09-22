@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **引用链接误分类（G1-4）**：latex builder 用 `"cite" in url` 子串猜链接类型，`https://citecorp.example` 一类 URL 被错标；现按 pandoc 锚点模式（`#bib.bibN` / `#ref-N`）识别。
 - **References 条目静默丢弃（G1-6）**：空段落与子块全被过滤的 Div 条目被跳过，后续 `[N]` 引用错位；现所有不可解析的条目槽位发占位段落（此前仅 `ref_ir=None` 有），纯数字 bibitem 标签段落保留其印刷编号。
 - **Div 锚点重复（G1-7）**：带 id 的 Div 把锚点摊给所有无锚点子块，emitter 每块渲染一个重复 `<a id>`；现只标第一个子块，子块自带锚点不受影响。
+- **front_matter 不进编号/重指向（I-4）**：标题页图表条不参与编号（无 figure_id/anchor）也不进 fragment 重指向，内链全死；现按文档顺序最先编号、预登记、统一扫描。
+- **遍历器覆盖面漂移（I-5）**：numbering.py 五个手写遍历器只下钻 list/blockquote，algorithm.steps 与 figure.grid 均被漏过（嵌套图不编号、面板链接不重指向）；新增 `_child_block_lists`/`_figure_grid_inline_lists` 共享下钻，与 ir/visitor.py 子节点规格单源对齐。
+- **附录编号形态不可见（I-6）**：`_SECTION_FRAGMENT_RE` 只认 S 系 fragment（补 A1/A1.SS1）；`split_ir_sections` 前缀正则只认数字（"A References" 归组失败）；`normalize_section_title` 要求字母后带点（"A Overview" 剥不掉）。
+- **重复图 id 互覆（I-7）**：figure_reorder 以 figure_id 为 dict key，附录图与正文图同 caption id 时后者覆盖前者、前者永不重排；现按 id 维护文档序队列，引用逐个认领。
 
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
