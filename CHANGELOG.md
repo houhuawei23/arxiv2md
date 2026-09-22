@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **占位页检测（R-3）**：ar5iv "No content available" 检测从精确字符串改为大小写/空白容忍正则。
 - **list 内标题拍扁（I-13）**：`_is_block_level_in_list` 补 heading，标题不再变字面 `# Foo`。
 
+### Performance（2026-09-23 audit5 S6：性能热点清账，详见 docs/REVIEW_2026-09-22b.md §四）
+
+- **batch manifest 全量重写（X-Manifest）**：每条 record 都全量 json.dumps + 同步重写整个 `download_manifest.json`（n=1000 ≈ 150MB 写 + 事件循环停顿）；现按 `min_flush_interval_s` 节流（首条即时落盘作 crash 快照），批末显式 flush，`arecord` 把写入下放线程池，并发 flush 加锁串行（74c3fc1）。
+- **幂等预检 O(n²)（X1）**：每行 2 次全目录扫描（batch 预检 + run_convert_flow 内权威检查）；现 `CompletedIdentityIndex` 批首一次扫描，经 `ConvertParams.completed_index` 共享（11dabe1）。
+- **全文 tiktoken 编码 ×3（X3）**：质量门槛、门槛错误详情、manifest token_estimate 各自全文编码；现 finalize 编码一次透传（5d9aeeb）。
+- **逐字符全文循环（X4 + C4 I 侧）**：title/affiliation 剥离与假条件块剥离逐字符 Python 循环（~0.1-0.4s/篇）；现全部改为逐匹配推进 + 切片拼接，对旧实现做了 800+ 随机用例的逐字节等价验证（aa01fa7）。
+- **includegraphics 线性扫描（X5）**：每个引用对 all_images 线性扫两遍；现 `_ImageIndex` 每次解析建一次 stem 索引 + 路径集合，精确匹配仍优先于大小写折叠（d6037fd）。
+- **fence 保护 3 遍全文扫描（X6）**：clean_markdown_output 及其两个子步骤各自 lift/restore 一遍；现整个 cleanup 只 lift 一次，子步骤在受保护文本上运行（bbba402）。
+- **inline-math 候选 join O(n²)（X7）**：每个候选关闭符重新 join 整个 token 窗口；候选首尾字符即首末 token 首尾字符，判定 O(1)，14k 随机 token 窗口等价验证（0e4bf4f）。
+- **事件循环同步 IO 残留（X8/X9）**：TeX 解压后的 rmtree+rename、local_html/local 关联图片批量复制同步跑在循环上；现 to_thread 下放（7328431）。
+- **include 展开 ×3 + 每 miss 全树 rglob（X2）**：图片解析 / figure-env 解析 / 作者机构解析各自展开 include 树且用两份分歧实现；现合一到 `resolve_latex_includes`（tex-only 模式），展开按 (主 tex, 解压目录 mtime) 记忆化共享，miss 回退走惰性预建的文件名索引（9e6f3eb）。
+- **超宽 token 折行（X-Wrap）**：列表项折行只按空格切，URL/无空格公式/整段 CJK 产出上万字符单行；现超宽 token 按 width 硬切（续行带缩进），正常词折行不变——行为修复，红绿回归覆盖（bc87397）。
+
 ### Fixed（2026-09-23 audit5 S5：配置与数据族，详见 docs/REVIEW_2026-09-22b.md）
 
 - **`paper-yml --update --force` 不可达（G4-1）**：CLI 层硬编码 `force=False`，报错文案让用户 "pass --force" 却永远复现同一拒绝；现透传。
