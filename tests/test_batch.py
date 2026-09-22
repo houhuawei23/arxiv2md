@@ -12,6 +12,7 @@ from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.cli.runner import run_batch_flow
 from arxiv2md_beta.cli.runner.batch import merge_convert_params
 from arxiv2md_beta.exceptions import UserInputError
+from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
 
 
 def _template(output: str | None = None) -> ConvertParams:
@@ -230,3 +231,54 @@ async def test_run_batch_flow_dedupes_repeated_ids(tmp_path: Path) -> None:
     assert "duplicate of line 1" in out[1][3]
     assert "duplicate of line 1" in out[2][3]
     assert out[3][3] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_pdf_only_dir_not_recorded_as_ok(tmp_path: Path) -> None:
+    """audit5 G3-2: pdf_only products are not batch "ok".
+
+    A pdf_only directory (possibly just paper.yml when the PDF download
+    failed) must surface its manifest status instead.
+    """
+
+    async def side_effect(params: ConvertParams) -> Path:
+        out_dir = tmp_path / "pdf-only-paper"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        write_paper_manifest(
+            out_dir,
+            build_paper_manifest(
+                arxiv_id="1234.5678",
+                title="PDF-only paper",
+                submission_date=None,
+                source_url=None,
+                pdf_path=None,  # download failed
+                markdown_file=None,
+                output_text="",
+                parser="latex",
+                naming_scheme="arxiv",
+                duration_seconds=None,
+                status="pdf_only",
+            ),
+        )
+        return out_dir
+
+    records: list[dict] = []
+
+    class RecordingRecorder:
+        def record(self, **kwargs) -> None:
+            records.append(kwargs)
+
+    lines = ["1234.5678"]
+    with (
+        patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect),
+        patch("arxiv2md_beta.cli.runner.batch.BatchManifestRecorder", return_value=RecordingRecorder()),
+    ):
+        out = await run_batch_flow(
+            lines,
+            params_template=_template(output=str(tmp_path)),
+            max_concurrency=1,
+            continue_on_error=True,
+            delay_seconds=0.0,
+        )
+    assert out[0][3] == "pdf_only", out
+    assert records and records[0]["status"] == "pdf_only"

@@ -155,13 +155,19 @@ async def run_batch_flow(
             try:
                 out = await run_convert_flow(merged)
                 out_dir = str(out.resolve())
+                details = batch_entry_details_from_manifest(out)
+                # The directory manifest is authoritative: a pdf_only or
+                # allowed-stub product must not be recorded as "ok"
+                # (audit5 G3-2).
+                manifest_status = details.pop("manifest_status", None)
+                record_status = manifest_status if manifest_status in ("pdf_only", "allowed_stub") else "ok"
                 recorder.record(
                     input_line=stripped,
-                    status="ok",
+                    status=record_status,
                     output_dir=out_dir,
-                    **batch_entry_details_from_manifest(out),
+                    **details,
                 )
-                return (stripped, None, out_dir, "ok")
+                return (stripped, None, out_dir, record_status)
             except PdfFallbackCompleted as exc:
                 # Partial success: PDF ready, no Markdown. Not a hard failure.
                 fb_dir = exc.paper_output_dir

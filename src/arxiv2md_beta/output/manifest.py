@@ -177,4 +177,9 @@ def batch_entry_details_from_manifest(output_dir: Path | None) -> dict[str, Any]
         "arxiv_id": manifest.get("arxiv_id"),
         "title": manifest.get("title"),
         "duration_seconds": manifest.get("duration_seconds"),
+        # Authoritative product status ("ok" / "pdf_only" / "allowed_stub");
+        # batch used to label every no-exception row "ok", so a pdf_only
+        # directory that holds just paper.yml looked fully converted
+        # (audit5 G3-2).
+        "manifest_status": manifest.get("status"),
     }
