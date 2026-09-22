@@ -39,8 +39,16 @@ def test_build_search_url_encodes_and_formats() -> None:
     assert url.startswith("https://export.arxiv.org/api/query?")
     assert "start=5" in url
     assert "max_results=3" in url
-    assert "sortBy=submitted" in url
+    assert "sortBy=submittedDate" in url
     assert "ti%22" in url or "ti%3A" in url or "ti:" in url
+
+
+def test_build_search_url_sort_relevance_maps_verbatim() -> None:
+    # audit5 G4-3: the CLI's "submitted" is not a legal arXiv sortBy value —
+    # the API silently fell back to relevance. External syntax is kept,
+    # mapped to the API value inside the URL builder.
+    url = build_search_url("fourier operator", sort="relevance")
+    assert "sortBy=relevance" in url
 
 
 def test_build_search_url_invalid_sort() -> None:

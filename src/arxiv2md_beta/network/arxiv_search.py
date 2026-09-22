@@ -23,6 +23,10 @@ from arxiv2md_beta.settings import get_settings
 _FIELD_PREFIX_RE = re.compile(r"\b(ti|au|abs|all|cat|id|co|jr):")
 _VALID_FIELDS = ("ti", "all", "abs")
 _VALID_SORTS = ("relevance", "submitted")
+# External CLI syntax → arXiv API sortBy value. "submitted" is not a legal
+# API value: passing it verbatim made the API silently fall back to
+# relevance while the user believed results were time-ordered (audit5 G4-3).
+_SORT_TO_API = {"relevance": "relevance", "submitted": "submittedDate"}
 
 
 def build_search_query(query: str, authors: list[str] | None = None, *, field: str = "all") -> str:
@@ -76,7 +80,7 @@ def build_search_url(
         query=quote(expr),
         start=start,
         max_results=max_results,
-        sort=sort,
+        sort=_SORT_TO_API[sort],
     )
 
 
