@@ -31,6 +31,13 @@ from arxiv2md_beta.ir.builders._math_norm import (
     PERP_IN_MATH_RE,
     PERP_REPLACEMENT,
 )
+from arxiv2md_beta.ir.builders._table_spans import (
+    MAX_COLSPAN,
+    MAX_ROWSPAN,
+    RawRow,
+    clamp_span,
+    expand_table_spans,
+)
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.core import SourceLoc
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
@@ -1319,25 +1326,21 @@ class LaTeXBuilder(IRBuilder):
                             self._inlines_from_pandoc(cb.get("c", []) if isinstance(cb.get("c"), list) else [])
                         )
 
-        # Body: list of table bodies, each has [body_attr, row_count, colspecs, [rows]]
-        # Pandoc emits TableBody either as {"t":"TableBody","c":[...]} (older) or as
-        # a bare list [...] (newer compact JSON) — handle both.
-        rows: list[list[list[InlineUnion]]] = []
+        # Collect raw span-aware rows across head/body/foot, then materialize
+        # colspan/rowspan grid-wide (audit4 P2, audit5 G1-5): a rowspan in the
+        # head must reserve columns in body rows, so expansion cannot run
+        # per-part.
+        raw_rows: list[RawRow] = []
 
         # Head: [head_attr, [head_rows]] (dict or bare-list form).
-        # TableIR.headers is a SINGLE row of cells (list[list[InlineUnion]]);
-        # the first head row becomes headers, any extra head rows fold into rows.
-        headers: list[list[InlineUnion]] = []
+        # TableIR.headers is a SINGLE row of cells; the first head row becomes
+        # headers, any extra head rows fold into the data grid.
         head_c = _pandoc_node_c(head)
         head_rows = head_c[1] if len(head_c) >= 2 and isinstance(head_c[1], list) else []
         for row_data in head_rows:
             row_cells = self._extract_table_row_cells(row_data)
-            if not row_cells:
-                continue
-            if not headers:
-                headers = row_cells
-            else:
-                rows.append(row_cells)
+            if row_cells:
+                raw_rows.append(row_cells)
 
         if isinstance(body, list):
             for body_part in body:
@@ -1347,21 +1350,21 @@ class LaTeXBuilder(IRBuilder):
                     for row_data in body_rows:
                         row_cells = self._extract_table_row_cells(row_data)
                         if row_cells:
-                            rows.append(row_cells)
+                            raw_rows.append(row_cells)
 
-        # Foot: similar to head
         # Foot: [foot_attr, [foot_rows]] (dict or bare-list form)
         foot_c = _pandoc_node_c(foot)
         if len(foot_c) >= 2 and isinstance(foot_c[1], list):
             for row_data in foot_c[1]:
                 row_cells = self._extract_table_row_cells(row_data)
                 if row_cells:
-                    rows.append(row_cells)
+                    raw_rows.append(row_cells)
 
-        # Use first header row as headers; the rest as data
-        if not headers and rows:
-            headers = rows[0] if isinstance(rows[0], list) else []
-            rows = rows[1:] if len(rows) > 1 else []
+        # Grid: first row is headers (explicit head row, or — when pandoc
+        # assigns no head rows, as for plain tabulars — the first data row).
+        grid = expand_table_spans(raw_rows)
+        headers: list[list[InlineUnion]] = grid[0] if grid else []
+        rows: list[list[list[InlineUnion]]] = grid[1:]
 
         return TableIR(
             headers=headers,
@@ -1375,16 +1378,19 @@ class LaTeXBuilder(IRBuilder):
             order_index=order,
         )
 
-    def _extract_table_row_cells(self, row_data: Any) -> list[list[InlineUnion]] | None:
-        """Extract cell inlines from a Pandoc Row.
+    def _extract_table_row_cells(self, row_data: Any) -> RawRow | None:
+        """Extract raw span-aware cells from a Pandoc Row.
 
-        Handles both formats: ``{"t":"Row","c":[attr, [cells]]}`` (older) and a
-        bare list ``[attr, [cells]]`` (newer compact JSON).
+        Returns one ``(inlines, colspan, rowspan)`` tuple per cell;
+        ``expand_table_spans`` materializes them grid-wide so a rowspan cell
+        can reserve its column in the following rows (audit5 G1-5, colspan
+        audit4 P2). Handles both row formats: ``{"t":"Row","c":[attr,
+        [cells]]}`` (older) and a bare list ``[attr, [cells]]`` (compact).
         """
         row_c = _pandoc_node_c(row_data)
         # Row: [attr, [cells...]]
         cells_data = row_c[1] if len(row_c) >= 2 else []
-        cells: list[list[InlineUnion]] = []
+        cells: RawRow = []
         if isinstance(cells_data, list):
             for cell in cells_data:
                 cell_c = _pandoc_node_c(cell)
@@ -1397,13 +1403,13 @@ class LaTeXBuilder(IRBuilder):
                             cell_inlines.extend(
                                 self._inlines_from_pandoc(b.get("c", []) if isinstance(b.get("c"), list) else [])
                             )
-                # Repeat a colspan-N cell N times so the row keeps its column
-                # alignment (pipe tables cannot express spans, audit4 P2).
-                try:
-                    span = max(1, min(int(cell_c[3]) if len(cell_c) >= 4 else 1, 16))
-                except (TypeError, ValueError):
-                    span = 1
-                cells.extend(cell_inlines for _ in range(span))
+                cells.append(
+                    (
+                        cell_inlines,
+                        clamp_span(cell_c[3] if len(cell_c) >= 4 else 1, MAX_COLSPAN),
+                        clamp_span(cell_c[2] if len(cell_c) >= 3 else 1, MAX_ROWSPAN),
+                    )
+                )
         return cells if cells else None
 
     # ------------------------------------------------------------------

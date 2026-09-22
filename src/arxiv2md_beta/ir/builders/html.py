@@ -38,6 +38,13 @@ from arxiv2md_beta.ir.builders._math_norm import (
     PERP_REPLACEMENT,
     TAG_RE,
 )
+from arxiv2md_beta.ir.builders._table_spans import (
+    MAX_COLSPAN,
+    MAX_ROWSPAN,
+    RawRow,
+    clamp_span,
+    expand_table_spans,
+)
 from arxiv2md_beta.ir.builders.base import IRBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR
 from arxiv2md_beta.ir.inlines import (
@@ -1399,58 +1406,49 @@ def _extract_table_data(
 ) -> tuple[list[list[InlineUnion]], list[list[list[InlineUnion]]]]:
     """Extract headers and rows from a <table> tag.
 
+    Spans are materialized first (audit4 P2 colspan, audit5 G1-5 rowspan): a
+    cell spanning N columns is repeated N times, and a cell spanning N rows
+    leaves empty placeholders in those rows, so pipe-table columns stay
+    aligned.
+
     Returns:
         headers: One cell per header column, each cell = list[InlineUnion].
         rows: Each row = list of cells, each cell = list[InlineUnion].
     """
-    headers: list[list[InlineUnion]] = []
-    rows: list[list[list[InlineUnion]]] = []
-    all_data_rows: list[list[list[InlineUnion]]] = []
+    raw_rows: list[RawRow] = []
+    first_row_is_header = False
 
-    # Look for thead/tbody/tfoot
+    def collect_rows(container: Tag) -> int:
+        """Append raw span-aware cells of every direct <tr>; return count."""
+        added = 0
+        for row in container.find_all("tr", recursive=False):
+            raw_cells: RawRow = [
+                (
+                    tag_to_inlines(cell),
+                    clamp_span(cell.get("colspan"), MAX_COLSPAN),
+                    clamp_span(cell.get("rowspan"), MAX_ROWSPAN),
+                )
+                for cell in row.find_all(["th", "td"], recursive=False)
+            ]
+            if raw_cells:
+                raw_rows.append(raw_cells)
+                added += 1
+        return added
+
     for section in table.find_all(["thead", "tbody", "tfoot"], recursive=False):
-        for row in section.find_all("tr", recursive=False):
-            cells: list[list[InlineUnion]] = []
-            for cell in row.find_all(["th", "td"], recursive=False):
-                # A cell spanning N columns is repeated N times: pipe tables
-                # cannot express spans, and ignoring the attribute shifted
-                # every following column (audit4 P2).
-                span = _column_span(cell)
-                inlines = tag_to_inlines(cell)
-                cells.extend(inlines for _ in range(span))
-            if cells:
-                if section.name == "thead":
-                    if not headers:
-                        headers = cells
-                else:
-                    all_data_rows.append(cells)
+        before = len(raw_rows)
+        collect_rows(section)
+        if section.name == "thead" and before == 0 and len(raw_rows) > before:
+            first_row_is_header = True
 
     # Fallback: no thead/tbody — use first row as header
-    if not headers and not all_data_rows:
-        all_rows = table.find_all("tr", recursive=False)
-        if all_rows:
-            for cell in all_rows[0].find_all(["th", "td"], recursive=False):
-                headers.extend(tag_to_inlines(cell) for _ in range(_column_span(cell)))
-            for row in all_rows[1:]:
-                cells = []
-                for cell in row.find_all(["th", "td"], recursive=False):
-                    span = _column_span(cell)
-                    inlines = tag_to_inlines(cell)
-                    cells.extend(inlines for _ in range(span))
-                if cells:
-                    all_data_rows.append(cells)
+    if not raw_rows and collect_rows(table):
+        first_row_is_header = True
 
-    rows = all_data_rows
-    return headers, rows
-
-
-def _column_span(cell: Tag) -> int:
-    """Column span declared on a ``<th>/<td>``, clamped to a safe range."""
-    raw = cell.get("colspan")
-    try:
-        return max(1, min(int(str(raw)), 16)) if raw else 1
-    except (TypeError, ValueError):
-        return 1
+    grid = expand_table_spans(raw_rows)
+    if first_row_is_header and grid:
+        return grid[0], grid[1:]
+    return [], grid
 
 
 def _is_ltx_listing_container(tag: Tag) -> bool:

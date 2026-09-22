@@ -922,3 +922,50 @@ class TestOrderedListStart:
         inner = outer.items[0][1]
         assert inner.type == "list"
         assert inner.ordered is True, "a nested <ol> used to degrade to bullets"
+
+
+class TestTableRowspanAlignment:
+    """audit5 G1-5: a rowspan cell must reserve its column in later rows.
+
+    A ``<td rowspan="2">`` occupies its column in the next row too; ignoring
+    the attribute shifted every later column one position left.
+    """
+
+    def test_rowspan_keeps_columns_aligned(self, builder):
+        html = """
+        <table>
+        <tr><th>A</th><th>B</th></tr>
+        <tr><td rowspan="2">span</td><td>b1</td></tr>
+        <tr><td>b2</td></tr>
+        </table>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        tables = [b for b in doc.sections[0].blocks if b.type == "table"]
+        assert len(tables) == 1
+        rows = tables[0].rows
+        assert [len(r) for r in rows] == [2, 2], f"ragged rows: {[len(r) for r in rows]}"
+        # the rowspan cell leaves an empty placeholder under itself
+        assert rows[1][0] == []
+        assert rows[1][1][0].text == "b2"
+
+    def test_rowspan_mid_row_placeholder_position(self, builder):
+        # rowspan on the SECOND column: the placeholder lands mid-row at the
+        # held column, not appended at the end of a shifted row.
+        html = """
+        <table>
+        <tr><th>a</th><th>b</th><th>c</th></tr>
+        <tr><td>a1</td><td rowspan="2">span</td><td>c1</td></tr>
+        <tr><td>a2</td><td>c2</td></tr>
+        </table>"""
+        doc = builder.build(
+            f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{html}</section></article>",
+            arxiv_id="test",
+        )
+        tables = [b for b in doc.sections[0].blocks if b.type == "table"]
+        rows = tables[0].rows
+        assert [len(r) for r in rows] == [3, 3]
+        assert rows[1][0][0].text == "a2"
+        assert rows[1][1] == []
+        assert rows[1][2][0].text == "c2"

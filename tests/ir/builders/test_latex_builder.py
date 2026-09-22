@@ -803,3 +803,45 @@ class TestInternalLinkKindClassification:
     def test_ref_anchor_is_citation(self) -> None:
         link = self._link("#ref-3")
         assert link.kind == "citation"
+
+
+class TestTableRowspanAlignment:
+    r"""audit5 G1-5: pandoc Cell rowspan must reserve its column in later rows.
+
+    pandoc turns ``\\multirow`` into a Cell with ``rowspan`` (cell_c[2]),
+    which the builder used to drop — shifting later columns one left.
+    """
+
+    def test_pandoc_rowspan_reserves_column(self) -> None:
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        tex = r"""\documentclass{article}
+\begin{document}
+\begin{tabular}{ll}
+\multirow{2}{*}{Span} & top \\
+ & bottom \\
+\end{tabular}
+\end{document}"""
+        doc = B().build(tex, arxiv_id="t")
+
+        rows: list[list] = []
+        headers = None
+
+        def collect(secs) -> None:
+            nonlocal headers
+            for s in secs:
+                for blk in s.blocks:
+                    if blk.type == "table":
+                        rows.extend(blk.rows)
+                        if headers is None and blk.headers:
+                            headers = blk.headers
+                collect(s.children)
+
+        collect(doc.sections)
+        assert rows, "table not built"
+        assert headers is not None and headers[0][0].text == "Span"
+        # pandoc assigns no head rows here, so the builder promotes the first
+        # grid row to headers; the second row keeps column 2 aligned.
+        assert len(rows[0]) == 2, f"row shifted: {[len(r) for r in rows]}"
+        assert rows[0][0] == []
+        assert rows[0][1][0].text == "bottom"

@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Crossref title 恒为期刊名（C5）**：解析从不读取 `message["title"]`，BibTeX 导出 `title = {Nature}`。现提取文章题名，container-title 归位 journal；顺带落地 G4-4（同 DOI 重复引用不再导出重复 BibTeX key）、R5（DOI URL 编码）、R12（DOI 尾随标点平衡剥离 / 缓存键大小写归一 / 死 DOI 负缓存）。
 - **重跑 convert 仍覆写用户字段（C6，audit4 A4 修复只堵了 `--update` 入口）**：`save_paper_metadata` 现在目标文件存在时可读则走同一 merge 路径，不可读才降级全量覆盖（保留 `.bak`）。
 
+### Fixed（2026-09-22 audit5 S2：编号/链接家族，详见 docs/REVIEW_2026-09-22b.md）
+
+- **rowspan 被丢弃 → 整列左移（G1-5，audit4 只修了 colspan）**：HTML `rowspan` 属性与 pandoc Cell 的 rowspan（`\multirow`）此前直接丢弃，跨行单元格之后所有行左移一列。新增共享模块 `_table_spans.expand_table_spans`：rowspan 单元格在后续行同列位补空占位、colspan 重复填充、span 越过行尾时补齐网格宽度，两个 builder 的表格提取统一走同一网格算法（含 `colspan=0`/`rowspan=9999` 一类退化值的 clamp）。
+- **单公式双 `\tag`（G1-2）**：源码已带 `\tag{2.1}` 的公式再叠加提取出的 equation_number，输出 `\tag{(7)}\tag{2.1}`；现 number 覆盖源 tag（ar5iv 编号优先），仅存源 tag 时保留。
+- **有序列表起始号丢失（G1-3）**：`<ol start="7">` 与 pandoc ListAttributes 的 start 被忽略，续接列表从 1 重排；`ListIR.start` 全链路贯通（None 不落 JSON），marker 按 start 偏移。
+- **章节编号剥离误伤（G1-1）**：SectionNumberingPass 用正则盲剥标题开头数字，"2000 Years of X" 被剥成 "Years of X"；现记录自身加的前缀、只剥自己加的。
+- **引用链接误分类（G1-4）**：latex builder 用 `"cite" in url` 子串猜链接类型，`https://citecorp.example` 一类 URL 被错标；现按 pandoc 锚点模式（`#bib.bibN` / `#ref-N`）识别。
+
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
 三路并行审计新发现 11 个 P1 + 20 余个 P2，分 6 阶段修复（S1-S5.2 + S6.1 本轮落地，~20 commits）：
