@@ -602,18 +602,36 @@ def _is_block_level_in_list(block) -> bool:
 
 
 def _wrap_line(line: str, continuation_indent: str, width: int = 100) -> list[str]:
-    """Wrap a long line, indenting continuation lines to preserve list alignment."""
+    """Wrap a long line, indenting continuation lines to preserve list alignment.
+
+    Tokens wider than a whole line (long URLs, unspaced formulas, entire CJK
+    paragraphs) used to overflow as one enormous line; they are now
+    hard-broken at the width boundary — the first chunk on the un-indented
+    line, later chunks under the continuation indent.
+    """
     if len(line) <= width:
         return [line]
-    words = line.split(" ")
+    # Continuation lines carry the indent, so their content budget shrinks.
+    cont_room = max(1, width - len(continuation_indent))
     lines: list[str] = []
-    current = words[0] if words else ""
-    for word in words[1:]:
+    current = ""
+    for word in line.split(" "):
         if len(current) + 1 + len(word) <= width:
-            current += " " + word
-        else:
+            current = f"{current} {word}" if current else word
+            continue
+        if current:
             lines.append(current)
-            current = f"{continuation_indent}{word}"
+            current = ""
+        room = width if not lines else cont_room
+        if len(word) <= room:
+            current = f"{continuation_indent}{word}" if lines else word
+            continue
+        # Hard-break a token too wide for even a fresh line.
+        while len(word) > room:
+            lines.append((f"{continuation_indent}" if lines else "") + word[:room])
+            word = word[room:]
+            room = cont_room
+        current = f"{continuation_indent}{word}" if lines else word
     if current:
         lines.append(current)
     return lines
