@@ -20,6 +20,7 @@ from arxiv2md_beta.cli.convert_cli import (
 )
 from arxiv2md_beta.cli.options import (
     ALLOW_STUB_OPT,
+    CONCURRENCY_OPT,
     DOWNLOAD_PDF_OPT,
     DRY_RUN_OPT,
     EMIT_GRAPH_CSV_OPT,
@@ -168,6 +169,7 @@ def convert_cmd(
     force: bool = FORCE_OPT,
     allow_stub: bool = ALLOW_STUB_OPT,
     dry_run: bool = DRY_RUN_OPT,
+    concurrency: int | None = CONCURRENCY_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -181,6 +183,7 @@ def convert_cmd(
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
         fetch_arxiv_metadata=fetch_arxiv_metadata,
+        concurrency=concurrency,
     )
     # Effective output flags live in settings after apply_convert_cli_settings
     # merged CLI values (explicit only) over YAML/env defaults.

@@ -92,3 +92,13 @@ DRY_RUN_OPT = typer.Option(
         "then exit without writing any file or downloading anything."
     ),
 )
+CONCURRENCY_OPT: int | None = typer.Option(
+    None,
+    "--concurrency",
+    "-c",
+    min=1,
+    help=(
+        "Per-paper parallelism: maximum concurrent image-processing tasks "
+        "(overrides images.max_concurrency). Batch's -j sets parallel papers instead."
+    ),
+)

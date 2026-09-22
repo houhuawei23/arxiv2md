@@ -21,6 +21,7 @@ def apply_convert_cli_settings(
     linked_citations: bool | None = None,
     naming_scheme: str | None = None,
     fetch_arxiv_metadata: bool = False,
+    concurrency: int | None = None,
 ) -> tuple[str, str, str, str]:
     """Validate parser/section/structured options and update global settings.
 
@@ -75,6 +76,11 @@ def apply_convert_cli_settings(
                 "images": merged.images.model_copy(update={"disable_tqdm": True}),
             }
         )
+    if concurrency is not None:
+        # --concurrency (audit5 S8 F2): per-paper parallelism reachable from
+        # the CLI instead of a config-file edit; batch keeps -j for workers.
+        images = merged.images.model_copy(update={"max_concurrency": max(1, concurrency)})
+        merged = merged.model_copy(update={"images": images})
     set_settings(merged)
     return parser_mode, source_v, mode, so
 
