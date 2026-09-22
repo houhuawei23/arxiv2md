@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from urllib.parse import quote
 
 from loguru import logger
 
@@ -56,7 +57,9 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
             break
 
     h = get_settings().http
-    api_url = get_settings().urls.crossref_works_template.format(doi=doi_clean)
+    # DOIs may carry '/', '#' etc.; without quoting the URL is malformed
+    # (audit5 R5).
+    api_url = get_settings().urls.crossref_works_template.format(doi=quote(doi_clean, safe=""))
 
     r = await request_with_retries(
         api_url,
@@ -91,6 +94,13 @@ def _parse_crossref_response(json_data: dict) -> dict:
             return {}
 
         metadata = {}
+
+        # Article title (audit5 C5: the ``title`` field, never the journal).
+        # The title list is the *work's* title; container-title is where it
+        # appeared. Conflating them exported ``title = {Nature}``.
+        title = message.get("title", [])
+        if title:
+            metadata["title"] = title[0] if isinstance(title, list) else title
 
         # Container title (journal/conference name)
         container_title = message.get("container-title", [])

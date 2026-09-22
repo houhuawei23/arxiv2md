@@ -34,6 +34,19 @@ URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 PMID_PATTERN = re.compile(r"PMID:\s*(\d+)", re.IGNORECASE)
 
 
+def _strip_doi_punctuation(raw: str) -> str:
+    """Strip prose punctuation from a DOI matched out of free text (audit5 R12).
+
+    Trailing ``,``/``;``/``.`` are always punctuation; a trailing ``)`` is only
+    removed while unbalanced, so legacy DOIs that legitimately contain
+    parentheses (``10.1002/(SICI)…``) survive.
+    """
+    raw = raw.rstrip(".,;")
+    while raw.endswith(")") and raw.count("(") < raw.count(")"):
+        raw = raw[:-1].rstrip(".,;")
+    return raw.rstrip(".")
+
+
 class CitationResolver:
     """Resolver for citation metadata."""
 
@@ -44,6 +57,9 @@ class CitationResolver:
         # once and share the result (two references to the same DOI used to
         # each hit Crossref).
         self._inflight: dict[str, asyncio.Task] = {}
+        # DOIs that Crossref could not resolve: remembered so the same dead
+        # DOI scattered through one bibliography is fetched once (audit5 R12).
+        self._failed_dois: set[str] = set()
 
     async def resolve_citation(self, parsed: ParsedCitation, index: int = 0) -> CitationEntry:
         """Resolve a parsed citation to a full entry.
@@ -60,28 +76,34 @@ class CitationResolver:
         CitationEntry
             Resolved citation entry
         """
-        # Check cache by DOI
-        if parsed.identifiers.get("doi"):
-            doi = parsed.identifiers["doi"]
-            if doi in self._cache:
+        # Check cache by DOI. DOI matching is case-insensitive, so cache and
+        # in-flight keys are normalized to lowercase (audit5 R12).
+        doi = parsed.identifiers.get("doi")
+        if doi:
+            cache_key = doi.lower()
+            if cache_key in self._cache:
                 logger.debug(f"Cache hit for DOI: {doi}")
-                return self._cache[doi]
+                return self._cache[cache_key]
 
         # Try to resolve via DOI first (coalesced per DOI)
-        if parsed.identifiers.get("doi"):
-            doi = parsed.identifiers["doi"]
-            if doi in self._inflight:
-                entry = await self._inflight[doi]
+        if doi:
+            cache_key = doi.lower()
+            entry = None
+            if cache_key in self._failed_dois:
+                pass  # dead DOI: fall through to arXiv / text resolution
+            elif cache_key in self._inflight:
+                entry = await self._inflight[cache_key]
             else:
                 task = asyncio.create_task(self._resolve_by_doi(parsed, index))
-                self._inflight[doi] = task
+                self._inflight[cache_key] = task
                 try:
                     entry = await task
                 finally:
-                    self._inflight.pop(doi, None)
+                    self._inflight.pop(cache_key, None)
             if entry:
-                self._cache[doi] = entry
+                self._cache[cache_key] = entry
                 return entry
+            self._failed_dois.add(cache_key)
 
         # Try arXiv ID (coalesced per id, cached like DOIs — the same paper
         # cited twice otherwise triggers two arXiv API calls, audit4 PR4.5)
@@ -133,7 +155,9 @@ class CitationResolver:
                 metadata.get("container_title"),
                 index,
             ),
-            title=metadata.get("container_title"),
+            # The work's title; container_title is the journal and only falls
+            # back here for Crossref responses without a title (audit5 C5).
+            title=metadata.get("title") or metadata.get("container_title"),
             authors=authors,
             year=metadata.get("published_print_year") or metadata.get("published_online_year"),
             journal=metadata.get("container_title"),
@@ -255,7 +279,7 @@ def extract_identifiers(text: str) -> dict[str, str]:
     # Extract DOI
     doi_match = DOI_PATTERN.search(text)
     if doi_match:
-        identifiers["doi"] = doi_match.group(0).rstrip(".")
+        identifiers["doi"] = _strip_doi_punctuation(doi_match.group(0))
 
     # Extract arXiv ID
     arxiv_match = ARXIV_PATTERN.search(text)
@@ -272,8 +296,8 @@ def extract_identifiers(text: str) -> dict[str, str]:
         url_match = URL_PATTERN.search(text)
         if url_match:
             url = url_match.group(0)
-            # Skip URLs that are just DOIs
-            if not url.startswith("https://doi.org/"):
+            # Skip URLs that are just DOIs (any doi.org host form)
+            if "doi.org/" not in url:
                 identifiers["url"] = url
 
     return identifiers

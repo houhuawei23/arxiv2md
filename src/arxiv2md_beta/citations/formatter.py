@@ -135,7 +135,16 @@ def format_bibtex_database(entries: list[CitationEntry]) -> str:
         "",
     ]
 
+    # BibTeX rejects duplicate keys; the same DOI cited twice resolved to one
+    # shared entry object and used to be emitted twice (audit5 G4-4). Dedupe
+    # by DOI (case-insensitive — DOI matching is case-insensitive), falling
+    # back to the key for entries without one.
+    seen: set[str] = set()
     for entry in entries:
+        identity = entry.doi.lower() if entry.doi else f"key:{entry.key}"
+        if identity in seen:
+            continue
+        seen.add(identity)
         parts.append(entry.to_bibtex())
         parts.append("")
 

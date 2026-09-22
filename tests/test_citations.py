@@ -274,3 +274,163 @@ def test_generate_citation_null_author_name() -> None:
     cite = _generate_citation([{"name": None}, {"name": "Real Author"}], "2025", "A Title", "2501.00000")
     assert "None" not in cite
     assert "Unknown" in cite
+
+
+class TestCrossrefTitleExtraction:
+    """audit5 C5: Crossref's article title, not the journal, is the title."""
+
+    def test_parse_extracts_article_title(self):
+        from arxiv2md_beta.network.crossref_api import _parse_crossref_response
+
+        metadata = _parse_crossref_response(
+            {"message": {"title": ["Real Article Title"], "container-title": ["Nature"]}}
+        )
+        assert metadata["title"] == "Real Article Title"
+        assert metadata["container_title"] == "Nature"
+
+    def test_resolve_by_doi_uses_article_title(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+
+        async def run():
+            async def fake_fetch(doi):
+                return {
+                    "title": "Real Article Title",
+                    "container_title": "Nature",
+                    "published_print_year": "2015",
+                    "crossref_authors": [{"name": "Ada Lovelace"}],
+                }
+
+            resolver = CitationResolver()
+            parsed = ParsedCitation(key="x", text="x", identifiers={"doi": "10.1234/real"})
+            with patch("arxiv2md_beta.citations.resolver.fetch_crossref_metadata", side_effect=fake_fetch):
+                return await resolver.resolve_citation(parsed, 0)
+
+        entry = asyncio.run(run())
+        assert entry.title == "Real Article Title"
+        assert entry.journal == "Nature"
+
+    def test_title_falls_back_to_container_when_absent(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+
+        async def run():
+            async def fake_fetch(doi):
+                return {"container_title": "Legacy Journal", "published_print_year": "2010"}
+
+            resolver = CitationResolver()
+            parsed = ParsedCitation(key="x", text="x", identifiers={"doi": "10.1234/old"})
+            with patch("arxiv2md_beta.citations.resolver.fetch_crossref_metadata", side_effect=fake_fetch):
+                return await resolver.resolve_citation(parsed, 0)
+
+        entry = asyncio.run(run())
+        assert entry.title == "Legacy Journal"
+
+
+class TestBibtexDatabaseDedup:
+    """audit5 G4-4: repeated citations must not emit duplicate BibTeX keys."""
+
+    def test_same_doi_emitted_once(self):
+        from arxiv2md_beta.citations.formatter import format_bibtex_database
+        from arxiv2md_beta.citations.models import CitationEntry
+
+        entries = [
+            CitationEntry(key="smith2015", title="T", doi="10.1234/Dup"),
+            CitationEntry(key="smith20157", title="T", doi="10.1234/dup"),
+        ]
+        out = format_bibtex_database(entries)
+        assert out.count("@") == 1
+
+    def test_same_key_emitted_once(self):
+        from arxiv2md_beta.citations.formatter import format_bibtex_database
+        from arxiv2md_beta.citations.models import CitationEntry
+
+        entries = [
+            CitationEntry(key="dup", title="T"),
+            CitationEntry(key="dup", title="T"),
+        ]
+        out = format_bibtex_database(entries)
+        assert out.count("@") == 1
+
+    def test_distinct_entries_all_kept(self):
+        from arxiv2md_beta.citations.formatter import format_bibtex_database
+        from arxiv2md_beta.citations.models import CitationEntry
+
+        entries = [
+            CitationEntry(key="a2020", title="A", doi="10.1/a"),
+            CitationEntry(key="b2021", title="B", doi="10.1/b"),
+        ]
+        out = format_bibtex_database(entries)
+        assert out.count("@") == 2
+
+
+class TestDoiHygiene:
+    """audit5 R12: DOI extraction/caching edge cases."""
+
+    def test_trailing_comma_and_paren_stripped(self):
+        ids = extract_identifiers("as shown in (Nature, 10.1234/x.y, 2015).")
+        assert ids["doi"] == "10.1234/x.y"
+
+    def test_balanced_paren_doi_kept(self):
+        ids = extract_identifiers("see 10.1234/(SICI)1097-4628 paper")
+        assert ids["doi"] == "10.1234/(SICI)1097-4628"
+
+    def test_http_doi_url_not_captured_as_url(self):
+        ids = extract_identifiers("available at http://doi.org/10.1234/abc")
+        assert "url" not in ids
+        assert ids["doi"].endswith("10.1234/abc")
+
+    def test_doi_cache_is_case_insensitive(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import CitationEntry, ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+
+        async def run():
+            calls = {"n": 0}
+
+            async def fake_resolve(parsed: ParsedCitation, index: int):
+                calls["n"] += 1
+                return CitationEntry(key="k", title="T")
+
+            resolver = CitationResolver()
+            p1 = ParsedCitation(key="a", text="a", identifiers={"doi": "10.1234/ABC"})
+            p2 = ParsedCitation(key="b", text="b", identifiers={"doi": "10.1234/abc"})
+            with patch.object(resolver, "_resolve_by_doi", side_effect=fake_resolve):
+                e1 = await resolver.resolve_citation(p1, 0)
+                e2 = await resolver.resolve_citation(p2, 1)
+            return calls["n"], e1, e2
+
+        n, e1, e2 = asyncio.run(run())
+        assert n == 1
+        assert e1 is e2
+
+    def test_failed_doi_not_refetched(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+
+        async def run():
+            calls = {"n": 0}
+
+            async def fake_fetch(doi):
+                calls["n"] += 1
+                return None
+
+            resolver = CitationResolver()
+            parsed = ParsedCitation(key="a", text="Some text 2014", identifiers={"doi": "10.9999/void"})
+            with patch("arxiv2md_beta.citations.resolver.fetch_crossref_metadata", side_effect=fake_fetch):
+                await resolver.resolve_citation(parsed, 0)
+                await resolver.resolve_citation(parsed, 1)
+            return calls["n"]
+
+        assert asyncio.run(run()) == 1
