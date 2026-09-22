@@ -219,6 +219,16 @@ def _claim_marker(marker: Path, identity: str) -> bool:
         return True
     except FileExistsError:
         return False
+    except OSError:
+        # FAT/exFAT and some network mounts don't support hard links; fall
+        # back to exclusive create (open "x") — a slightly wider race window
+        # for a reader, but no longer a hard conversion failure (audit5 G3-3).
+        try:
+            with open(marker, "x", encoding="utf-8") as f:
+                f.write(identity + "\n")
+            return True
+        except FileExistsError:
+            return False
     finally:
         tmp.unlink(missing_ok=True)
 

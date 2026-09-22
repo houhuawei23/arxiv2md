@@ -20,6 +20,20 @@ _BIBLIOGRAPHY_PATTERN = re.compile(r"\\bibliography\{([^}]+)\}")
 _ENV_PATTERN = re.compile(r"\\(begin|end)\{([a-zA-Z*]+)\}")
 
 
+def _within_base_dir(path: Path, base_dir: Path) -> bool:
+    r"""True when *path* stays inside *base_dir* after resolving.
+
+    ``\input{../../..}`` escaped the extracted archive and read arbitrary
+    readable files; the zip layer has zip-slip protection, the include
+    resolver needed the same containment (audit5 G3-4).
+    """
+    try:
+        path.resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def resolve_latex_includes(main_file: Path, base_dir: Path) -> str:
     r"""Recursively expand ``\\input`` / ``\\include`` / ``\\lstinputlisting``.
 
@@ -72,19 +86,21 @@ def _resolve_includes_recursive(
         ]
         included_file = None
         for cand in candidates:
-            if cand.exists() and cand.is_file():
+            if cand.exists() and cand.is_file() and _within_base_dir(cand, base_dir):
                 included_file = cand
                 break
         if included_file is None:
             # Try rglob for basename (handles tables/safety_cot etc.)
             name = Path(included_file_str).name
             for p in base_dir.rglob(name):
-                if p.is_file():
+                if p.is_file() and _within_base_dir(p, base_dir):
                     included_file = p
                     break
             if included_file is None:
+                # A pattern with ".." components escapes base_dir (rglob
+                # follows them), hence the containment check here too.
                 for p in base_dir.rglob(f"{stem}.tex"):
-                    if p.is_file():
+                    if p.is_file() and _within_base_dir(p, base_dir):
                         included_file = p
                         break
         if included_file is None:
@@ -108,7 +124,7 @@ def _resolve_includes_recursive(
             (tex_file.parent / path_str).resolve(),
         ]
         for p in candidates:
-            if p.exists() and p.is_file():
+            if p.exists() and p.is_file() and _within_base_dir(p, base_dir):
                 try:
                     body = p.read_text(encoding="utf-8", errors="ignore")
                     return "\n```\n" + body.rstrip() + "\n```\n"

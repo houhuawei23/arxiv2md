@@ -46,3 +46,40 @@ def test_orphan_end_scan_continues_on_same_line() -> None:
     lines = out.split("\n")
     assert lines[0] == "% \\end{foo}\\begin{itemize}"
     assert lines[2] == "\\end{itemize}"  # not commented
+
+
+class TestIncludePathContainment:
+    r"""audit5 G3-4: `\input{../..}` must not read outside the archive.
+
+    The zip layer has zip-slip protection; the include resolver needed
+    the same containment.
+    """
+
+    def test_input_traversal_is_ignored(self, tmp_path: Path) -> None:
+        base = tmp_path / "extracted"
+        base.mkdir()
+        secret = tmp_path / "outside.tex"
+        secret.write_text("SECRET", encoding="utf-8")
+        main = base / "main.tex"
+        main.write_text("before\n\\input{../outside}\nafter\n", encoding="utf-8")
+        out = resolve_latex_includes(main, base)
+        assert "SECRET" not in out
+
+    def test_lstinputlisting_traversal_is_ignored(self, tmp_path: Path) -> None:
+        base = tmp_path / "extracted"
+        base.mkdir()
+        secret = tmp_path / "outside.py"
+        secret.write_text("SECRET", encoding="utf-8")
+        main = base / "main.tex"
+        main.write_text("\\lstinputlisting{../outside.py}\n", encoding="utf-8")
+        out = resolve_latex_includes(main, base)
+        assert "SECRET" not in out
+
+    def test_internal_include_still_resolves(self, tmp_path: Path) -> None:
+        base = tmp_path / "extracted"
+        base.mkdir()
+        (base / "sub").mkdir()
+        (base / "sub" / "part.tex").write_text("PART", encoding="utf-8")
+        main = base / "main.tex"
+        main.write_text("\\input{sub/part.tex}\n", encoding="utf-8")
+        assert "PART" in resolve_latex_includes(main, base)

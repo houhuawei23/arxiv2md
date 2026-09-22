@@ -540,10 +540,14 @@ def _expand_tex_includes(tex_file: Path, base_dir: Path, stack: set[Path] | None
         name = match.group(1).strip()
         stem = name[:-4] if name.endswith(".tex") else name
         for cand in [base_dir / name, base_dir / f"{stem}.tex", base_dir / stem]:
-            if cand.exists() and cand.is_file():
+            # Containment check mirrors includes.py (audit5 G3-4): a
+            # "../.." path must not read files outside the archive.
+            if cand.exists() and cand.is_file() and cand.resolve().is_relative_to(base_dir.resolve()):
                 return _expand_tex_includes(cand, base_dir, stack)
         for p in base_dir.rglob(Path(name).name):
-            if p.is_file():
+            # rglob patterns with ".." escape base_dir; check containment
+            # (audit5 G3-4)
+            if p.is_file() and p.resolve().is_relative_to(base_dir.resolve()):
                 return _expand_tex_includes(p, base_dir, stack)
         return ""
 

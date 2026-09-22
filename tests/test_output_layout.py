@@ -131,3 +131,38 @@ def test_cjk_long_title_truncated_by_utf8_bytes(tmp_path: Path) -> None:
     d = create_paper_output_dir(tmp_path, "20260101", title)  # must not raise
     assert d.is_dir()
     assert len(d.name.encode("utf-8")) <= 255
+
+
+class TestClaimMarkerFallback:
+    """audit5 G3-3: no hard-link support must not fail the run.
+
+    Filesystems like FAT/exFAT and some network mounts raise a plain OSError
+    on os.link; the claim then falls back to exclusive create.
+    """
+
+    def test_non_link_oserror_falls_back_to_exclusive_create(self, tmp_path, monkeypatch):
+        import os as _os
+
+        from arxiv2md_beta.output.layout import _claim_marker
+
+        def broken_link(src, dst):
+            raise OSError(38, "Function not implemented")
+
+        monkeypatch.setattr(_os, "link", broken_link)
+        marker = tmp_path / ".arxiv2md-paper"
+        assert _claim_marker(marker, "ident-1") is True
+        assert marker.read_text(encoding="utf-8").strip() == "ident-1"
+
+    def test_fallback_still_honors_existing_marker(self, tmp_path, monkeypatch):
+        import os as _os
+
+        from arxiv2md_beta.output.layout import _claim_marker
+
+        def broken_link(src, dst):
+            raise OSError(38, "Function not implemented")
+
+        monkeypatch.setattr(_os, "link", broken_link)
+        marker = tmp_path / ".arxiv2md-paper"
+        marker.write_text("first\n", encoding="utf-8")
+        assert _claim_marker(marker, "second") is False
+        assert marker.read_text(encoding="utf-8").strip() == "first"
