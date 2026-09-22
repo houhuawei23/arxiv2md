@@ -10,11 +10,16 @@ If the refactor intentionally changes output, regenerate the golden files:
 
     GOLDEN_REGEN=1 python -m pytest tests/test_golden_snapshot.py
 
+Each regen prints the unified diff (visible with ``-s``) and reports it in
+the skip reason (visible via ``-ra``); "content unchanged" skips are called
+out so a no-op regen is never mistaken for a real regeneration.
+
 Any *unintended* change fails the test.
 """
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import tempfile
@@ -77,8 +82,27 @@ def _emit_json(doc):
 def _check(golden_name: str, actual: str) -> None:
     golden_path = GOLDEN_DIR / golden_name
     if _REGEN:
+        # Regen used to silently overwrite and skip: nobody could see WHAT
+        # changed, and an unchanged regen looked identical to a real one
+        # (audit5 T-4). Show the diff, and distinguish the no-op case.
+        old = golden_path.read_text() if golden_path.exists() else None
+        if old == actual:
+            pytest.skip(f"{golden_name}: regen requested, content unchanged")
+            return
+        golden_path.parent.mkdir(parents=True, exist_ok=True)
         golden_path.write_text(actual)
-        pytest.skip(f"regenerated {golden_name}")
+        diff = "".join(
+            difflib.unified_diff(
+                (old or "").splitlines(keepends=True),
+                actual.splitlines(keepends=True),
+                fromfile=f"golden/{golden_name}" if old else "/dev/null",
+                tofile=f"regenerated/{golden_name}",
+                n=2,
+            )
+        )
+        print(diff)  # visible with -s
+        shown = diff if len(diff) <= 1500 else diff[:1500] + "\n... (truncated)"
+        pytest.skip(f"regenerated {golden_name}; diff:\n{shown}")
         return
     assert golden_path.exists(), f"golden file missing: {golden_path}. Run with GOLDEN_REGEN=1 to create."
     expected = golden_path.read_text()
@@ -133,3 +157,22 @@ def test_document_json_golden(json_parts):
 
 def test_assets_json_golden(json_parts):
     _check_json("sample_paper.assets.json", json_parts[2])
+
+
+def test_regen_reports_diff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """audit5 T-4: regen must surface WHAT changed, not silently overwrite."""
+    import tests.test_golden_snapshot as gs
+
+    monkeypatch.setattr(gs, "GOLDEN_DIR", tmp_path)
+    monkeypatch.setattr(gs, "_REGEN", True)
+    (tmp_path / "g.txt").write_text("old\ncontent\n", encoding="utf-8")
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        gs._check("g.txt", "new\ncontent\n")
+    reason = str(excinfo.value)
+    assert "-old" in reason and "+new" in reason
+    assert (tmp_path / "g.txt").read_text(encoding="utf-8") == "new\ncontent\n"
+
+    # A no-op regen must not masquerade as a real regeneration.
+    with pytest.raises(pytest.skip.Exception) as excinfo2:
+        gs._check("g.txt", "new\ncontent\n")
+    assert "unchanged" in str(excinfo2.value)
