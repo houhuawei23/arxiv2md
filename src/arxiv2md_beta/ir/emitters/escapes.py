@@ -79,3 +79,55 @@ def escape_html_attr(text: str) -> str:
     attribute and swallows the rest of the tag.
     """
     return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def code_fence(text: str) -> str:
+    r"""Fence run that safely wraps *text* as a code block (audit5 G2-1).
+
+    Per CommonMark a content line starting with a backtick run at least as
+    long as the opening fence closes it, so the fence must be longer than
+    the longest backtick run in the content — ``max(3, longest + 1)``,
+    minimum three.
+    """
+    longest = 0
+    for run in re.findall(r"`+", text):
+        longest = max(longest, len(run))
+    return "`" * max(3, longest + 1)
+
+
+def inline_code_delims(text: str) -> tuple[str, str]:
+    """Backtick delimiters for inline code spans (audit5 G2-3).
+
+    Content containing a backtick needs a longer run than that run;
+    content starting or ending with a backtick additionally gets a space
+    pad — CommonMark strips delimiter-adjacent spaces otherwise, merging
+    the content backtick into the fence.
+    """
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    ticks = "`" * (longest + 1)
+    if text.startswith("`") or text.endswith("`"):
+        return f"{ticks} ", f" {ticks}"
+    return ticks, ticks
+
+
+# Block syntax a paragraph's first line must not read as: ATX heading,
+# bullet/thematic-break marker, ordered-list marker, blockquote.
+_LINE_START_BLOCK_RE = re.compile(r"^(?:#{1,6}(?:\s|$)|[-+*]+(?:\s|$)|\d{1,9}[.)](?:\s|$)|>)")
+
+
+def escape_line_start(text: str) -> str:
+    """Neutralize block-syntax openings on a paragraph's first line (audit5 G2-2).
+
+    Body text like "# Looks like a heading" or "1. First finding" would
+    otherwise render as a fake heading/list. Only the first line is at
+    risk: later lines are ordinary paragraph continuation.
+    """
+    m = _LINE_START_BLOCK_RE.match(text)
+    if not m:
+        return text
+    head = m.group(0)
+    if head[0].isdigit():
+        # "1. " → "1\. ": escaping the punctuation is what CommonMark
+        # honors when disabling list parsing (an escaped digit is not).
+        return f"{text[: len(head) - 2]}\\{head[-2:]}{text[len(head) :]}"
+    return f"\\{text}"

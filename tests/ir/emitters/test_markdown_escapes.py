@@ -164,3 +164,75 @@ class TestEscapeMathPipes:
 
     def test_plain_text_passthrough(self) -> None:
         assert escape_math_pipes("no pipes at all") == "no pipes at all"
+
+
+class TestInlineCodeDelims:
+    """audit5 G2-3: inline code delimiters depend on the content."""
+
+    def test_plain_text_single_backtick(self):
+        from arxiv2md_beta.ir.emitters.escapes import inline_code_delims
+
+        assert inline_code_delims("x = 1") == ("`", "`")
+
+    def test_backtick_content_doubles(self):
+        from arxiv2md_beta.ir.emitters.escapes import inline_code_delims
+
+        assert inline_code_delims("a`b") == ("``", "``")
+
+    def test_leading_backtick_gets_space_pad(self):
+        from arxiv2md_beta.ir.emitters.escapes import inline_code_delims
+
+        assert inline_code_delims("`cmd") == ("`` ", " ``")
+
+    def test_emitted_span_round_trips(self):
+        from arxiv2md_beta.ir import EmphasisIR, MarkdownEmitter, TextIR
+
+        em = EmphasisIR(style="code", inlines=[TextIR(text="a`b")])
+        out = MarkdownEmitter()._emit_inline(em)
+        assert out == "``a`b``"
+
+
+class TestEscapeLineStart:
+    """audit5 G2-2: paragraph first lines must not read as block syntax."""
+
+    def test_plain_text_untouched(self):
+        from arxiv2md_beta.ir.emitters.escapes import escape_line_start
+
+        assert escape_line_start("The method works.") == "The method works."
+
+    @pytest.mark.parametrize(
+        ("raw", "escaped"),
+        [
+            ("# Not a heading", "\\# Not a heading"),
+            ("### Deep", "\\### Deep"),
+            ("- dash", "\\- dash"),
+            ("* star", "\\* star"),
+            ("+ plus", "\\+ plus"),
+            ("> quote", "\\> quote"),
+            ("---", "\\---"),
+            ("1. ordered", "1\\. ordered"),
+            ("2000. year list", "2000\\. year list"),
+            ("3) paren form", "3\\) paren form"),
+        ],
+    )
+    def test_block_syntax_openings_escaped(self, raw, escaped):
+        from arxiv2md_beta.ir.emitters.escapes import escape_line_start
+
+        assert escape_line_start(raw) == escaped
+
+    def test_syntax_after_first_line_untouched(self):
+        from arxiv2md_beta.ir.emitters.escapes import escape_line_start
+
+        assert escape_line_start("a\n- b") == "a\n- b"
+
+    def test_number_without_marker_untouched(self):
+        from arxiv2md_beta.ir.emitters.escapes import escape_line_start
+
+        assert escape_line_start("2000 years ago") == "2000 years ago"
+
+    def test_paragraph_block_emission_uses_it(self):
+        from arxiv2md_beta.ir import MarkdownEmitter, ParagraphIR, TextIR
+
+        p = ParagraphIR(inlines=[TextIR(text="# Looks like a heading")])
+        out = MarkdownEmitter()._emit_block(p)
+        assert not out.startswith("#")

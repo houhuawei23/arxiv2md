@@ -16,11 +16,14 @@ from arxiv2md_beta.ir.builders._math_norm import TAG_RE
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.emitters.base import IREmitter
 from arxiv2md_beta.ir.emitters.escapes import (
+    code_fence,
     escape_html_attr,
+    escape_line_start,
     escape_math_pipes,
     escape_md_text,
     escape_pipe_cell,
     escape_url,
+    inline_code_delims,
 )
 from arxiv2md_beta.ir.inlines import ImageRefIR, InlineUnion
 
@@ -155,7 +158,9 @@ class MarkdownEmitter(IREmitter):
         t = block.type
 
         if t == "paragraph":
-            return self._emit_inlines(getattr(block, "inlines", []))
+            # A first line starting with Markdown block syntax would render
+            # as a fake heading/list/quote (audit5 G2-2)
+            return escape_line_start(self._emit_inlines(getattr(block, "inlines", [])))
         elif t == "heading":
             level = getattr(block, "level", 2)
             text = self._emit_inlines(getattr(block, "inlines", []))
@@ -172,7 +177,8 @@ class MarkdownEmitter(IREmitter):
             return self._emit_list(block)
         elif t == "code":
             lang = getattr(block, "language", "") or ""
-            return f"```{lang}\n{block.text}\n```"
+            fence = code_fence(block.text)
+            return f"{fence}{lang}\n{block.text}\n{fence}"
         elif t == "blockquote":
             inner = self._emit_blocks(getattr(block, "blocks", []))
             return "\n".join(f"> {line}" for line in inner.split("\n"))
@@ -252,6 +258,12 @@ class MarkdownEmitter(IREmitter):
             if not inline.inlines:
                 return ""
             style = inline.style
+            if style == "code":
+                # Backtick content breaks a single-` span; delimiters are
+                # content-dependent (audit5 G2-3)
+                inner = self._emit_inlines(inline.inlines)
+                d, c = inline_code_delims(inner)
+                return f"{d}{inner}{c}"
             d = _EMPHASIS_DELIMITERS.get(style, "")
             c = _EMPHASIS_CLOSERS.get(style, d)
             return f"{d}{self._emit_inlines(inline.inlines)}{c}"

@@ -241,6 +241,24 @@ class TestCode:
 # ── BlockQuoteIR ───────────────────────────────────────────────────────
 
 
+class TestCodeFenceLength:
+    """audit5 G2-1: a fence must outgrow every backtick run in the content."""
+
+    def test_triple_backtick_content_gets_longer_fence(self, emitter):
+        b = CodeIR(language="python", text="x = 1\n```\ny = 2")
+        out = emitter._emit_block(b)
+        assert out == "````python\nx = 1\n```\ny = 2\n````"
+
+    def test_plain_code_keeps_three_backticks(self, emitter):
+        b = CodeIR(text="print(1)")
+        assert emitter._emit_block(b) == "```\nprint(1)\n```"
+
+    def test_quad_run_gets_five(self, emitter):
+        b = CodeIR(text="a\n````\nb")
+        out = emitter._emit_block(b)
+        assert out == "`````\na\n````\nb\n`````"
+
+
 class TestBlockQuote:
     def test_blockquote(self, emitter):
         b = BlockQuoteIR(blocks=[ParagraphIR(inlines=[TextIR(text="quoted")])])
