@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-09-22 audit5 S1，详见 docs/REVIEW_2026-09-22b.md）
+
+三路并行审计发现 6 个 P1（全部人工读码复核），S1 阶段 6 个 PR 全部落地：
+
+- **内链指向错误图表（C1）**：builder 曾把 ar5iv 节内局部 id `#S2.F1` 急切翻译成 `figure-1`，而 caption 全局编号的 anchor 是 `figure-2`——§2+ 的图表交叉引用静默指向**另一张**图，label→anchor repoint 因 fragment 被污染而永远失效。现 builder 保留原始 fragment（与 B4 对 section 的处理对齐），翻译完全交给 NumberingPass；算法链接（`#alg1`）同修。
+- **算法伪代码整块丢失（C2）**：`AlgorithmIR.steps` 全库无任何赋值点，带 algorithm 浮动体的论文只输出标题行。现从 `ltx_listing` 容器（base64 优先）重建伪代码，无 listing 时回退段落扫描。
+- **范数被降级（C3，audit4 B2 修复自身的回归）**：cell 数学转义把 `\|`（‖ 范数）里的 `|` 也换成 `\vert`。新增 `escape_math_pipes`（escapes.py 单源），按反斜杠 run 奇偶只替换裸管道符，`\\|`（换行+裸管）语义保持。
+- **注释掉的 `\if0` 吞掉文档后半身（C4）**：条件块扫描器对注释/verbatim 无感知——`\if0` 开在注释里、`\fi` 在另一注释中时，中间**真实正文**被剥掉；无配对 `\fi` 时 `i = n` 丢弃文档剩余全部内容且常以 exit 0 收场。现扫描器带 ignored-mask（反斜杠奇偶感知的注释 + verbatim/lstlisting/minted/`\verb` 区），未闭合块降级为保留原文 + warning；顺带修复 `author_affiliations._strip_tex_comments` 把 `\\%` 误当转义 `\%` 的同型缺陷（R6）。
+- **Crossref title 恒为期刊名（C5）**：解析从不读取 `message["title"]`，BibTeX 导出 `title = {Nature}`。现提取文章题名，container-title 归位 journal；顺带落地 G4-4（同 DOI 重复引用不再导出重复 BibTeX key）、R5（DOI URL 编码）、R12（DOI 尾随标点平衡剥离 / 缓存键大小写归一 / 死 DOI 负缓存）。
+- **重跑 convert 仍覆写用户字段（C6，audit4 A4 修复只堵了 `--update` 入口）**：`save_paper_metadata` 现在目标文件存在时可读则走同一 merge 路径，不可读才降级全量覆盖（保留 `.bak`）。
+
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
 三路并行审计新发现 11 个 P1 + 20 余个 P2，分 6 阶段修复（S1-S5.2 + S6.1 本轮落地，~20 commits）：
