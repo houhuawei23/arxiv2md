@@ -16,6 +16,21 @@ from loguru import logger
 
 from arxiv2md_beta.exceptions import ParseError, UserInputError
 
+# Paths (relative to the serialized root) the user owns once present in a
+# saved paper.yml: ``paper-yml --update`` and re-conversions must never let
+# fresh API data clobber them (audit4 A4 — reading status / tags used to
+# reset on every update). Fresh values fill these keys only when absent.
+USER_OWNED_PATHS: frozenset[tuple[str, ...]] = frozenset(
+    {
+        ("paper", "workflow", "status"),
+        ("paper", "workflow", "priority"),
+        ("paper", "workflow", "date_added"),
+        ("paper", "relations", "tags"),
+        ("paper", "relations", "related"),
+        ("paper", "bibtex"),
+    }
+)
+
 
 def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
     """Save paper metadata to paper.yml file in the output directory.
@@ -46,6 +61,8 @@ def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
 
     - **Fresh wins** on keys present in both mappings at the same path (scalar or list).
     - **Keys only in** ``existing`` are preserved (e.g. manual ``urls.website``, ``urls.github``).
+    - **User-owned paths** (:data:`USER_OWNED_PATHS`) invert the rule: the value
+      already on disk wins — fresh data only fills genuine gaps.
     - **Nested dicts** are merged recursively with the same rules.
 
     Parameters
@@ -60,14 +77,23 @@ def merge_paper_yml_preserve_user_fields(existing: dict, fresh: dict) -> dict:
     return _deep_merge_preserve_user_only_missing(fresh, existing)
 
 
-def _deep_merge_preserve_user_only_missing(new: dict, old: dict) -> dict:
-    """Start from ``new`` (authoritative); add keys from ``old`` only where missing in ``new``."""
+def _deep_merge_preserve_user_only_missing(new: dict, old: dict, _path: tuple[str, ...] = ()) -> dict:
+    """Start from ``new`` (authoritative); add keys from ``old`` only where missing in ``new``.
+
+    Paths listed in :data:`USER_OWNED_PATHS` take ``old`` unconditionally: the
+    user edited them on disk and fresh API data must not clobber that
+    (audit4 A4 — reading status / tags used to reset on every update).
+    """
     out = dict(new)
     for k, v_old in old.items():
+        path = _path + (k,)
+        if path in USER_OWNED_PATHS:
+            out[k] = v_old
+            continue
         if k not in out:
             out[k] = v_old
         elif isinstance(v_old, dict) and isinstance(out[k], dict):
-            out[k] = _deep_merge_preserve_user_only_missing(out[k], v_old)
+            out[k] = _deep_merge_preserve_user_only_missing(out[k], v_old, path)
     return out
 
 
@@ -255,11 +281,13 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     if metadata.get("citation"):
         content["citation"] = metadata["citation"]
 
-    # workflow
+    # workflow — date_added records when the paper entered the library, not
+    # its arXiv publication date (audit4 A4); the merge layer keeps any
+    # user-owned value already on disk.
     workflow = OrderedDict()
     workflow["status"] = "unread"
     workflow["priority"] = "normal"
-    workflow["date_added"] = date_str or datetime.now().strftime("%Y-%m-%d")
+    workflow["date_added"] = datetime.now().strftime("%Y-%m-%d")
 
     # relations
     relations: OrderedDict[str, Any] = OrderedDict()

@@ -32,6 +32,14 @@ async def run_paper_yml_flow(params: PaperYmlParams) -> Path:
             aid = arxiv_id_from_paper_yml_dict(existing_yml)
             logger.info(f"paper-yml --update: read arXiv id {aid!r} from {path}")
             meta = await fetch_arxiv_metadata(aid)
+            if not params.force and not str(meta.get("title") or "").strip():
+                # Degraded API response (timeout / transient failure resolves
+                # to a skeleton with title=None): overwriting the user's file
+                # with a placeholder would destroy real data (audit4 A4).
+                raise UserInputError(
+                    f"arXiv metadata for {aid!r} is unavailable (degraded response); "
+                    f"refusing to overwrite {path.name}. Retry later or pass --force."
+                )
             query = parse_arxiv_input(aid)
             await fetch_and_merge_tex_affiliations_for_metadata(meta, query.arxiv_id, query.version)
             write_paper_yml_file(meta, path, merge_existing=existing_yml)
