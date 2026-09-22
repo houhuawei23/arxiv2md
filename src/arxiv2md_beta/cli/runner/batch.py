@@ -138,7 +138,7 @@ async def run_batch_flow(
         # two full-directory rescans per row.
         force = params_template.force
         template = params_template
-        base_output_dir = determine_output_dir(template.output)
+        base_output_dir = determine_output_dir(template.output, template.settings)
         if not force:
             built: CompletedIdentityIndex = await asyncio.to_thread(CompletedIdentityIndex.build, base_output_dir)
             template = replace(template, completed_index=built)

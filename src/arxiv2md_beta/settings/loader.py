@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -284,11 +287,38 @@ def load_settings(
 
 
 def get_settings() -> AppSettings:
-    """Return loaded settings, loading defaults from bundled YAML if needed."""
+    """Return the effective settings, loading bundled defaults if needed.
+
+    An inner context (see :func:`settings_context`) wins over the process
+    global: library callers inject per-run settings through
+    ``ConvertParams.settings``, and everything that reads
+    :func:`get_settings` — including code offloaded to threads or child
+    tasks, which inherit the current context — sees the injected object.
+    """
+    injected = _CURRENT_SETTINGS.get()
+    if injected is not None:
+        return injected
     global _SETTINGS
     if _SETTINGS is None:
         _SETTINGS = load_settings()
     return _SETTINGS
+
+
+_CURRENT_SETTINGS: ContextVar[AppSettings | None] = ContextVar("arxiv2md_settings_injection", default=None)
+
+
+@contextmanager
+def settings_context(settings: AppSettings) -> Iterator[AppSettings]:
+    """Make *settings* the effective object for the current context.
+
+    ContextVar-based, so asyncio child tasks and ``asyncio.to_thread``
+    workers inherit it while sibling contexts stay isolated (audit5 S8 F7).
+    """
+    ctx_handle = _CURRENT_SETTINGS.set(settings)
+    try:
+        yield settings
+    finally:
+        _CURRENT_SETTINGS.reset(ctx_handle)
 
 
 def reset_settings_cache() -> None:

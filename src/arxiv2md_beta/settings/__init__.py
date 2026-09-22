@@ -7,6 +7,7 @@ from arxiv2md_beta.settings.loader import (
     load_settings,
     reset_settings_cache,
     set_settings,
+    settings_context,
 )
 from arxiv2md_beta.settings.schema import AppSettings
 
@@ -18,4 +19,5 @@ __all__ = [
     "load_settings",
     "reset_settings_cache",
     "set_settings",
+    "settings_context",
 ]

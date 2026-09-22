@@ -336,34 +336,49 @@ def find_completed_for_input(input_text: str, params: ConvertParams) -> Path | N
         query = spec.parse(input_text)
         if params.completed_index is not None:
             return params.completed_index.lookup(spec.identity(query))
-        base_output_dir = determine_output_dir(params.output)
+        base_output_dir = determine_output_dir(params.output, params.settings)
         return find_completed_output_dir(base_output_dir, spec.identity(query))
     except Exception:
         return None
 
 
 async def run_convert_flow(params: ConvertParams) -> Path:
-    """Route to local HTML, local archive, or arXiv ingestion; returns paper output directory."""
+    """Route to local HTML, local archive, or arXiv ingestion; returns paper output directory.
+
+    Embeddable: ``params.settings`` (audit5 S8 F7) injects a settings object
+    for the duration of the flow via a ContextVar, so everything reading
+    ``get_settings()`` — in this task, in child tasks and in
+    ``asyncio.to_thread`` workers — sees it while the process-global
+    singleton stays untouched. Concurrent flows with different settings are
+    isolated.
+    """
     from arxiv2md_beta.latex.tex_source import (
         ArchiveExtractionError,
         ImageExtractionError,
         TexSourceNotFoundError,
     )
+    from arxiv2md_beta.settings import settings_context
 
-    async with async_timed_operation("run_convert_flow"):
-        input_text = params.input_text.strip()
-        if not input_text:
-            raise UserInputError("INPUT cannot be empty")
-        spec, label = _select_spec(input_text, params)
-        if spec is _SPECS["arxiv-latex"]:
-            try:
-                return await _process_with(spec, input_text, params, label)
-            except (TexSourceNotFoundError, ImageExtractionError, ArchiveExtractionError) as exc:
-                # Broken/corrupt TeX tarball (playbook: "Invalid tar file") —
-                # degrade to PDF download + external parser instead of dying.
-                query = parse_arxiv_input(input_text)
-                return await _pdf_fallback_flow(query, params, exc)
-        return await _process_with(spec, input_text, params, label)
+    async def _impl() -> Path:
+        async with async_timed_operation("run_convert_flow"):
+            input_text = params.input_text.strip()
+            if not input_text:
+                raise UserInputError("INPUT cannot be empty")
+            spec, label = _select_spec(input_text, params)
+            if spec is _SPECS["arxiv-latex"]:
+                try:
+                    return await _process_with(spec, input_text, params, label)
+                except (TexSourceNotFoundError, ImageExtractionError, ArchiveExtractionError) as exc:
+                    # Broken/corrupt TeX tarball (playbook: "Invalid tar file") —
+                    # degrade to PDF download + external parser instead of dying.
+                    query = parse_arxiv_input(input_text)
+                    return await _pdf_fallback_flow(query, params, exc)
+            return await _process_with(spec, input_text, params, label)
+
+    if params.settings is not None:
+        with settings_context(params.settings):
+            return await _impl()
+    return await _impl()
 
 
 def run_convert_sync(params: ConvertParams) -> None:

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from arxiv2md_beta.output.layout import CompletedIdentityIndex
+    from arxiv2md_beta.settings import AppSettings
 
 
 @dataclass(frozen=True)
@@ -44,3 +45,6 @@ class ConvertParams:
     # output dir replaces the per-row full-directory rescans. None = the
     # single-convert path scans on demand.
     completed_index: CompletedIdentityIndex | None = None
+    # Injected settings (audit5 S8 F7): makes the flow embeddable without
+    # mutating the process-global singleton. None = use get_settings().
+    settings: AppSettings | None = None
