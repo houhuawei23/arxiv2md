@@ -1,9 +1,11 @@
 """Integration tests against real arXiv papers (requires network access).
 
 Runs when explicitly requested (`pytest -m real_paper`) and skipped
-automatically when arxiv.org is unreachable. These tests use the local cache
-(~/.cache/arxiv2md-beta/) so repeated runs are fast; clear the cache dir to
-force re-download.
+automatically when arxiv.org is unreachable. The cache root is redirected
+into the test session's tmp dir (conftest ``_test_settings``, audit5 T-3):
+the user's real ``~/.cache/arxiv2md-beta`` is never read or written, so the
+first real-paper run in a session re-downloads and later tests in the same
+session reuse it.
 """
 
 from __future__ import annotations

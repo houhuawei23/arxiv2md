@@ -38,3 +38,16 @@ def test_default_bundle_is_user_cache_not_cwd(monkeypatch: pytest.MonkeyPatch, t
     assert p.name == "arxiv2md-beta"
     assert p.parent.name == ".cache"
     assert not str(p).startswith(str(tmp_path))
+
+
+def test_suite_cache_never_resolves_into_real_home_cache() -> None:
+    """audit5 T-3: under the test env, the cache root must be redirected away.
+
+    The user's real ``~/.cache/arxiv2md-beta`` must never be touched by the
+    suite (conftest _test_settings overrides the cache dir; real-paper runs
+    must not pollute or silently reuse user cache).
+    """
+    from arxiv2md_beta.settings import get_settings
+
+    p = get_settings().resolved_cache_path()
+    assert not p.is_relative_to(Path.home() / ".cache" / "arxiv2md-beta"), p

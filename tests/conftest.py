@@ -15,9 +15,15 @@ from tests.fixtures import FIXTURES_DIR
 
 
 @pytest.fixture(autouse=True)
-def _test_settings():
-    """Use bundled environments/test.yml and a clean settings cache per test."""
+def _test_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Use bundled environments/test.yml and a clean settings cache per test.
+
+    The cache root is redirected into the test's tmp dir (audit5 T-3): the
+    bundle default is the user's real ``~/.cache/arxiv2md-beta``, which
+    real-paper tests and any cache-exercising unit test must not touch.
+    """
     reset_settings_cache()
+    monkeypatch.setenv("ARXIV2MD_BETA_CACHE__DIR", str(tmp_path / "cache"))
     load_settings(environment="test", force_reload=True)
     yield
     reset_settings_cache()
@@ -66,7 +72,13 @@ def mock_arxiv_html(sample_html: str) -> respx.MockRouter:
 
 @pytest.fixture
 def mock_arxiv_api(sample_metadata: dict) -> respx.MockRouter:
-    """Mock arXiv API endpoint."""
+    """Mock arXiv API endpoint.
+
+    Production requests go to ``https://export.arxiv.org/api/query?...`` —
+    the old registration was an exact-match ``http://`` URL, which could
+    never intercept a real request (contract drift waiting to bite; audit5
+    T-2). Regex + https keeps the mock honest if a test starts using it.
+    """
     with respx.mock(assert_all_mocked=False) as router:
         # API query endpoint
         api_response = {
@@ -92,7 +104,9 @@ def mock_arxiv_api(sample_metadata: dict) -> respx.MockRouter:
                 ]
             }
         }
-        router.get("http://export.arxiv.org/api/query").mock(return_value=Response(200, json=api_response))
+        router.get(url__regex=r"https://export\.arxiv\.org/api/query.*").mock(
+            return_value=Response(200, json=api_response)
+        )
         yield router
 
 
