@@ -10,7 +10,6 @@ are fast. Use --no-cache or clear the cache dir to force re-download.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -79,12 +78,32 @@ def _get_html(arxiv_id: str) -> str:
     return _fetch_and_cache_html(arxiv_id)
 
 
+
+def _arxiv_reachable(timeout: float = 5.0) -> bool:
+    """Cheap connectivity probe so the suite skips cleanly on offline machines.
+
+    Replaces the old proxy-env gate: HTTP_PROXY/HTTPS_PROXY presence is not
+    the right condition — machines with direct access were skipped, and
+    proxies behind VPNs change. httpx respects trust_env at request time.
+    """
+    import socket
+
+    try:
+        with socket.create_connection(("arxiv.org", 443), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+_ARXIV_UP = _arxiv_reachable()
+
+
 # ── tests ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.skipif(
-    not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"),
-    reason="No proxy configured (set HTTP_PROXY / HTTPS_PROXY env vars)",
+    not _ARXIV_UP,
+    reason="arxiv.org unreachable from this machine",
 )
 class TestAttentionIsAllYouNeed:
     """End-to-end tests using arXiv 1706.03762."""
@@ -165,8 +184,8 @@ class TestAttentionIsAllYouNeed:
 
 
 @pytest.mark.skipif(
-    not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"),
-    reason="No proxy configured (set HTTP_PROXY / HTTPS_PROXY env vars)",
+    not _ARXIV_UP,
+    reason="arxiv.org unreachable from this machine",
 )
 class TestLearningMechanics:
     """End-to-end tests using arXiv 2604.21691v1."""
@@ -239,8 +258,8 @@ def _get_tex_source_sync(arxiv_id: str):
 
 
 @pytest.mark.skipif(
-    not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"),
-    reason="No proxy configured (set HTTP_PROXY / HTTPS_PROXY env vars)",
+    not _ARXIV_UP,
+    reason="arxiv.org unreachable from this machine",
 )
 class TestLaTeXPipeline:
     r"""End-to-end LaTeX pipeline tests using real arXiv papers.
@@ -288,13 +307,19 @@ class TestLaTeXPipeline:
 
     def test_equations_present(self, doc) -> None:
         """LaTeX builder extracts equations."""
-        equation_count = 0
-        for sec in doc.sections:
-            for blk in sec.blocks:
-                if blk.type == "equation":
-                    equation_count += 1
-        # Attention paper has many equations
-        assert equation_count > 0, "No equations found in LaTeX output"
+        from arxiv2md_beta.ir.visitor import IRVisitor, walk
+
+        class _EqCounter(IRVisitor):
+            def __init__(self) -> None:
+                self.n = 0
+
+            def visit_equation(self, node) -> None:
+                self.n += 1
+
+        counter = _EqCounter()
+        walk(doc, counter)
+        # Attention paper has many equations (most live inside subsections)
+        assert counter.n > 0, "No equations found in LaTeX output"
 
     def test_no_footnote_loss(self, doc) -> None:
         """Footnotes from LaTeX are preserved (not silently dropped)."""
