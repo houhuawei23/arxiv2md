@@ -18,6 +18,7 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, NonRetryableNetworkError, StorageError
+from arxiv2md_beta.latex.includes import _after_unescaped_comment
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
 from arxiv2md_beta.network.retry import compute_backoff
@@ -41,6 +42,12 @@ class TexSourceNotFoundError(NetworkError):
     """Raised when TeX source is not available (HTTP 404 or download exhausted)."""
 
     pass
+
+
+def _file_is_pdf(path: Path) -> bool:
+    """Sniff the 5-byte PDF magic without reading the whole file (audit5 R-2)."""
+    with open(path, "rb") as f:
+        return f.read(5) == b"%PDF-"
 
 
 def _safe_archive_target(output_dir: Path, member_name: str) -> Path:
@@ -391,26 +398,26 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
                     # Write to a temp sibling then rename so a concurrent
                     # conversion never sees (or overwrites) a half-written cache.
                     tmp_path = output_path.with_name(f"{output_path.name}.{uuid.uuid4().hex}.part")
-                    async with (
-                        async_byte_download_progress(
-                            "Downloading TeX source",
-                            total_size if total_size > 0 else None,
-                            disable=disable_tqdm,
-                        ) as advance,
-                        aiofiles.open(tmp_path, "wb") as f,
-                    ):
-                        async for chunk in response.aiter_bytes():
-                            await f.write(chunk)
-                            advance(len(chunk))
-
-                    # Belt-and-suspenders: header-based check above can miss
-                    # PDF-only papers when content-type is generic. Sniff magic
-                    # bytes so the bogus file never lands in the cache.
-                    def _is_pdf(path: Path = tmp_path) -> bool:
-                        return path.read_bytes()[:5] == b"%PDF-"
-
                     try:
-                        if await asyncio.to_thread(_is_pdf):
+                        # The download itself stays inside the try: a
+                        # mid-stream RequestError used to leave the orphan
+                        # .part behind (audit5 R-1).
+                        async with (
+                            async_byte_download_progress(
+                                "Downloading TeX source",
+                                total_size if total_size > 0 else None,
+                                disable=disable_tqdm,
+                            ) as advance,
+                            aiofiles.open(tmp_path, "wb") as f,
+                        ):
+                            async for chunk in response.aiter_bytes():
+                                await f.write(chunk)
+                                advance(len(chunk))
+
+                        # Belt-and-suspenders: header-based check above can miss
+                        # PDF-only papers when content-type is generic. Sniff magic
+                        # bytes so the bogus file never lands in the cache.
+                        if await asyncio.to_thread(_file_is_pdf, tmp_path):
                             raise TexSourceNotFoundError(
                                 f"TeX source not available for this paper "
                                 f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
@@ -534,8 +541,9 @@ def _expand_tex_includes(tex_file: Path, base_dir: Path, stack: set[Path] | None
     include_pattern = re.compile(r"\\(?:input|include)\{([^}]+)\}")
 
     def replace_include(match: re.Match[str]) -> str:
-        start = content.rfind("\n", 0, match.start()) + 1
-        if content[start : match.start()].strip().startswith("%"):
+        # Mid-line comments hide includes too ("foo % \input{x}") — reuse
+        # the escape-aware check (audit5 R-4).
+        if _after_unescaped_comment(content, match.start()):
             return match.group(0)
         name = match.group(1).strip()
         stem = name[:-4] if name.endswith(".tex") else name

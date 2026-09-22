@@ -6,6 +6,8 @@ import os
 import uuid
 from pathlib import Path
 
+from loguru import logger
+
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 
@@ -26,6 +28,10 @@ def determine_output_dir(output: str | None, settings: AppSettings | None = None
     s = settings or get_settings()
     if output:
         return Path(output).expanduser()
+    if output is not None:
+        # "" or "  " fell back to the default completely silently — almost
+        # always a quoting mistake in a batch file or config (audit5 R-9).
+        logger.warning(f"Empty output directory value ({output!r}); using the configured default instead")
     return Path(s.cli_defaults.output_dir).expanduser()
 
 

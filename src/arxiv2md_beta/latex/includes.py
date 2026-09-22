@@ -20,6 +20,29 @@ _BIBLIOGRAPHY_PATTERN = re.compile(r"\\bibliography\{([^}]+)\}")
 _ENV_PATTERN = re.compile(r"\\(begin|end)\{([a-zA-Z*]+)\}")
 
 
+def _after_unescaped_comment(text: str, pos: int) -> bool:
+    r"""True when *pos* sits after an unescaped ``%`` earlier on its line.
+
+    The old check only recognized comments at column 0, so ``foo % \input{x}``
+    silently inlined the include (audit5 R-4). Backslash-run parity decides
+    whether the percent sign is escaped.
+    """
+    line_start = text.rfind("\n", 0, pos) + 1
+    i = line_start
+    while True:
+        j = text.find("%", i, pos)
+        if j == -1:
+            return False
+        k = j - 1
+        run = 0
+        while k >= line_start and text[k] == "\\":
+            run += 1
+            k -= 1
+        if run % 2 == 0:
+            return True
+        i = j + 1
+
+
 def _within_base_dir(path: Path, base_dir: Path) -> bool:
     r"""True when *path* stays inside *base_dir* after resolving.
 
@@ -69,10 +92,8 @@ def _resolve_includes_recursive(
     content = tex_file.read_text(encoding="utf-8", errors="ignore")
 
     def replace_include(match: re.Match[str]) -> str:
-        # Skip commented-out includes (line starts with %)
-        start = content.rfind("\n", 0, match.start()) + 1
-        line_start = content[start : match.start()]
-        if line_start.strip().startswith("%"):
+        # Skip commented-out includes (a mid-line "% \\input" hides them too)
+        if _after_unescaped_comment(content, match.start()):
             return match.group(0)
         included_file_str = match.group(1).strip()
         # Normalize: LaTeX adds .tex automatically for \input/\include
@@ -114,9 +135,7 @@ def _resolve_includes_recursive(
     def replace_lstinputlisting(match: re.Match[str]) -> str:
         r"""Replace ``\lstinputlisting{file}`` with file content as a code block."""
         # Skip commented-out lstinputlisting
-        start = content.rfind("\n", 0, match.start()) + 1
-        line_start = content[start : match.start()]
-        if line_start.strip().startswith("%"):
+        if _after_unescaped_comment(content, match.start()):
             return match.group(0)
         path_str = match.group(1).strip()
         candidates = [
@@ -152,10 +171,8 @@ def _resolve_bibliography(content: str, base_dir: Path, tex_file: Path) -> str:
     stem = tex_file.stem
 
     def replace_bib(match: re.Match[str]) -> str:
-        # Skip commented-out \bibliography (line starts with %)
-        start = content.rfind("\n", 0, match.start()) + 1
-        line_start = content[start : match.start()]
-        if line_start.strip().startswith("%"):
+        # Skip commented-out \bibliography (mid-line "% \\bibliography" too)
+        if _after_unescaped_comment(content, match.start()):
             return match.group(0)
         bib_str = match.group(1).strip().split(",")[0].strip()
         candidates = [

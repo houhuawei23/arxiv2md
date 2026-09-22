@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-_semaphores: dict[tuple[int, str, int], asyncio.Semaphore] = {}
+# Keyed by the loop object itself (weakly): id(loop) keys are reused after a
+# loop is garbage-collected, so a new loop silently inherited the previous
+# loop's exhausted semaphores; the dict also grew without bound (audit5 R-7).
+_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple[str, int], asyncio.Semaphore]] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _semaphore(name: str, limit: int) -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
-    key = (id(loop), name, limit)
-    semaphore = _semaphores.get(key)
+    per_loop = _semaphores.get(loop)
+    if per_loop is None:
+        per_loop = {}
+        _semaphores[loop] = per_loop
+    key = (name, limit)
+    semaphore = per_loop.get(key)
     if semaphore is None:
         semaphore = asyncio.Semaphore(max(1, limit))
-        _semaphores[key] = semaphore
+        per_loop[key] = semaphore
     return semaphore
 
 

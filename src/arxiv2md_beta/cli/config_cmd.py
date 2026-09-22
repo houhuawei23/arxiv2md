@@ -68,6 +68,22 @@ def config_show(
         raise typer.Exit(code=2)
 
 
+def _validate_config_file(config_file: Path) -> None:
+    """Load *config_file* in isolation and restore the previous globals.
+
+    A broken candidate file must not leave its half-loaded state as the
+    process-global settings — that polluted every later command in the same
+    process (audit5 R-8).
+    """
+    from arxiv2md_beta.settings import set_settings
+
+    previous = get_settings()
+    try:
+        load_settings(config_path=config_file, force_reload=True)
+    finally:
+        set_settings(previous)
+
+
 @app.command("validate")
 def config_validate(
     config_file: Path | None = typer.Argument(
@@ -78,13 +94,7 @@ def config_validate(
     """Validate a configuration file."""
     try:
         if config_file:
-            # Validate in isolation: do not let the tested file replace the
-            # process-global settings used by any later command.
-            from arxiv2md_beta.settings import set_settings
-
-            previous = get_settings()
-            load_settings(config_path=config_file, force_reload=True)
-            set_settings(previous)
+            _validate_config_file(config_file)
             console.print(f"[green]✓[/green] Configuration file is valid: {config_file}")
         else:
             # Just re-validate current settings

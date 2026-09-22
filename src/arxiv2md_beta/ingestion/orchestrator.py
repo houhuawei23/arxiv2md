@@ -134,8 +134,12 @@ class IngestionOrchestrator:
             self._setup_output_dir()
             await self._fetch_tex_and_images(tex_task)
         except asyncio.CancelledError:
+            # Await the child like the BaseException branch below, or Python
+            # logs "Task was destroyed but it is pending" noise (audit5 G3-7).
             if tex_task is not None and not tex_task.done():
                 tex_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await tex_task
             raise
         except BaseException:
             # A failure before the TeX task was awaited (e.g. mkdir in
