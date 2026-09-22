@@ -237,6 +237,14 @@ def _is_false_conditional(token: str, pos: int, tex: str) -> bool:
     return token.startswith(r"\if0") and not token.startswith(r"\if00")
 
 
+def _next_unignored_match(pattern: re.Pattern[str], tex: str, start: int, ignored: bytearray) -> re.Match[str] | None:
+    """Next regex match whose start position the mask does not ignore."""
+    m = pattern.search(tex, start)
+    while m is not None and ignored[m.start()]:
+        m = pattern.search(tex, m.end())
+    return m
+
+
 def _strip_false_conditionals(tex: str) -> str:
     r"""Remove ``\\if0 ... [\\else ...] \fi`` / ``\\iffalse ... \fi`` blocks.
 
@@ -244,54 +252,56 @@ def _strip_false_conditionals(tex: str) -> str:
     decrements it) and keeps the ``\\else``/``\\or`` branch when present, since
     real TeX would typeset exactly that. Blocks whose condition is not a
     statically-false literal are left untouched (Pandoc evaluates ``\newif``
-    conditionals itself).
+    conditionals itself). Scanning advances match-to-match with slice
+    appends instead of one Python loop iteration per character.
     """
     out: list[str] = []
-    i, n = 0, len(tex)
     ignored = _build_ignored_mask(tex)
-    while i < n:
-        m = _IF_TOKEN_RE.match(tex, i)
-        if m and not ignored[i] and _is_false_conditional(m.group(0), m.end(), tex):
-            depth = 1
-            j = m.end()
-            else_start: int | None = None
-            block_end: int | None = None  # position just past the closing ``\fi``
-            while depth > 0 and j < n:
-                # Tokens inside comments/verbatim are literal text, not flow.
-                mm = None if ignored[j] else _SCAN_TOKEN_RE.match(tex, j)
-                if mm:
-                    tok = mm.group(0)
-                    if tok in (r"\else", r"\or"):
-                        if depth == 1:
-                            else_start = j + len(tok)
-                    elif tok == r"\fi":
-                        depth -= 1
-                        if depth == 0:
-                            block_end = mm.end()
-                            break
-                    else:
-                        depth += 1
-                    j = mm.end()
-                else:
-                    j += 1
-            if block_end is not None:
-                if else_start is not None:
-                    # Keep only the ``\else``/``\or`` branch, minus the ``\fi``.
-                    out.append(tex[else_start : block_end - len(r"\fi")])
-                i = block_end
+    pos = 0  # start of the not-yet-emitted slice
+    m = _next_unignored_match(_IF_TOKEN_RE, tex, 0, ignored)
+    while m is not None:
+        if not _is_false_conditional(m.group(0), m.end(), tex):
+            m = _next_unignored_match(_IF_TOKEN_RE, tex, m.end(), ignored)
+            continue
+        i, j = m.start(), m.end()
+        depth = 1
+        else_start: int | None = None
+        block_end: int | None = None  # position just past the closing ``\fi``
+        while depth > 0:
+            # Tokens inside comments/verbatim are literal text, not flow.
+            mm = _next_unignored_match(_SCAN_TOKEN_RE, tex, j, ignored)
+            if mm is None:
+                break
+            tok = mm.group(0)
+            if tok in (r"\else", r"\or"):
+                if depth == 1:
+                    else_start = mm.end()
+            elif tok == r"\fi":
+                depth -= 1
+                if depth == 0:
+                    block_end = mm.end()
+                    break
             else:
-                # Unterminated (the matching \fi may sit in a comment or
-                # verbatim text). Dropping "the rest of the document" was
-                # audit5 C4's silent data loss; keep the text instead.
-                logger.warning(
-                    "Unterminated %s block left as-is (no matching \\fi outside comments/verbatim)",
-                    m.group(0),
-                )
-                out.append(m.group(0))
-                i = m.end()
+                depth += 1
+            j = mm.end()
+        if block_end is not None:
+            # Everything before the block, then only the ``\else``/``\or``
+            # branch (minus the ``\fi``) when one exists.
+            out.append(tex[pos:i])
+            if else_start is not None:
+                out.append(tex[else_start : block_end - len(r"\fi")])
+            pos = block_end
+            m = _next_unignored_match(_IF_TOKEN_RE, tex, pos, ignored)
         else:
-            out.append(tex[i])
-            i += 1
+            # Unterminated (the matching \fi may sit in a comment or
+            # verbatim text). Dropping "the rest of the document" was
+            # audit5 C4's silent data loss; keep the text instead.
+            logger.warning(
+                "Unterminated %s block left as-is (no matching \\fi outside comments/verbatim)",
+                m.group(0),
+            )
+            m = _next_unignored_match(_IF_TOKEN_RE, tex, m.end(), ignored)
+    out.append(tex[pos:])
     return "".join(out)
 
 

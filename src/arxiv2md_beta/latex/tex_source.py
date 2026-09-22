@@ -589,6 +589,63 @@ def _find_matching_brace_end(text: str, open_brace_idx: int) -> int | None:
     return None
 
 
+# Longer command names share prefixes (e.g. \icmltitlerunning): the (?!…)
+# lookahead excludes a following Unicode letter, matching the old isalpha check.
+_TITLE_BLOCK_RE = re.compile(r"\\(?:icmltitle|title)(?![^\W\d_])", re.UNICODE)
+_AFFILIATION_BLOCK_RE = re.compile(r"\\affiliation(?![^\W\d_])", re.UNICODE)
+
+
+def _macro_block_brace_end(text: str, j: int) -> int | None:
+    r"""Index of the ``}`` closing a ``\\cmd [..] {..}`` block whose name ends at *j*.
+
+    Tolerates whitespace and one (nesting-aware) optional ``[..]`` group
+    before the brace; None when the block is malformed/unterminated.
+    """
+    n = len(text)
+    while j < n and text[j] in " \t\r\n":
+        j += 1
+    if j < n and text[j] == "[":
+        depth = 1
+        j += 1
+        while j < n and depth > 0:
+            if text[j] == "[":
+                depth += 1
+            elif text[j] == "]":
+                depth -= 1
+            j += 1
+        while j < n and text[j] in " \t\r\n":
+            j += 1
+    if j >= n or text[j] != "{":
+        return None
+    return _find_matching_brace_end(text, j)
+
+
+def _strip_macro_blocks(text: str, pattern: re.Pattern[str]) -> str:
+    r"""Blank out every matched ``\\cmd [..] {..}`` block, preserving length.
+
+    Replacement is same-length whitespace so downstream positional image
+    mapping keeps its offsets. Matches nested inside an already-blanked
+    block are dropped (the outer block wins), mirroring the old scanner.
+    """
+    spans: list[tuple[int, int]] = []
+    for m in pattern.finditer(text):
+        end = _macro_block_brace_end(text, m.end())
+        if end is not None:
+            spans.append((m.start(), end))
+    if not spans:
+        return text
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        if start < pos:
+            continue  # nested inside the previous block
+        out.append(text[pos:start])
+        out.append(" " * (end - start + 1))
+        pos = end + 1
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def _strip_title_blocks_for_image_extraction(text: str) -> str:
     r"""Remove ``\\icmltitle{...}`` and ``\\title{...}`` blocks from TeX for image ordering.
 
@@ -599,46 +656,7 @@ def _strip_title_blocks_for_image_extraction(text: str) -> str:
     HTML ``x1`` is the first real figure (e.g. teaser), so positional fallback pairs
     the wrong file with each caption.
     """
-    # Longer command names share prefixes (e.g. \\icmltitlerunning); only strip bare macros.
-    icmltitle = "\\icmltitle"
-    title_cmd = "\\title"
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        stripped = False
-        for cmd in (icmltitle, title_cmd):
-            if not text.startswith(cmd, i):
-                continue
-            j = i + len(cmd)
-            if j < n and text[j].isalpha():
-                continue  # icmltitlerunning, titlepage, …
-            while j < n and text[j] in " \t\r\n":
-                j += 1
-            if j < n and text[j] == "[":
-                depth = 1
-                j += 1
-                while j < n and depth > 0:
-                    if text[j] == "[":
-                        depth += 1
-                    elif text[j] == "]":
-                        depth -= 1
-                    j += 1
-            while j < n and text[j] in " \t\r\n":
-                j += 1
-            if j >= n or text[j] != "{":
-                continue
-            end = _find_matching_brace_end(text, j)
-            if end is None:
-                continue
-            out.append(" " * (end - i + 1))
-            i = end + 1
-            stripped = True
-            break
-        if not stripped:
-            out.append(text[i])
-            i += 1
-    return "".join(out)
+    return _strip_macro_blocks(text, _TITLE_BLOCK_RE)
 
 
 def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
@@ -650,40 +668,7 @@ def _strip_affiliation_blocks_for_image_extraction(text: str) -> str:
     logos shifts ``image_map[0]`` to e.g. ``unc_logo`` while the first HTML figure may
     reference ``x5`` (first float), breaking opaque-URL fallback pairing.
     """
-    cmd = "\\affiliation"
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        stripped = False
-        if text.startswith(cmd, i):
-            j = i + len(cmd)
-            if j < n and text[j].isalpha():
-                pass  # longer command name
-            else:
-                while j < n and text[j] in " \t\r\n":
-                    j += 1
-                if j < n and text[j] == "[":
-                    depth = 1
-                    j += 1
-                    while j < n and depth > 0:
-                        if text[j] == "[":
-                            depth += 1
-                        elif text[j] == "]":
-                            depth -= 1
-                        j += 1
-                while j < n and text[j] in " \t\r\n":
-                    j += 1
-                if j < n and text[j] == "{":
-                    end = _find_matching_brace_end(text, j)
-                    if end is not None:
-                        out.append(" " * (end - i + 1))
-                        i = end + 1
-                        stripped = True
-        if not stripped:
-            out.append(text[i])
-            i += 1
-    return "".join(out)
+    return _strip_macro_blocks(text, _AFFILIATION_BLOCK_RE)
 
 
 def _extract_figure_env_text(text: str) -> str:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from arxiv2md_beta.latex.tex_source import (
     _parse_images_from_tex,
+    _strip_affiliation_blocks_for_image_extraction,
     _strip_title_blocks_for_image_extraction,
 )
 
@@ -72,3 +73,44 @@ def test_strip_affiliation_removes_institution_logos_from_includegraphics_order(
     paths = list(m.values())
     assert len(paths) == 1
     assert paths[0].name == "fig1.pdf"
+
+
+class TestStripMacroBlockEdges:
+    """Characterization for the slice-based rewrite (audit5 X4).
+
+    Length- and offset-preserving replacement must survive nesting, bracket
+    groups and unterminated blocks.
+    """
+
+    def test_nested_title_inner_not_double_stripped(self) -> None:
+        s = r"\title{outer \title{inner} tail} body"
+        out = _strip_title_blocks_for_image_extraction(s)
+        assert "body" in out
+        assert "outer" not in out and "inner" not in out
+
+    def test_offset_preserved_after_strip(self) -> None:
+        s = r"AB\icmltitle{logo}CD"
+        out = _strip_title_blocks_for_image_extraction(s)
+        assert len(out) == len(s)
+        assert out.startswith("AB") and out.endswith("CD")
+
+    def test_optional_bracket_group_with_nesting(self) -> None:
+        s = r"\title[short [x] long]{real}tail"
+        out = _strip_title_blocks_for_image_extraction(s)
+        assert "tail" in out and "real" not in out and "short" not in out
+
+    def test_unterminated_brace_left_alone(self) -> None:
+        s = r"\title{never closed"
+        out = _strip_title_blocks_for_image_extraction(s)
+        assert out == s
+
+    def test_affiliation_offset_preserved_and_nested(self) -> None:
+        s = r"A\affiliation[a]{inst {x}}B"
+        out = _strip_affiliation_blocks_for_image_extraction(s)
+        assert len(out) == len(s)
+        assert out[0] == "A" and out[-1] == "B"
+        assert "inst" not in out
+
+    def test_affiliation_without_block_untouched(self) -> None:
+        s = r"\affiliation"
+        assert _strip_affiliation_blocks_for_image_extraction(s) == s
