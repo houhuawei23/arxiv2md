@@ -1,4 +1,4 @@
-"""audit5 S5 CLI regression tests (G4-1, G4-6, T-9)."""
+"""audit5 S5 CLI regression tests (G4-1, G4-6, T-9, R-10)."""
 
 from __future__ import annotations
 
@@ -100,3 +100,46 @@ class TestConfigInitMatchesSchema:
         # literal "arxiv2md-beta/<version>" frozen into the file would never
         # update. The placeholder must survive into the starter.
         assert loaded["http"]["user_agent"] == "arxiv2md-beta"
+
+
+def _bundle_defaults() -> dict:
+    from arxiv2md_beta.settings.loader import _load_yaml_bytes, _read_resource
+
+    return _load_yaml_bytes(_read_resource("arxiv2md_beta.config", "default_config.yml"))
+
+
+class TestManifestStubStatus:
+    """audit5 R-10: a settings-level allow_stub must be auditable too.
+
+    ``ensure_not_stub`` bypasses on ``cli OR settings``, but the manifest
+    only recorded ``allowed_stub`` for the CLI flag — a settings-level stub
+    pass-through was written to disk and reported as ``ok``.
+    """
+
+    def _settings(self, allow_stub: bool) -> AppSettings:
+        s = AppSettings.model_validate(_bundle_defaults())
+        return s.model_copy(update={"output": s.output.model_copy(update={"allow_stub": allow_stub})})
+
+    def test_settings_level_allow_stub_marks_allowed_stub(self) -> None:
+        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+
+        status = _manifest_stub_status("too short", cli_allow_stub=False, settings=self._settings(True))
+        assert status == "allowed_stub"
+
+    def test_cli_flag_still_marks_allowed_stub(self) -> None:
+        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+
+        status = _manifest_stub_status("too short", cli_allow_stub=True, settings=self._settings(False))
+        assert status == "allowed_stub"
+
+    def test_stub_disallowed_marks_ok(self) -> None:
+        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+
+        status = _manifest_stub_status("too short", cli_allow_stub=False, settings=self._settings(False))
+        assert status == "ok"
+
+    def test_real_output_marks_ok_even_when_allowed(self) -> None:
+        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+
+        status = _manifest_stub_status("x" * 20000, cli_allow_stub=True, settings=self._settings(True))
+        assert status == "ok"

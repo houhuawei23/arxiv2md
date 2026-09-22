@@ -81,6 +81,18 @@ def format_output(summary: str, tree: str, content: str, *, include_tree: bool) 
     return f"{summary}\n\n{content}".strip()
 
 
+def _manifest_stub_status(output_text: str, *, cli_allow_stub: bool, settings: Any) -> str:
+    """Manifest status for stub gating, mirroring :func:`ensure_not_stub` exactly.
+
+    The gate bypasses on ``cli flag OR settings.output.allow_stub``; the
+    manifest used to consider only the CLI flag, so a settings-level stub
+    pass-through landed on disk but was recorded as ``ok`` — unauditable
+    (audit5 R-10).
+    """
+    allowed = cli_allow_stub or settings.output.allow_stub
+    return "allowed_stub" if allowed and is_stub(output_text, settings=settings) else "ok"
+
+
 def resolve_paper_output_dir(
     metadata: dict[str, Any],
     base_output_dir: Path,
@@ -285,7 +297,7 @@ async def finalize_convert_output(
 
     # Self-describing artifact: id/title/size/timing for downstream consistency
     # checks (batch manifests aggregate these).
-    manifest_status = "allowed_stub" if params.allow_stub and is_stub(output_text, settings=s) else "ok"
+    manifest_status = _manifest_stub_status(output_text, cli_allow_stub=params.allow_stub, settings=s)
     manifest = build_paper_manifest(
         arxiv_id=metadata.get("arxiv_id"),
         title=title,
