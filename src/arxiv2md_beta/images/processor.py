@@ -239,6 +239,8 @@ async def process_images_async(
     # figure-index map in float-figure order after concurrent processing.
     source_to_outcome: dict[Path, tuple[Path, str]] = {}
 
+    assigned_names = _unique_output_names(image_files)
+
     async def _process_one(idx: int, source_path: Path) -> None:
         suffix = source_path.suffix.lower()
         is_pdf = suffix == ".pdf"
@@ -247,6 +249,7 @@ async def process_images_async(
             # Use partial to pass keyword-only arguments to _process_single_image
             bound_func = partial(
                 _process_single_image,
+                assigned_name=assigned_names[source_path],
                 dpi=img_cfg.pdf_to_png_dpi,
                 trim_whitespace=img_cfg.trim_whitespace,
                 trim_tolerance=img_cfg.trim_whitespace_tolerance,
@@ -329,11 +332,58 @@ async def process_images_async(
     )
 
 
+def _unique_output_names(image_files: list[Path]) -> dict[Path, str]:
+    """Pre-assign one output filename per source, collision-free.
+
+    Two TeX subdirectories commonly ship figures with the same stem; deriving
+    the output name per-worker made them race to write the same file (torn
+    PNG under concurrency) and the last writer silently won the stem→image
+    mapping, attaching the wrong figure (audit5 G3-1 — the local-archive path
+    already had ``_1``/``_2`` disambiguation, this path did not).
+    """
+    owner: dict[str, Path] = {}
+    assigned: dict[Path, str] = {}
+    for source_path in image_files:
+        suffix = source_path.suffix.lower()
+        # PDF/EPS/PS convert to PNG; raster formats keep their full name
+        base = f"{source_path.stem}.png" if suffix in {".pdf", ".eps", ".ps"} else source_path.name
+        if base not in owner:
+            owner[base] = source_path
+            assigned[source_path] = base
+            continue
+        stem, ext = Path(base).stem, Path(base).suffix
+        n = 1
+        while f"{stem}_{n}{ext}" in owner:
+            n += 1
+        unique = f"{stem}_{n}{ext}"
+        owner[unique] = source_path
+        assigned[source_path] = unique
+    return assigned
+
+
+def _atomic_write(write, output_path: Path) -> None:
+    """Write via a temp sibling + ``os.replace``.
+
+    The output file is never seen half-written, even if two workers ever
+    target the same name.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        write(tmp)
+        os.replace(tmp, output_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _process_single_image(
     source_path: Path,
     output_dir: Path,
     index: int,
     *,
+    assigned_name: str | None = None,
     dpi: int,
     trim_whitespace: bool,
     trim_tolerance: int,
@@ -351,6 +401,9 @@ def _process_single_image(
         Output directory for processed images
     index : int
         Image index (for fallback naming)
+    assigned_name : str, optional
+        Pre-assigned collision-free output filename (audit5 G3-1); falls
+        back to the stem-derived name when absent.
 
     Returns:
     -------
@@ -359,10 +412,13 @@ def _process_single_image(
     """
     suffix = source_path.suffix.lower()
     original_filename = source_path.stem  # Filename without extension
+    # Pre-assigned name wins; the branches below only fill the default when
+    # no collision-free name was handed in (audit5 G3-1).
+    output_filename: str | None = assigned_name
 
     if suffix == ".pdf":
         # Convert PDF to PNG, but keep original filename
-        output_filename = f"{original_filename}.png"
+        output_filename = output_filename or f"{original_filename}.png"
         output_path = output_dir / output_filename
 
         try:
@@ -382,7 +438,7 @@ def _process_single_image(
                 pil_img = images[0]
                 if trim_whitespace:
                     pil_img = _trim_whitespace(pil_img, tolerance=trim_tolerance)
-                pil_img.save(output_path, "PNG")
+                _atomic_write(lambda p: pil_img.save(p, "PNG"), output_path)
                 logger.debug(f"Converted PDF to PNG: {source_path} -> {output_path}")
             else:
                 raise PDFConversionError(f"Failed to extract image from PDF: {source_path}")
@@ -391,15 +447,15 @@ def _process_single_image(
 
     elif suffix in {".png", ".jpg", ".jpeg"}:
         # Copy image files as-is, keep original filename
-        output_filename = source_path.name
+        output_filename = output_filename or source_path.name
         output_path = output_dir / output_filename
-        shutil.copy2(source_path, output_path)
+        _atomic_write(lambda p: shutil.copy2(source_path, p), output_path)
         # Basename matches by design; paths differ (TeX tree -> paper images/)
         logger.debug(f"Copied raster to output dir: {source_path} -> {output_path}")
 
     elif suffix in {".eps", ".ps"}:
         # Convert EPS/PS to PNG, keep original filename
-        output_filename = f"{original_filename}.png"
+        output_filename = output_filename or f"{original_filename}.png"
         output_path = output_dir / output_filename
 
         try:
@@ -414,17 +470,17 @@ def _process_single_image(
         except (OSError, PermissionError, ValueError) as e:
             logger.warning(f"Failed to convert {suffix} {source_path}, copying as-is: {e}")
             # Fallback: copy as-is
-            output_filename = source_path.name
+            output_filename = output_filename or source_path.name
             output_path = output_dir / output_filename
-            shutil.copy2(source_path, output_path)
+            _atomic_write(lambda p: shutil.copy2(source_path, p), output_path)
             logger.debug(f"Copied {suffix} as-is (fallback): {source_path} -> {output_path}")
 
     else:
         # Unknown format, copy as-is
         logger.warning(f"Unknown image format {suffix}, copying as-is")
-        output_filename = source_path.name
+        output_filename = output_filename or source_path.name
         output_path = output_dir / output_filename
-        shutil.copy2(source_path, output_path)
+        _atomic_write(lambda p: shutil.copy2(source_path, p), output_path)
         logger.debug(f"Copied unknown format as-is: {source_path} -> {output_path}")
 
     # Return relative path from output_dir's parent and original filename
