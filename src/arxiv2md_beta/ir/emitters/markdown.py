@@ -592,9 +592,13 @@ class MarkdownEmitter(IREmitter):
 
 
 def _is_block_level_in_list(block) -> bool:
-    """Return True for blocks that should sit on their own line inside a list item."""
+    """Return True for blocks that should sit on their own line inside a list item.
+
+    Headings count: flattening one into the item line emits a literal
+    "# Foo" (audit5 I-13).
+    """
     t = getattr(block, "type", None)
-    return t in ("equation", "figure", "table", "code", "blockquote", "rule")
+    return t in ("equation", "figure", "table", "code", "blockquote", "rule", "heading")
 
 
 def _wrap_line(line: str, continuation_indent: str, width: int = 100) -> list[str]:

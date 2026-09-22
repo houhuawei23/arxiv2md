@@ -546,3 +546,26 @@ class TestHtmlAttrEscaping:
         )
         out = MarkdownEmitter()._emit_block(fig)
         assert "a&lt;b&gt;c" in out
+
+
+class TestHeadingInsideListItem:
+    """audit5 I-13: list-item headings stay block-level.
+
+    A heading nested in a list item must not flatten into literal "# Foo"
+    text on the item line.
+    """
+
+    def test_heading_keeps_marker(self, emitter):
+        lst = ListIR(
+            items=[
+                [
+                    ParagraphIR(inlines=[TextIR(text="intro")]),
+                    HeadingIR(level=3, inlines=[TextIR(text="Details")]),
+                ]
+            ]
+        )
+        out = emitter._emit_block(lst)
+        lines = out.split("\n")
+        assert any(ln.strip().startswith("### Details") for ln in lines), out
+        # flattened form: the heading text glued onto the item line
+        assert "- intro ### Details" not in out
