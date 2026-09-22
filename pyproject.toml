@@ -103,7 +103,6 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"src/arxiv2md_beta/output/metadata.py" = ["E402"]
 # CLI-layer async functions doing one exists()/stat() guard: offloading each
 # to a thread costs more than the syscall, by design (see AGENTS.md).
 "src/arxiv2md_beta/cli/app.py" = ["ASYNC240"]

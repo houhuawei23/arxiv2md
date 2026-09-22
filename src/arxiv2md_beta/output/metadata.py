@@ -5,17 +5,14 @@ from __future__ import annotations
 import shutil
 from collections import OrderedDict
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-yaml: Any = None
-with suppress(ImportError):
-    import yaml  # type: ignore[no-redef]
-
+import yaml
 from loguru import logger
 
-from arxiv2md_beta.exceptions import ParseError, UserInputError
+from arxiv2md_beta.exceptions import ParseError
 from arxiv2md_beta.utils.atomic_io import atomic_write_text_sync
 
 # Paths (relative to the serialized root) the user owns once present in a
@@ -122,9 +119,6 @@ def write_paper_yml_file(
     If ``merge_existing`` is set (e.g. from ``paper-yml --update``), user-only keys from the
     existing file are preserved while fresh API fields overwrite.
     """
-    if yaml is None:
-        logger.warning("PyYAML not installed, cannot write paper.yml. Install with: pip install pyyaml")
-        return
     output_path = Path(output_path)
     fresh = _metadata_to_paper_yml(metadata)
     if not fresh:
@@ -135,10 +129,15 @@ def write_paper_yml_file(
     else:
         paper_yml_data = fresh
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic write + one-step backup: the file may carry hand-edited user
-    # fields, so a crash mid-write must not destroy it (audit4 S5.2).
+    # Atomic write + two-generation backup: the file may carry hand-edited
+    # user fields, so a crash mid-write must not destroy it (audit4 S5.2).
+    # One generation was not enough — two consecutive bad writes lost the
+    # only good copy, so the previous .bak rotates to .bak2 first (audit5
+    # R-11).
     if output_path.exists():
         backup = output_path.with_suffix(output_path.suffix + ".bak")
+        if backup.exists():
+            shutil.copy2(backup, output_path.with_suffix(output_path.suffix + ".bak2"))
         shutil.copy2(output_path, backup)
     content = yaml.dump(paper_yml_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
     atomic_write_text_sync(output_path, content)
@@ -147,8 +146,6 @@ def write_paper_yml_file(
 
 def load_paper_yml(path: Path) -> dict:
     """Load a YAML file and return the top-level mapping (e.g. ``{'paper': {...}}``)."""
-    if yaml is None:
-        raise UserInputError("PyYAML is required; install with: pip install pyyaml")
     path = Path(path)
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
@@ -296,7 +293,8 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
                 seen.add(kw_lower)
                 unique_keywords.append(kw)
         content["keywords"] = unique_keywords
-    content["language"] = "en"
+    # Prefer an explicit language from the source; "en" remains the arXiv default.
+    content["language"] = metadata.get("language") or "en"
     if metadata.get("citation"):
         content["citation"] = metadata["citation"]
 
@@ -306,7 +304,9 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     workflow = OrderedDict()
     workflow["status"] = "unread"
     workflow["priority"] = "normal"
-    workflow["date_added"] = datetime.now().strftime("%Y-%m-%d")
+    # UTC, not local: around midnight the same paper used to get different
+    # entry dates depending on the machine's timezone (audit5 T-11).
+    workflow["date_added"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     # relations
     relations: OrderedDict[str, Any] = OrderedDict()
