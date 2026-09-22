@@ -35,7 +35,7 @@ def config_show(
     resolve_paths: bool = typer.Option(
         True,
         "--resolve-paths/--no-resolve-paths",
-        help="Show resolved absolute paths instead of raw config values.",
+        help="Resolve cache.dir to its effective absolute path (the only path with env/XDG resolution).",
     ),
 ) -> None:
     """Display the effective configuration."""
@@ -126,45 +126,19 @@ def config_init(
         console.print("Use --force to overwrite.")
         raise typer.Exit(code=2)
 
-    from arxiv2md_beta import __version__
+    # Emit the validated default bundle instead of a hand-written template:
+    # the hand-written one drifted (dpi 200 vs 150, backoff 1.0 vs 3.0,
+    # missing sections) and hardcoded the version into user_agent, defeating
+    # the settings-layer placeholder injection on later upgrades (audit5
+    # G4-6). The bundle is the single source of defaults, keeps its
+    # explanatory comments, and carries the "arxiv2md-beta" placeholder
+    # rather than a frozen version string.
+    from arxiv2md_beta.settings.loader import _load_yaml_bytes, _read_resource
+    from arxiv2md_beta.settings.schema import AppSettings
 
-    starter_config = f"""# arxiv2md-beta Configuration File
-# See documentation for all available options
-
-app:
-  environment: development
-  log_level: INFO
-
-http:
-  fetch_timeout_s: 30.0
-  fetch_max_retries: 3
-  fetch_backoff_s: 1.0
-  user_agent: "arxiv2md-beta/{__version__}"
-  retry_status_codes: [429, 500, 502, 503, 504]
-  large_transfer_timeout_multiplier: 3.0
-  max_connections: 100
-  max_keepalive_connections: 20
-
-cache:
-  dir: "~/.cache/arxiv2md-beta"
-  ttl_seconds: 86400
-
-cli_defaults:
-  parser: html
-  source: Arxiv
-  section_filter_mode: exclude
-  output_dir: "."
-  images_subdir: "images"
-
-images:
-  pdf_to_png_dpi: 200
-  trim_whitespace: false
-  trim_whitespace_tolerance: 100
-  disable_tqdm: false
-
-output:
-  tiktoken_encoding: "o200k_base"
-"""
+    raw = _read_resource("arxiv2md_beta.config", "default_config.yml")
+    AppSettings.model_validate(_load_yaml_bytes(raw))  # refuse to emit an invalid starter
+    starter_config = raw.decode("utf-8")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(starter_config, encoding="utf-8")
