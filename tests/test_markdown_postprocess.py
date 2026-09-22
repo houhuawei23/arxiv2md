@@ -236,3 +236,17 @@ def test_clean_markdown_output_lifts_fences_once(monkeypatch) -> None:
     assert calls["n"] == 1
     assert "```python" in out and "code $1$" in out  # fence intact
     assert not re.search(r"\n{3,}", out)
+
+
+def test_many_rejected_flanking_candidates_stay_literal() -> None:
+    """audit5 X7 characterization: candidates rejected by the flanking rule.
+
+    Each rejected candidate used to re-join the whole token window
+    (O(n²) on pathological input); output must stay identical.
+    """
+    from arxiv2md_beta.output.markdown_postprocess import _clean_math_and_spacing
+
+    src = "p $q $ r $ s $ end"
+    assert _clean_math_and_spacing(src) == src
+    src2 = "a $1 $2 $3 $4 $5 b"
+    assert _clean_math_and_spacing(src2) == src2

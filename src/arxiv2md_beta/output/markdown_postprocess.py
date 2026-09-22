@@ -176,6 +176,9 @@ def _clean_math_and_spacing(text: str) -> str:
 
         # Inline math: the first "$" whose content has no flanking whitespace
         # closes it (pandoc's rule — ``$5 and $10`` never becomes math).
+        # A candidate's outermost characters are the first/last token's
+        # outermost characters, so each candidate is O(1) to accept or
+        # reject — no full-window re-join per rejection (audit5 X7).
         content: str | None = None
         close = None
         k = i + 1
@@ -183,10 +186,12 @@ def _clean_math_and_spacing(text: str) -> str:
             close = _next_dollar(k)
             if close is None:
                 break
-            candidate = "".join(v for _, v in tokens[i + 1 : close])
-            if candidate and not candidate[0].isspace() and not candidate[-1].isspace():
-                content = candidate
-                break
+            if close > i + 1:
+                c_first = tokens[i + 1][1][0]
+                c_last = tokens[close - 1][1][-1]
+                if not c_first.isspace() and not c_last.isspace():
+                    content = "".join(v for _, v in tokens[i + 1 : close])
+                    break
             k = close + 1
         if content is None:
             # Unmatched "$": literal, merges into the following text.
