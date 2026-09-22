@@ -252,5 +252,8 @@ def _parse_crossref_response(json_data: dict) -> dict:
             metadata["crossref_type"] = doc_type
 
         return metadata
-    except Exception:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        # Enrichment is best-effort, but a programming error (KeyError from a
+        # renamed field, ...) must not vanish silently (audit4 P2).
+        logger.debug(f"Crossref metadata parse degraded: {type(exc).__name__}: {exc}")
         return {}

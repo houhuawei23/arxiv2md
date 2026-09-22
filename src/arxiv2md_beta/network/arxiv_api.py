@@ -595,13 +595,15 @@ def _generate_citation(
     if not authors or not title:
         return ""
 
-    # Format authors
+    # Format authors. `or` (not a default arg): Atom feeds emit explicit
+    # author name=null, which .get("name", "Unknown") happily returns —
+    # rendering a literal "None et al." (audit4 P2).
     if len(authors) == 1:
-        author_str = authors[0].get("name", "Unknown")
+        author_str = authors[0].get("name") or "Unknown"
     elif len(authors) == 2:
-        author_str = f"{authors[0].get('name', 'Unknown')} and {authors[1].get('name', 'Unknown')}"
+        author_str = f"{authors[0].get('name') or 'Unknown'} and {authors[1].get('name') or 'Unknown'}"
     else:
-        author_str = f"{authors[0].get('name', 'Unknown')} et al."
+        author_str = f"{authors[0].get('name') or 'Unknown'} et al."
 
     # Truncate title if too long
     title_short = title

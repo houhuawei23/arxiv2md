@@ -265,3 +265,12 @@ class TestYearExtractionFromText:
         parsed = ParsedCitation(key="none", text="No date in here")
         entry = resolver._create_entry_from_text(parsed, index=2)
         assert entry.year is None
+
+
+def test_generate_citation_null_author_name() -> None:
+    """Null Atom author names fall back to Unknown, never literal None."""
+    from arxiv2md_beta.network.arxiv_api import _generate_citation
+
+    cite = _generate_citation([{"name": None}, {"name": "Real Author"}], "2025", "A Title", "2501.00000")
+    assert "None" not in cite
+    assert "Unknown" in cite
