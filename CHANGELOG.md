@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **占位页检测（R-3）**：ar5iv "No content available" 检测从精确字符串改为大小写/空白容忍正则。
 - **list 内标题拍扁（I-13）**：`_is_block_level_in_list` 补 heading，标题不再变字面 `# Foo`。
 
+### Fixed（2026-09-22 audit5 S4：运行时与并发族，详见 docs/REVIEW_2026-09-22b.md）
+
+- **图片同名覆盖 + 并发撕裂（G3-1）**：不同子目录同名图都写 `images/fig.png`——并发下撕裂、后写覆盖前写的 stem 映射；现并发前预分配唯一名（`fig_1/_2`，对齐 local 路径既有消歧），全部写入走临时文件 + `os.replace` 原子替换。
+- **batch 状态误导（G3-2）**：pdf_only（PDF 下载失败只剩 paper.yml）与 allowed_stub 产物被记 `status="ok"`；现 manifest 状态透传为 batch 记录与结果元组状态。
+- **marker 认领硬失败（G3-3）**：FAT/exFAT/部分网络挂载 `os.link` 抛普通 OSError 使整次转换失败；现回退 `open("x")` 独占创建，已存在 marker 仍判占用。
+- **`\input` 路径逃逸（G3-4）**：zip 层有 zip-slip 防护但两个 include 解析器没有；候选路径与 rglob 回退全部加 base_dir 包含校验（`Path.rglob` 会跟随 `..` 模式分量越界）。
+- **batch worker 死亡挂死（G3-5）**：BaseException 杀死 worker 后 `queue.join()` 永久挂起、None 槽位被过滤导致后续行号静默前移；现 worker 记录槽位后优雅退出、producer 检测全员死亡后放弃投递、每行保槽（缺槽记 not-run）。
+- **`--delay-seconds` 起始突发（G3-6）**：per-index sleep 使 j 个 worker 同时在 t=delay 齐发；改锁保护的全局 next-slot 门真实错峰。
+- **CancelledError 分支未 await 子任务（G3-7）**："Task was destroyed but it is pending" 噪音；与 BaseException 分支对齐。
+- **杂项（R-1/R-2/R-4/R-7/R-8/R-9）**：下载中途异常不再留孤儿 `.part`；PDF 魔数嗅探只读 5 字节；`foo % \input{x}` 行中注释不再内联（转义感知 `%` 检查，覆盖两解析器四处）；信号量注册表改 WeakKeyDictionary（id 复用继承耗尽信号量 + 无界增长）；`config validate` 失败恢复全局 settings；`-o ""` 告警而非静默回退。
+
 ### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
 
 三路并行审计新发现 11 个 P1 + 20 余个 P2，分 6 阶段修复（S1-S5.2 + S6.1 本轮落地，~20 commits）：
