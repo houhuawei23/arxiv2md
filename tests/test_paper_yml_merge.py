@@ -10,6 +10,7 @@ import pytest
 from arxiv2md_beta.cli.runner.paper_yml import run_paper_yml_flow
 from arxiv2md_beta.output.metadata import (
     _metadata_to_paper_yml,
+    load_paper_yml,
     merge_paper_yml_preserve_user_fields,
     write_paper_yml_file,
 )
@@ -79,3 +80,75 @@ async def test_update_refuses_degraded_metadata(tmp_path: Path, monkeypatch: pyt
     with pytest.raises(UserInputError, match="refusing to overwrite"):
         await run_paper_yml_flow(params)
     assert yml_path.read_text(encoding="utf-8") == before
+
+
+class TestConvertPathPreservesUserFields:
+    """audit5 C6: the convert path must merge like --update does.
+
+    save_paper_metadata (called by ir_finalize/orchestrator on every convert)
+    wrote the fresh dict wholesale, so re-running convert in an existing
+    output directory reset hand-edited workflow/relations/bibtex fields even
+    though the audit4 A4 protection covered `paper-yml --update`.
+    """
+
+    def test_reconvert_preserves_user_edits(self, tmp_path: Path) -> None:
+        from arxiv2md_beta.output.metadata import save_paper_metadata
+
+        target = tmp_path / "paper.yml"
+        save_paper_metadata(
+            {
+                "arxiv_id": "2501.00000",
+                "title": "Fresh Title",
+                "authors": [{"name": "A. Author"}],
+            },
+            tmp_path,
+        )
+        # Simulate the user hand-editing fields after the first run.
+        existing = load_paper_yml(target)
+        paper = existing["paper"]
+        paper["workflow"]["status"] = "read"
+        paper["workflow"]["priority"] = "high"
+        paper["workflow"]["date_added"] = "2020-05-05"
+        paper["relations"]["tags"] = ["ml"]
+        paper["bibtex"] = "@article{hand, title={Hand}}"
+        import yaml as _yaml
+
+        target.write_text(_yaml.dump(existing, allow_unicode=True), encoding="utf-8")
+
+        # Re-run convert with slightly different API metadata.
+        save_paper_metadata(
+            {
+                "arxiv_id": "2501.00000",
+                "title": "Refined Title",
+                "authors": [{"name": "A. Author"}, {"name": "B. Coauthor"}],
+            },
+            tmp_path,
+        )
+        merged = load_paper_yml(target)["paper"]
+        assert merged["title"] == "Refined Title"  # fresh API values win
+        assert len(merged["authors"]) == 2
+        assert merged["workflow"]["status"] == "read"  # user edits survive
+        assert merged["workflow"]["priority"] == "high"
+        assert merged["workflow"]["date_added"] == "2020-05-05"
+        assert merged["relations"]["tags"] == ["ml"]
+        assert merged["bibtex"] == "@article{hand, title={Hand}}"
+
+    def test_unreadable_existing_file_degrades_to_overwrite(self, tmp_path: Path) -> None:
+        from arxiv2md_beta.output.metadata import save_paper_metadata
+
+        target = tmp_path / "paper.yml"
+        target.write_text("{ not: valid: yaml: [", encoding="utf-8")
+        save_paper_metadata(
+            {"arxiv_id": "2501.00000", "title": "Fresh"},
+            tmp_path,
+        )
+        paper = load_paper_yml(target)["paper"]
+        assert paper["title"] == "Fresh"
+
+    def test_fresh_directory_writes_normally(self, tmp_path: Path) -> None:
+        from arxiv2md_beta.output.metadata import save_paper_metadata
+
+        save_paper_metadata({"arxiv_id": "2501.00000", "title": "First Run"}, tmp_path)
+        paper = load_paper_yml(tmp_path / "paper.yml")["paper"]
+        assert paper["title"] == "First Run"
+        assert paper["workflow"]["status"] == "unread"

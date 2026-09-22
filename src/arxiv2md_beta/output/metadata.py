@@ -53,7 +53,19 @@ def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
         if not _metadata_to_paper_yml(metadata):
             logger.debug("No metadata to save, skipping paper.yml")
             return
-        write_paper_yml_file(metadata, paper_output_dir / "paper.yml")
+        target = paper_output_dir / "paper.yml"
+        # Re-running convert in an existing directory used to reset every
+        # hand-edited field (audit5 C6): the USER_OWNED_PATHS protection only
+        # covered ``paper-yml --update``. Read the previous file and merge so
+        # user-owned keys survive; an unreadable previous file degrades to
+        # the plain overwrite (which still leaves a .bak) below.
+        merge_existing: dict | None = None
+        if target.exists():
+            try:
+                merge_existing = load_paper_yml(target)
+            except Exception as e:  # noqa: BLE001 - best-effort merge
+                logger.warning(f"Existing paper.yml unreadable, overwriting: {e}")
+        write_paper_yml_file(metadata, target, merge_existing=merge_existing)
     except Exception as e:  # noqa: BLE001 - paper.yml is best-effort by design
         logger.warning(f"Failed to save paper.yml: {e}")
 
