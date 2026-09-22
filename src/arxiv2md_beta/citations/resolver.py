@@ -50,8 +50,13 @@ def _strip_doi_punctuation(raw: str) -> str:
 class CitationResolver:
     """Resolver for citation metadata."""
 
-    def __init__(self) -> None:
-        """Initialize the resolver."""
+    def __init__(self, *, use_cache: bool = True) -> None:
+        """Initialize the resolver.
+
+        ``use_cache=False`` (``--no-cache``) also bypasses the Crossref disk
+        cache (audit5 S8 F5); the in-process cache always applies.
+        """
+        self._use_cache = use_cache
         self._cache: dict[str, CitationEntry] = {}
         # Single-flight coalescing: duplicate identifiers in flight resolve
         # once and share the result (two references to the same DOI used to
@@ -136,7 +141,7 @@ class CitationResolver:
             return None
 
         logger.debug(f"Resolving DOI: {doi}")
-        metadata = await fetch_crossref_metadata(doi)
+        metadata = await fetch_crossref_metadata(doi, use_cache=self._use_cache)
 
         if not metadata:
             return None
@@ -317,6 +322,8 @@ def extract_identifiers(text: str) -> dict[str, str]:
 async def export_bibtex(
     parsed_citations: list[ParsedCitation],
     output_path: str | None = None,
+    *,
+    use_cache: bool = True,
 ) -> str:
     """Export citations to BibTeX format.
 
@@ -326,6 +333,8 @@ async def export_bibtex(
         List of parsed citations
     output_path : str | None
         Optional path to write BibTeX file
+    use_cache : bool
+        Read/write the Crossref disk cache (audit5 S8 F5).
 
     Returns:
     -------
@@ -334,7 +343,7 @@ async def export_bibtex(
     """
     from arxiv2md_beta.citations.formatter import format_bibtex_database
 
-    resolver = CitationResolver()
+    resolver = CitationResolver(use_cache=use_cache)
     entries = await resolver.resolve_citations(parsed_citations)
 
     bibtex = format_bibtex_database(entries)

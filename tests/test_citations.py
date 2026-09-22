@@ -315,7 +315,7 @@ class TestCrossrefTitleExtraction:
         from arxiv2md_beta.citations.resolver import CitationResolver
 
         async def run():
-            async def fake_fetch(doi):
+            async def fake_fetch(doi, **kwargs):
                 return {
                     "title": "Real Article Title",
                     "container_title": "Nature",
@@ -362,7 +362,7 @@ class TestCrossrefTitleExtraction:
                 }
             )
 
-            async def fake_fetch(doi):
+            async def fake_fetch(doi, **kwargs):
                 return metadata
 
             resolver = CitationResolver()
@@ -382,7 +382,7 @@ class TestCrossrefTitleExtraction:
         from arxiv2md_beta.citations.resolver import CitationResolver
 
         async def run():
-            async def fake_fetch(doi):
+            async def fake_fetch(doi, **kwargs):
                 return {"container_title": "Legacy Journal", "published_print_year": "2010"}
 
             resolver = CitationResolver()
@@ -483,7 +483,7 @@ class TestDoiHygiene:
         async def run():
             calls = {"n": 0}
 
-            async def fake_fetch(doi):
+            async def fake_fetch(doi, **kwargs):
                 calls["n"] += 1
                 return None
 

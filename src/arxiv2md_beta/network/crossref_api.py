@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import re
+import time
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 
 from loguru import logger
 
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.atomic_io import atomic_write_text_sync
 
 
 def is_arxiv_doi(doi: str) -> bool:
@@ -32,13 +38,22 @@ def is_arxiv_doi(doi: str) -> bool:
     return doi.lower().startswith("10.48550/arxiv")
 
 
-async def fetch_crossref_metadata(doi: str) -> dict | None:
+async def fetch_crossref_metadata(doi: str, *, use_cache: bool = True) -> dict | None:
     """Fetch metadata from Crossref API.
+
+    Results are cached on disk under ``cache.dir/crossref/`` (audit5 S8 F5)
+    with the ``cache.ttl_seconds`` TTL, so consecutive runs — a batch of
+    papers citing the same references — fetch each DOI once. Misses are
+    cached too (negative cache, audit5 R-12): a dead DOI re-fetches only
+    after the TTL expires. ``cache.ttl_seconds <= 0`` disables the disk
+    cache.
 
     Parameters
     ----------
     doi : str
         DOI string (e.g., "10.1234/example" or "10.48550/arXiv.2305.11169")
+    use_cache : bool
+        Read and write the disk cache (``--no-cache`` passes False).
 
     Returns:
     -------
@@ -56,6 +71,13 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
             doi_clean = doi_clean[len(prefix) :]
             break
 
+    if use_cache:
+        # Offloaded: a cache hit reads + parses a JSON file (sync IO).
+        cached = await asyncio.to_thread(_load_disk_cache, doi_clean)
+        if cached is not None:
+            _hit, value = cached
+            return value
+
     h = get_settings().http
     # DOIs may carry '/', '#' etc.; without quoting the URL is malformed
     # (audit5 R5).
@@ -66,13 +88,68 @@ async def fetch_crossref_metadata(doi: str) -> dict | None:
         headers={"User-Agent": h.user_agent},
         label=f"Crossref {doi_clean}",
     )
-    if r is None:
+    metadata: dict | None = None
+    if r is not None:
+        try:
+            metadata = _parse_crossref_response(r.json())
+        except ValueError:
+            logger.debug(f"Crossref {doi_clean} returned invalid JSON")
+    if use_cache:
+        await asyncio.to_thread(_write_disk_cache, doi_clean, metadata)
+    return metadata
+
+
+# ── Disk cache (audit5 S8 F5) ─────────────────────────────────────────
+
+
+def _crossref_cache_path(doi_clean: str) -> Path:
+    # Hash, not the raw DOI: DOIs may carry '/', ':' or unicode; a hashed
+    # name is flat, filesystem-safe, and naturally case-insensitive because
+    # the key is lowercased first.
+    key = hashlib.sha256(doi_clean.lower().encode("utf-8")).hexdigest()
+    return get_settings().resolved_cache_path() / "crossref" / f"{key}.json"
+
+
+def _load_disk_cache(doi_clean: str) -> tuple[bool, dict | None] | None:
+    """Look up *doi_clean* in the on-disk Crossref cache.
+
+    ``None`` = nothing usable cached; ``(True, meta)`` = hit;
+    ``(False, None)`` = cached miss (negative cache, audit5 R-12).
+    """
+    ttl = get_settings().cache.ttl_seconds
+    if ttl <= 0:
         return None
+    path = _crossref_cache_path(doi_clean)
     try:
-        return _parse_crossref_response(r.json())
-    except ValueError:
-        logger.debug(f"Crossref {doi_clean} returned invalid JSON")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
         return None
+    fetched_at = payload.get("fetched_at")
+    if not isinstance(fetched_at, int | float) or time.time() - fetched_at > ttl:
+        return None
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        return True, metadata
+    return False, None
+
+
+def _write_disk_cache(doi_clean: str, metadata: dict | None) -> None:
+    """Persist a lookup outcome (positive or negative); best-effort."""
+    ttl = get_settings().cache.ttl_seconds
+    if ttl <= 0:
+        return
+    path = _crossref_cache_path(doi_clean)
+    payload = {
+        "doi": doi_clean,
+        "fetched_at": time.time(),
+        "found": metadata is not None,
+        "metadata": metadata,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text_sync(path, json.dumps(payload, ensure_ascii=False))
+    except OSError as e:
+        logger.debug(f"Crossref disk cache write failed for {doi_clean}: {e}")
 
 
 def _parse_crossref_response(json_data: dict) -> dict:
