@@ -169,7 +169,10 @@ async def test_run_batch_flow_fail_fast_skips_before_admission(tmp_path: Path) -
         out = await run_batch_flow(
             lines,
             params_template=_template(output=str(tmp_path)),
-            max_concurrency=4,
+            # max_concurrency=1 keeps the ordering deterministic: with wider
+            # concurrency the later lines may legitimately start before the
+            # failure lands (they were admitted, not blocked).
+            max_concurrency=1,
             continue_on_error=False,
             delay_seconds=0.0,
         )
