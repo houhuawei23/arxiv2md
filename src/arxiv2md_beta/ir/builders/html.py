@@ -716,6 +716,7 @@ class HTMLBuilder(IRBuilder):
                 label=tag_id,
                 caption=caption,
                 algorithm_number=alg_num,
+                steps=self._algorithm_steps(tag, caption_tag, section_id, base_idx),
             )
 
         # Table figure
@@ -917,6 +918,32 @@ class HTMLBuilder(IRBuilder):
                 text=body,
             )
         return None
+
+    def _algorithm_steps(self, tag: Tag, caption_tag: Tag | None, section_id: str, base_idx: int) -> list[BlockUnion]:
+        """Collect the pseudocode body of an algorithm float (audit5 C2).
+
+        ar5iv wraps algorithm bodies either in ``div.ltx_listing`` containers
+        (reconstructed by :meth:`_build_listing`, base64 payload preferred) or,
+        more rarely, in plain ``ltx_p`` paragraphs. The caption tag is excluded
+        from the fallback scan. Without this the ``AlgorithmIR.steps`` list
+        stayed empty for every algorithm and the pseudocode never reached the
+        output — only the caption line was emitted.
+        """
+        steps: list[BlockUnion] = []
+        for listing in tag.find_all("div", class_=re.compile(r"ltx_listing")):
+            if not _is_ltx_listing_container(listing):
+                continue  # an inner listingline row, not a listing container
+            code = self._build_listing(listing, section_id, base_idx)
+            if code is not None:
+                steps.append(code)
+        if steps:
+            return steps
+        body, _ = self._children_to_blocks(
+            [c for c in tag.children if c is not caption_tag],
+            section_id,
+            base_idx,
+        )
+        return body
 
     def _build_list_items(self, tag: Tag) -> list[list[BlockUnion]]:
         """Build list items from a <ul> or <ol> tag."""

@@ -841,3 +841,60 @@ class TestInternalFragmentLinks:
         para = doc.sections[0].blocks[1]
         link = next(il for il in para.inlines if getattr(il, "type", "") == "link")
         assert link.target_id == "algorithm-1"
+
+
+class TestAlgorithmSteps:
+    """audit5 C2: algorithm floats must keep their pseudocode body.
+
+    The ltx_float_algorithm branch used to return AlgorithmIR(caption=...) and
+    never populated `steps` (no assignment point anywhere in the codebase), so
+    every algorithm's pseudocode silently vanished — only the caption line was
+    emitted.
+    """
+
+    ALGO_HTML = """
+    <article class='ltx_document'>
+    <section class='ltx_section'><h2>T</h2>
+    <figure class="ltx_float_algorithm" id="alg1">
+    <div class="ltx_body">
+    <div class="ltx_listing">
+    <div class="ltx_listingline">
+    <span class="ltx_tag ltx_tag_listingline">1</span>Input: graph G</div>
+    <div class="ltx_listingline">
+    <span class="ltx_tag ltx_tag_listingline">2</span>for v in V do</div>
+    </div>
+    </div>
+    <figcaption>Algorithm 1: Reachability</figcaption>
+    </figure>
+    </section>
+    </article>"""
+
+    def test_steps_populated_from_listing(self, builder):
+        doc = builder.build(self.ALGO_HTML, arxiv_id="test")
+        alg = doc.sections[0].blocks[0]
+        assert alg.type == "algorithm"
+        assert len(alg.steps) == 1
+        code = alg.steps[0]
+        assert code.type == "code"
+        assert "for v in V do" in code.text
+
+    def test_pseudocode_reaches_markdown_output(self, builder):
+        doc = builder.build(self.ALGO_HTML, arxiv_id="test")
+        out = MarkdownEmitter().emit(doc)
+        assert "for v in V do" in out
+
+    def test_paragraph_body_fallback(self, builder):
+        # ar5iv sometimes renders algorithm bodies as plain ltx_p paragraphs.
+        html = """
+        <article class='ltx_document'>
+        <section class='ltx_section'><h2>T</h2>
+        <figure class="ltx_float_algorithm">
+        <p>Require: sorted array A</p>
+        <figcaption>Algorithm 2: Binary search</figcaption>
+        </figure>
+        </section>
+        </article>"""
+        doc = builder.build(html, arxiv_id="test")
+        alg = doc.sections[0].blocks[0]
+        assert alg.type == "algorithm"
+        assert any(getattr(s, "type", "") == "paragraph" for s in alg.steps)
