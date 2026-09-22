@@ -22,6 +22,21 @@ if TYPE_CHECKING:
 logger = get_logger()
 
 
+class _NullRecorder:
+    """--dry-run stand-in for :class:`BatchManifestRecorder`: records nowhere.
+
+    Keeping the recorder interface means the per-row call sites stay
+    identical between a real and a plan-only run — no flag checks scattered
+    through ``run_one``.
+    """
+
+    async def arecord(self, **kwargs: object) -> None:  # noqa: ARG002 - interface parity
+        return None
+
+    def flush(self) -> None:
+        return None
+
+
 def merge_convert_params(template: ConvertParams, input_text: str) -> ConvertParams:
     """Build params for one batch line from a template.
 
@@ -129,7 +144,10 @@ async def run_batch_flow(
             template = replace(template, completed_index=built)
         # Offloaded: the prefill reads + parses the previous run's whole
         # manifest (sync IO) before the first worker even starts.
-        recorder = await asyncio.to_thread(BatchManifestRecorder, base_output_dir)
+        if template.dry_run:
+            recorder: BatchManifestRecorder | _NullRecorder = _NullRecorder()
+        else:
+            recorder = await asyncio.to_thread(BatchManifestRecorder, base_output_dir)
         # Stagger gate state (audit5 G3-6)
         start_gate = asyncio.Lock()
         next_slot = 0.0
@@ -161,7 +179,7 @@ async def run_batch_flow(
                 return (stripped, "skipped: an earlier conversion failed", None, "not-run")
             nonlocal next_slot
 
-            if delay_seconds > 0:
+            if delay_seconds > 0 and not merged.dry_run:
                 # Global next-slot gate: with per-task sleeps, j workers all
                 # grabbed the first j lines and fired together at t=delay
                 # (audit5 G3-6).
@@ -174,6 +192,11 @@ async def run_batch_flow(
                     next_slot = max(next_slot, loop_time) + delay_seconds
             try:
                 out = await run_convert_flow(merged)
+                if merged.dry_run:
+                    # Plan-only: _process_with already echoed the per-line
+                    # plan; report a distinct status instead of recording a
+                    # fake "ok" into the (skipped) manifest.
+                    return (stripped, None, str(out.resolve()), "dry-run")
                 out_dir = str(out.resolve())
                 details = batch_entry_details_from_manifest(out)
                 # The directory manifest is authoritative: a pdf_only or

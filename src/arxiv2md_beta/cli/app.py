@@ -21,6 +21,7 @@ from arxiv2md_beta.cli.convert_cli import (
 from arxiv2md_beta.cli.options import (
     ALLOW_STUB_OPT,
     DOWNLOAD_PDF_OPT,
+    DRY_RUN_OPT,
     EMIT_GRAPH_CSV_OPT,
     EMIT_RESULT_JSON_OPT,
     FETCH_METADATA_OPT,
@@ -166,6 +167,7 @@ def convert_cmd(
     fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
     force: bool = FORCE_OPT,
     allow_stub: bool = ALLOW_STUB_OPT,
+    dry_run: bool = DRY_RUN_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
@@ -204,6 +206,7 @@ def convert_cmd(
         linked_citations=eff.linked_citations,
         force=force,
         allow_stub=allow_stub,
+        dry_run=dry_run,
     )
     try:
         run_convert_sync(params)
@@ -267,6 +270,7 @@ def batch_cmd(
     fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
     force: bool = FORCE_OPT,
     allow_stub: bool = ALLOW_STUB_OPT,
+    dry_run: bool = DRY_RUN_OPT,
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
@@ -303,6 +307,7 @@ def batch_cmd(
         linked_citations=eff.linked_citations,
         force=force,
         allow_stub=allow_stub,
+        dry_run=dry_run,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

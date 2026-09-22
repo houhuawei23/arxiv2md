@@ -101,6 +101,7 @@ def make_convert_params(
     linked_citations: bool = False,
     force: bool = False,
     allow_stub: bool = False,
+    dry_run: bool = False,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -125,4 +126,5 @@ def make_convert_params(
         linked_citations=linked_citations,
         force=force,
         allow_stub=allow_stub,
+        dry_run=dry_run,
     )

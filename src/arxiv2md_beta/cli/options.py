@@ -84,3 +84,11 @@ ALLOW_STUB_OPT = typer.Option(
         "Write output even when the quality gate flags it as stub-level content (below stub_min_bytes/stub_min_tokens)."
     ),
 )
+DRY_RUN_OPT = typer.Option(
+    False,
+    "--dry-run",
+    help=(
+        "Plan only: report mode, output base directory and idempotency verdict, "
+        "then exit without writing any file or downloading anything."
+    ),
+)

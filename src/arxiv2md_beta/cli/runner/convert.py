@@ -129,7 +129,6 @@ async def _process_with(
 
     sections = collect_sections(params.sections, params.section)
     base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Idempotency / resume: skip re-ingestion when this identity already has a
     # completed output (matching .arxiv2md-paper marker + non-empty Markdown).
@@ -143,9 +142,22 @@ async def _process_with(
             # Offloaded: the scan walks every sibling output directory (sync IO)
             # and would otherwise stall the loop for all batch workers.
             done = await asyncio.to_thread(find_completed_output_dir, base_output_dir, spec.identity(query))
-        if done is not None:
-            logger.info(f"Skip (already converted): {done}; use --force to re-convert")
-            return done
+    else:
+        done = None
+
+    # --dry-run (audit5 S8 F1): report the plan and stop. Everything the plan
+    # needs is known before ingestion; the exact paper directory name is not
+    # (it depends on title/date metadata only a real run fetches), so the base
+    # dir is reported with that caveat. Nothing is created or downloaded.
+    if params.dry_run:
+        _echo_dry_run_plan(params=params, label=label, base_output_dir=base_output_dir, done=done)
+        return base_output_dir
+
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+
+    if done is not None:
+        logger.info(f"Skip (already converted): {done}; use --force to re-convert")
+        return done
 
     result, metadata = await spec.ingest(query, params, sections, base_output_dir)
 
@@ -157,6 +169,34 @@ async def _process_with(
         fallback_md_stem=spec.fallback_stem(query),
         pdf_fetch=spec.pdf_fetch(query),
         log_local_success=spec.log_local_success,
+    )
+
+
+def _echo_dry_run_plan(
+    *,
+    params: ConvertParams,
+    label: str,
+    base_output_dir: Path,
+    done: Path | None,
+) -> None:
+    """Print the --dry-run plan (stdout, so scripts can capture it)."""
+    import typer
+
+    from arxiv2md_beta.settings import get_settings
+
+    typer.echo(f"[dry-run] input: {params.input_text}")
+    typer.echo(f"[dry-run] mode: {label}")
+    if done is not None:
+        typer.echo(f"[dry-run] verdict: would skip (already converted): {done}")
+        return
+    if params.force:
+        typer.echo(
+            "[dry-run] verdict: --force bypasses the idempotency check; a completed output would be re-converted"
+        )
+    scheme = get_settings().output_naming.naming_scheme
+    typer.echo(
+        f"[dry-run] verdict: would convert into {base_output_dir}/ "
+        f"(naming scheme: {scheme}; the final directory name is fixed after metadata fetch)"
     )
 
 

@@ -37,6 +37,9 @@ class ConvertParams:
     linked_citations: bool = False
     force: bool = False
     allow_stub: bool = False
+    # Plan-only mode (audit5 S8 F1): resolve mode/identity/idempotency and
+    # report, but write no file and download nothing.
+    dry_run: bool = False
     # Per-batch shared idempotency index (audit5 X1): one scan of the base
     # output dir replaces the per-row full-directory rescans. None = the
     # single-convert path scans on demand.
