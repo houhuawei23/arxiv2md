@@ -167,9 +167,15 @@ async def fetch_and_extract_tex_source(
     try:
         staging_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_extract_archive, tex_source_path, staging_dir)
-        if extracted_dir.exists():
-            shutil.rmtree(extracted_dir, ignore_errors=True)
-        staging_dir.replace(extracted_dir)
+
+        def _swap_into_place() -> None:
+            # rmtree of the previous extract plus the rename: directory-wide
+            # sync IO, off the event loop like the extraction itself (audit5 X8).
+            if extracted_dir.exists():
+                shutil.rmtree(extracted_dir, ignore_errors=True)
+            staging_dir.replace(extracted_dir)
+
+        await asyncio.to_thread(_swap_into_place)
     except Exception as e:
         # Remove only our own partial extract — never a shared directory.
         shutil.rmtree(staging_dir, ignore_errors=True)

@@ -68,9 +68,10 @@ async def ingest_local_html(
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process associated files
+    # Process associated files (bulk file copies are IO-bound: off the loop,
+    # audit5 X9)
     if not no_images:
-        _copy_associated_files(query.html_path, images_dir)
+        await asyncio.to_thread(_copy_associated_files, query.html_path, images_dir)
 
     # Image resolver from copied files (name + stem → relative path).
     image_stem_map: dict[str, Path] = {}

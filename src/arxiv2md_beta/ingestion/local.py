@@ -298,9 +298,10 @@ async def _ingest_html_archive(
     images_dir = paper_output_dir / images_dir_name
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy images from extracted archive to output directory
+    # Copy images from extracted archive to output directory (bulk copies
+    # are IO-bound: off the loop, audit5 X9)
     if not no_images:
-        _copy_local_images(extracted_dir, images_dir)
+        await asyncio.to_thread(_copy_local_images, extracted_dir, images_dir)
 
     # Build an image resolver from the copied files: map each image's name and
     # stem to its path relative to paper_output_dir (e.g. "images/foo.png").
