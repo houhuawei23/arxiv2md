@@ -7,6 +7,7 @@ the four paths cannot drift.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,7 +136,9 @@ async def _process_with(
     # --force bypasses the check. The identity must match the value each
     # ingestion path writes into the marker (see layout.identity_for_*).
     if not params.force:
-        done = find_completed_output_dir(base_output_dir, spec.identity(query))
+        # Offloaded: the scan walks every sibling output directory (sync IO)
+        # and would otherwise stall the loop for all batch workers.
+        done = await asyncio.to_thread(find_completed_output_dir, base_output_dir, spec.identity(query))
         if done is not None:
             logger.info(f"Skip (already converted): {done}; use --force to re-convert")
             return done

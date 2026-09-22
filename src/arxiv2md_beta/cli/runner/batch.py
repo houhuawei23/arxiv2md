@@ -132,10 +132,12 @@ async def run_batch_flow(
             if index in duplicates:
                 return (line, None, None, duplicates[index])
             if stop_event is not None and stop_event.is_set():
-                return (stripped, "skipped: an earlier conversion failed", None, "error")
+                # Distinct status: the row never ran, so it must not count as
+                # a failure for the batch exit code (audit4 P2).
+                return (stripped, "skipped: an earlier conversion failed", None, "not-run")
             merged = merge_convert_params(template, stripped)
             if not force:
-                done = find_completed_for_input(stripped, merged)
+                done = await asyncio.to_thread(find_completed_for_input, stripped, merged)
                 if done is not None:
                     logger.info(f"Batch skip (already converted): {done}")
                     out_dir = str(done.resolve())
@@ -147,7 +149,7 @@ async def run_batch_flow(
                     )
                     return (stripped, None, out_dir, "skip-done")
             if stop_event is not None and stop_event.is_set():
-                return (stripped, "skipped: an earlier conversion failed", None, "error")
+                return (stripped, "skipped: an earlier conversion failed", None, "not-run")
             if delay_seconds > 0 and index > 0:
                 await asyncio.sleep(delay_seconds)
             try:

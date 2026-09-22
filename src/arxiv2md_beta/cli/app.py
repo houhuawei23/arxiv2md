@@ -325,6 +325,11 @@ def batch_cmd(
 
     any_err = False
     for inp, err, pdir, status in results:
+        if status == "not-run":
+            # Blocked by --fail-fast before starting: distinct from a real
+            # failure and must not drive the batch exit code (audit4 P2).
+            table.add_row(inp, "not-run", err or "")
+            continue
         if err:
             any_err = True
             table.add_row(inp, "error", err)

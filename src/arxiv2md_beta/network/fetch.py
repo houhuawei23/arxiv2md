@@ -38,7 +38,8 @@ async def fetch_arxiv_html(
     html_path = cache_dir / "source.html"
 
     if use_cache and _is_cache_fresh(html_path):
-        html_text = html_path.read_text(encoding="utf-8")
+        # Offloaded: a full cached HTML read is sync IO in the hot batch path.
+        html_text = await asyncio.to_thread(html_path.read_text, encoding="utf-8")
         try:
             _reject_no_content_placeholder(html_text)
         except NetworkError:
@@ -189,7 +190,7 @@ async def fetch_arxiv_pdf(
 
     if use_cache and _is_cache_fresh(cache_path):
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cache_path, output_path)
+        await asyncio.to_thread(shutil.copy2, cache_path, output_path)
         logger.debug(f"Using cached PDF for {arxiv_id}")
         return output_path
 
@@ -272,7 +273,7 @@ async def _download_pdf_from(pdf_url: str, *, cache_path: Path, output_path: Pat
                         tmp_path.unlink(missing_ok=True)
 
                     output_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(cache_path, output_path)
+                    await asyncio.to_thread(shutil.copy2, cache_path, output_path)
                     return output_path
         except NonRetryableNetworkError:
             raise

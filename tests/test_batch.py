@@ -149,6 +149,8 @@ async def test_run_batch_flow_fail_fast_stops(tmp_path: Path) -> None:
     assert out[0] == ("good1", None, "/ok", "ok")
     assert out[1] == ("bad", "fail", None, "error")
     assert "skipped" in out[2][1]
+    # audit4: a blocked row is "not-run", never a failure for the exit code.
+    assert out[2][3] == "not-run"
 
 
 @pytest.mark.asyncio
@@ -173,8 +175,9 @@ async def test_run_batch_flow_fail_fast_skips_before_admission(tmp_path: Path) -
         )
     assert calls == ["bad"]
     assert out[0] == ("bad", "fail", None, "error")
-    for _line, err, _path, _status in out[1:]:
+    for _line, err, _path, status in out[1:]:
         assert "skipped" in (err or "")
+        assert status == "not-run"
 
 
 @pytest.mark.asyncio
