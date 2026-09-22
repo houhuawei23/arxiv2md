@@ -9,7 +9,11 @@ crashed run still leaves a usable snapshot of everything completed so far.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -97,15 +101,24 @@ def read_paper_manifest(paper_output_dir: Path) -> dict[str, Any] | None:
 class BatchManifestRecorder:
     """Incrementally maintained ``download_manifest.json`` for a batch run.
 
-    The whole file is rewritten (atomically) after every entry: N is small,
-    and the file on disk then doubles as a crash snapshot — a re-run pre-fills
-    ``ok`` entries from it and only retries the rest.
+    The whole file is rewritten (atomically) on a throttled cadence so the
+    file on disk doubles as a crash snapshot — a re-run pre-fills ``ok``
+    entries from it and only retries the rest. Full-file rewrites used to
+    fire on *every* entry, which for n=1000 meant ~150MB of serialized JSON
+    written synchronously on the event loop; flushes are now at most one per
+    :attr:`min_flush_interval_s` (the first entry always lands immediately),
+    batch end flushes explicitly, and :meth:`arecord` pushes the write to a
+    worker thread.
     """
 
-    def __init__(self, base_output_dir: Path) -> None:
+    def __init__(self, base_output_dir: Path, *, min_flush_interval_s: float = 2.0) -> None:
         self.path = base_output_dir / BATCH_MANIFEST_FILENAME
+        self.min_flush_interval_s = min_flush_interval_s
         self.started_at = _utc_now_iso()
         self.entries: list[dict[str, Any]] = []
+        # 0.0 makes the first record always flush (monotonic() is far ahead).
+        self._last_flush_monotonic = 0.0
+        self._flush_lock = threading.Lock()
         self._prefill_from_existing()
 
     def _prefill_from_existing(self) -> None:
@@ -140,7 +153,36 @@ class BatchManifestRecorder:
                 "error": error,
             }
         )
+        self.maybe_flush()
+
+    def maybe_flush(self) -> None:
+        """Flush only when the throttle window has elapsed (no-op otherwise)."""
+        if time.monotonic() - self._last_flush_monotonic < self.min_flush_interval_s:
+            return
         self.flush()
+
+    async def arecord(self, **kwargs: Any) -> None:
+        """Async sibling of :meth:`record`: append on the loop, write off it.
+
+        Batch worker tasks call this so the throttled full-file rewrite runs
+        in the default executor instead of stalling every other worker.
+        """
+        self._append(kwargs)
+        if time.monotonic() - self._last_flush_monotonic >= self.min_flush_interval_s:
+            await asyncio.to_thread(self.flush)
+
+    def _append(self, kwargs: dict[str, Any]) -> None:
+        self.entries.append(
+            {
+                "input": kwargs["input_line"],
+                "status": kwargs["status"],
+                "output_dir": kwargs.get("output_dir"),
+                "arxiv_id": kwargs.get("arxiv_id"),
+                "title": kwargs.get("title"),
+                "duration_seconds": kwargs.get("duration_seconds"),
+                "error": kwargs.get("error"),
+            }
+        )
 
     def flush(self) -> None:
         totals: dict[str, int] = {}
@@ -154,16 +196,20 @@ class BatchManifestRecorder:
             "totals": totals,
             "entries": self.entries,
         }
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.path.with_suffix(f".{datetime.now(timezone.utc).timestamp()}.part")
-            tmp_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            tmp_path.replace(self.path)
-        except OSError as exc:
-            logger.warning(f"Failed to write {BATCH_MANIFEST_FILENAME}: {exc}")
+        # Concurrent to_thread flushes must serialize: two interleaved
+        # replaces could otherwise land an older payload last.
+        with self._flush_lock:
+            self._last_flush_monotonic = time.monotonic()
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = self.path.with_suffix(f".{uuid.uuid4().hex}.part")
+                tmp_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                tmp_path.replace(self.path)
+            except OSError as exc:
+                logger.warning(f"Failed to write {BATCH_MANIFEST_FILENAME}: {exc}")
 
 
 def batch_entry_details_from_manifest(output_dir: Path | None) -> dict[str, Any]:

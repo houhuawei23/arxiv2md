@@ -123,7 +123,9 @@ async def run_batch_flow(
         force = params_template.force
         template = params_template
         base_output_dir = determine_output_dir(template.output)
-        recorder = BatchManifestRecorder(base_output_dir)
+        # Offloaded: the prefill reads + parses the previous run's whole
+        # manifest (sync IO) before the first worker even starts.
+        recorder = await asyncio.to_thread(BatchManifestRecorder, base_output_dir)
         # Stagger gate state (audit5 G3-6)
         start_gate = asyncio.Lock()
         next_slot = 0.0
@@ -144,7 +146,7 @@ async def run_batch_flow(
                 if done is not None:
                     logger.info(f"Batch skip (already converted): {done}")
                     out_dir = str(done.resolve())
-                    recorder.record(
+                    await recorder.arecord(
                         input_line=stripped,
                         status="skipped_done",
                         output_dir=out_dir,
@@ -175,7 +177,7 @@ async def run_batch_flow(
                 # (audit5 G3-2).
                 manifest_status = details.pop("manifest_status", None)
                 record_status = manifest_status if manifest_status in ("pdf_only", "allowed_stub") else "ok"
-                recorder.record(
+                await recorder.arecord(
                     input_line=stripped,
                     status=record_status,
                     output_dir=out_dir,
@@ -185,7 +187,7 @@ async def run_batch_flow(
             except PdfFallbackCompleted as exc:
                 # Partial success: PDF ready, no Markdown. Not a hard failure.
                 fb_dir = exc.paper_output_dir
-                recorder.record(
+                await recorder.arecord(
                     input_line=stripped,
                     status="pdf_fallback",
                     output_dir=fb_dir,
@@ -195,12 +197,12 @@ async def run_batch_flow(
             except (Arxiv2mdError, OSError) as exc:
                 if stop_event is not None:
                     stop_event.set()
-                recorder.record(input_line=stripped, status="error", error=str(exc))
+                await recorder.arecord(input_line=stripped, status="error", error=str(exc))
                 return (stripped, str(exc), None, "error")
             except Exception as exc:
                 if stop_event is not None:
                     stop_event.set()
-                recorder.record(input_line=stripped, status="error", error=f"{type(exc).__name__}: {exc}")
+                await recorder.arecord(input_line=stripped, status="error", error=f"{type(exc).__name__}: {exc}")
                 return (stripped, f"{type(exc).__name__}: {exc}", None, "error")
 
         queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue(maxsize=worker_count)
@@ -259,6 +261,9 @@ async def run_batch_flow(
         for _ in workers:
             await put_or_abandon(None)
         await asyncio.gather(*workers, return_exceptions=True)
+        # Explicit final flush: throttled writes mean the last entries may
+        # still be memory-only when the run ends.
+        await asyncio.to_thread(recorder.flush)
         while not queue.empty():
             item = queue.get_nowait()
             queue.task_done()

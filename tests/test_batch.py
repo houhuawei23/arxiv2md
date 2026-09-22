@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -268,6 +269,12 @@ async def test_pdf_only_dir_not_recorded_as_ok(tmp_path: Path) -> None:
         def record(self, **kwargs) -> None:
             records.append(kwargs)
 
+        async def arecord(self, **kwargs) -> None:
+            self.record(**kwargs)
+
+        async def flush(self) -> None:
+            return None
+
     lines = ["1234.5678"]
     with (
         patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect),
@@ -352,3 +359,27 @@ async def test_worker_death_keeps_all_result_slots(tmp_path: Path) -> None:
     # third line keeps its own slot instead of being shifted/lost
     assert out[2][0] == "third"
     assert out[2][3] in ("ok", "error")
+
+
+@pytest.mark.asyncio
+async def test_batch_flushes_manifest_at_end_despite_throttle(tmp_path: Path) -> None:
+    """S6 PR6.1: throttled record() must not lose the tail of a fast batch."""
+
+    async def side_effect(params: ConvertParams) -> Path:
+        out_dir = tmp_path / params.input_text.replace(".", "-")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+
+    lines = ["2501.00001", "2501.00002", "2501.00003"]
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        out = await run_batch_flow(
+            lines,
+            params_template=_template(output=str(tmp_path)),
+            max_concurrency=3,
+            continue_on_error=True,
+            delay_seconds=0.0,
+        )
+    assert all(r[3] == "ok" for r in out), out
+    data = json.loads((Path(out[0][2]).parent / "download_manifest.json").read_text(encoding="utf-8"))
+    assert len(data["entries"]) == 3
+    assert data["totals"] == {"ok": 3}
