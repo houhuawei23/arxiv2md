@@ -282,3 +282,73 @@ async def test_pdf_only_dir_not_recorded_as_ok(tmp_path: Path) -> None:
         )
     assert out[0][3] == "pdf_only", out
     assert records and records[0]["status"] == "pdf_only"
+
+
+@pytest.mark.asyncio
+async def test_delay_seconds_staggers_globally(tmp_path: Path) -> None:
+    """audit5 G3-6: --delay-seconds gates starts globally, not per-task.
+
+    With per-index sleeps, j workers grabbed the first j lines and all
+    fired together at t=delay.
+    """
+    import time
+
+    starts: list[float] = []
+    delay = 0.15
+
+    async def side_effect(params: ConvertParams) -> Path:
+        starts.append(time.monotonic())
+        await asyncio.sleep(0.01)
+        return tmp_path / "out"
+
+    lines = ["a", "b", "c", "d"]
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        await asyncio.wait_for(
+            run_batch_flow(
+                lines,
+                params_template=_template(output=str(tmp_path)),
+                max_concurrency=4,
+                continue_on_error=True,
+                delay_seconds=delay,
+            ),
+            10,
+        )
+    assert len(starts) == 4
+    starts.sort()
+    spread = starts[-1] - starts[0]
+    # staggered: 3 gates * delay (with slack) — the old burst finished in ~delay
+    assert spread >= delay * 2, f"starts not staggered: spread={spread:.3f}"
+
+
+@pytest.mark.asyncio
+async def test_worker_death_keeps_all_result_slots(tmp_path: Path) -> None:
+    """audit5 G3-5: a worker-killing exception must not hang the batch.
+
+    Result slots survive too — filtering Nones silently shifted later
+    lines.
+    """
+
+    async def side_effect(params: ConvertParams) -> Path:
+        if params.input_text == "kill":
+            raise KeyboardInterrupt
+        return tmp_path / "out"
+
+    lines = ["first", "kill", "third"]
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        out = await asyncio.wait_for(
+            run_batch_flow(
+                lines,
+                params_template=_template(output=str(tmp_path)),
+                max_concurrency=1,
+                continue_on_error=True,
+                delay_seconds=0.0,
+            ),
+            10,
+        )
+    assert len(out) == 3, f"slots lost: {out}"
+    assert out[0][0] == "first" and out[0][3] == "ok"
+    assert out[1][0] == "kill" and out[1][3] == "error"
+    assert "KeyboardInterrupt" in out[1][1]
+    # third line keeps its own slot instead of being shifted/lost
+    assert out[2][0] == "third"
+    assert out[2][3] in ("ok", "error")

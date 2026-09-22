@@ -124,6 +124,9 @@ async def run_batch_flow(
         template = params_template
         base_output_dir = determine_output_dir(template.output)
         recorder = BatchManifestRecorder(base_output_dir)
+        # Stagger gate state (audit5 G3-6)
+        start_gate = asyncio.Lock()
+        next_slot = 0.0
 
         async def run_one(line: str, index: int) -> tuple[str, str | None, str | None, str]:
             stripped = line.strip()
@@ -150,8 +153,19 @@ async def run_batch_flow(
                     return (stripped, None, out_dir, "skip-done")
             if stop_event is not None and stop_event.is_set():
                 return (stripped, "skipped: an earlier conversion failed", None, "not-run")
-            if delay_seconds > 0 and index > 0:
-                await asyncio.sleep(delay_seconds)
+            nonlocal next_slot
+
+            if delay_seconds > 0:
+                # Global next-slot gate: with per-task sleeps, j workers all
+                # grabbed the first j lines and fired together at t=delay
+                # (audit5 G3-6).
+                async with start_gate:
+                    loop_time = asyncio.get_running_loop().time()
+                    wait = next_slot - loop_time
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                        loop_time = asyncio.get_running_loop().time()
+                    next_slot = max(next_slot, loop_time) + delay_seconds
             try:
                 out = await run_convert_flow(merged)
                 out_dir = str(out.resolve())
@@ -210,14 +224,54 @@ async def run_batch_flow(
                         results[index] = (line.strip(), f"{type(exc).__name__}: {exc}", None, "error")
                         if stop_event is not None:
                             stop_event.set()
+                    except BaseException as exc:
+                        # Worker-death class (KeyboardInterrupt, SystemExit):
+                        # record the slot and stop this worker gracefully —
+                        # an unhandled death left queued items unconsumed and
+                        # hung queue.join() (audit5 G3-5).
+                        results[index] = (line.strip(), f"{type(exc).__name__}: {exc}", None, "error")
+                        if stop_event is not None:
+                            stop_event.set()
+                        return
                 finally:
                     queue.task_done()
 
         workers = [asyncio.create_task(worker()) for _ in range(worker_count)]
+
+        async def put_or_abandon(item: tuple[int, str] | None) -> bool:
+            """Put *item* unless every worker is already dead.
+
+            A worker killed by a BaseException stopped draining the queue, so
+            a plain ``await queue.put`` could block forever once the bounded
+            queue filled up (audit5 G3-5). Polling keeps the producer
+            cancellable and detects dead workers.
+            """
+            while not all(w.done() for w in workers):
+                try:
+                    await asyncio.wait_for(queue.put(item), timeout=0.1)
+                    return True
+                except asyncio.TimeoutError:
+                    continue
+            return False
+
         for index, line in enumerate(lines):
-            await queue.put((index, line))
+            await put_or_abandon((index, line))
         for _ in workers:
-            await queue.put(None)
-        await queue.join()
-        await asyncio.gather(*workers)
-        return [result for result in results if result is not None]
+            await put_or_abandon(None)
+        await asyncio.gather(*workers, return_exceptions=True)
+        while not queue.empty():
+            item = queue.get_nowait()
+            queue.task_done()
+            if item is not None:
+                index, line = item
+                if results[index] is None:
+                    results[index] = (line.strip(), "not-run: batch worker stopped", None, "error")
+        # Every line keeps its slot: filtering Nones silently shifted the
+        # position of every later result (audit5 G3-5).
+        filled: list[tuple[str, str | None, str | None, str]] = []
+        for index, line in enumerate(lines):
+            result = results[index]
+            if result is None:
+                result = (line.strip(), "not-run: batch worker stopped", None, "error")
+            filled.append(result)
+        return filled
