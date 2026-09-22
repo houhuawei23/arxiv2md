@@ -57,7 +57,44 @@ def _within_base_dir(path: Path, base_dir: Path) -> bool:
     return True
 
 
-def resolve_latex_includes(main_file: Path, base_dir: Path) -> str:
+class _IncludeContext:
+    r"""Shared state for one include resolution (audit5 X2).
+
+    Previously every unresolved ``\input`` triggered its own ``rglob`` walk of
+    the whole extracted archive; the fallback now consults a filename index
+    built lazily from a single walk and shared across the whole recursion.
+    The per-mode flags let the image/affiliation expansion path reuse this
+    resolver with ``\lstinputlisting``/``\bibliography``/orphan handling
+    disabled (the old duplicate implementation's behavior).
+    """
+
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+        self.stack: set[Path] = set()  # active recursion chain (cycle guard)
+        self.expand_lstinputlisting = True
+        self.expand_bibliography = True
+        self.fix_orphan_ends = True
+        self._index: dict[str, list[Path]] | None = None
+
+    def filename_index(self) -> dict[str, list[Path]]:
+        """Paths under base_dir keyed by basename, in directory-walk order."""
+        if self._index is None:
+            index: dict[str, list[Path]] = {}
+            for p in self.base_dir.rglob("*"):
+                if p.is_file():
+                    index.setdefault(p.name, []).append(p)
+            self._index = index
+        return self._index
+
+
+def resolve_latex_includes(
+    main_file: Path,
+    base_dir: Path,
+    *,
+    expand_lstinputlisting: bool = True,
+    expand_bibliography: bool = True,
+    fix_orphan_ends: bool = True,
+) -> str:
     r"""Recursively expand ``\\input`` / ``\\include`` / ``\\lstinputlisting``.
 
     Returns the complete LaTeX content of *main_file* with all includes inlined
@@ -67,17 +104,24 @@ def resolve_latex_includes(main_file: Path, base_dir: Path) -> str:
     subtrees (a diamond) expands both times — only the active recursion chain
     guards the cycle check (audit4 P2: the old global visited set dropped the
     second inclusion's content).
+
+    The three flags are off for the image/affiliation expansion path, which
+    used to run a second, diverging implementation (audit5 X2 unification).
     """
-    stack: set[Path] = set()
-    return _resolve_includes_recursive(main_file, base_dir, stack)
+    ctx = _IncludeContext(base_dir)
+    ctx.expand_lstinputlisting = expand_lstinputlisting
+    ctx.expand_bibliography = expand_bibliography
+    ctx.fix_orphan_ends = fix_orphan_ends
+    return _resolve_includes_recursive(main_file, ctx)
 
 
 def _resolve_includes_recursive(
     tex_file: Path,
-    base_dir: Path,
-    stack: set[Path],
+    ctx: _IncludeContext,
 ) -> str:
-    """Recursively resolve includes in a LaTeX file (*stack* = active chain)."""
+    """Recursively resolve includes in a LaTeX file (*ctx.stack* = active chain)."""
+    stack = ctx.stack
+    base_dir = ctx.base_dir
     if tex_file in stack:
         logger.warning(f"Circular include detected: {tex_file}")
         return ""
@@ -99,7 +143,7 @@ def _resolve_includes_recursive(
         # Normalize: LaTeX adds .tex automatically for \input/\include
         stem = included_file_str[:-4] if included_file_str.endswith(".tex") else included_file_str
 
-        # Try multiple paths: as-is, with .tex, and rglob
+        # Try multiple paths: as-is, with .tex, and basename index
         candidates = [
             base_dir / included_file_str,  # e.g. data/prompt_summary.md
             base_dir / f"{stem}.tex",
@@ -111,26 +155,23 @@ def _resolve_includes_recursive(
                 included_file = cand
                 break
         if included_file is None:
-            # Try rglob for basename (handles tables/safety_cot etc.)
+            # Basename fallback (handles tables/safety_cot etc.) via the one
+            # prebuilt index instead of a full rglob per miss (audit5 X2).
             name = Path(included_file_str).name
-            for p in base_dir.rglob(name):
+            index = ctx.filename_index()
+            for p in index.get(name, []) + index.get(f"{stem}.tex", []):
+                # A pattern with ".." components escapes base_dir (rglob
+                # follows them), hence the containment check here too.
                 if p.is_file() and _within_base_dir(p, base_dir):
                     included_file = p
                     break
-            if included_file is None:
-                # A pattern with ".." components escapes base_dir (rglob
-                # follows them), hence the containment check here too.
-                for p in base_dir.rglob(f"{stem}.tex"):
-                    if p.is_file() and _within_base_dir(p, base_dir):
-                        included_file = p
-                        break
         if included_file is None:
             logger.warning(f"Included file not found: {included_file_str}")
             # Replace with empty to avoid Pandoc failing on missing \input
             return ""
 
         # Recursively resolve includes in the included file
-        return _resolve_includes_recursive(included_file, base_dir, stack)
+        return _resolve_includes_recursive(included_file, ctx)
 
     def replace_lstinputlisting(match: re.Match[str]) -> str:
         r"""Replace ``\lstinputlisting{file}`` with file content as a code block."""
@@ -153,9 +194,12 @@ def _resolve_includes_recursive(
         return ""
 
     content = _INCLUDE_PATTERN.sub(replace_include, content)
-    content = _LSTINPUT_PATTERN.sub(replace_lstinputlisting, content)
-    content = _resolve_bibliography(content, base_dir, tex_file)
-    content = _fix_orphan_ends(content)
+    if ctx.expand_lstinputlisting:
+        content = _LSTINPUT_PATTERN.sub(replace_lstinputlisting, content)
+    if ctx.expand_bibliography:
+        content = _resolve_bibliography(content, base_dir, tex_file)
+    if ctx.fix_orphan_ends:
+        content = _fix_orphan_ends(content)
     stack.discard(tex_file)
     return content
 

@@ -9,6 +9,7 @@ import shutil
 import tarfile
 import uuid
 import zipfile
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +20,6 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, NonRetryableNetworkError, StorageError
-from arxiv2md_beta.latex.includes import _after_unescaped_comment
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
 from arxiv2md_beta.network.retry import compute_backoff
@@ -529,45 +529,47 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     return max(tex_files, key=lambda p: p.stat().st_size)
 
 
-def _expand_tex_includes(tex_file: Path, base_dir: Path, stack: set[Path] | None = None) -> str:
-    r"""Expand \\input and \\include in document order for image extraction.
+def _expand_tex_includes(tex_file: Path, base_dir: Path) -> str:
+    r"""Expand ``\\input`` / ``\\include`` in *tex_file* (image/affiliation path).
 
-    *stack* holds the active recursion chain (not a global visited set): the
-    same file legitimately included by two sibling subtrees expands both
-    times, while a true cycle still terminates (audit4 P2).
+    Delegates to the single resolver in :mod:`arxiv2md_beta.latex.includes`
+    with the pandoc-only passes disabled — the old second implementation with
+    its own recursion is gone (audit5 X2 unification).
     """
-    if stack is None:
-        stack = set()
-    if tex_file in stack:
-        return ""
-    stack.add(tex_file)
-    if not tex_file.exists():
-        stack.discard(tex_file)
-        return ""
-    content = tex_file.read_text(encoding="utf-8", errors="ignore")
-    include_pattern = re.compile(r"\\(?:input|include)\{([^}]+)\}")
+    from arxiv2md_beta.latex.includes import resolve_latex_includes
 
-    def replace_include(match: re.Match[str]) -> str:
-        # Mid-line comments hide includes too ("foo % \input{x}") — reuse
-        # the escape-aware check (audit5 R-4).
-        if _after_unescaped_comment(content, match.start()):
-            return match.group(0)
-        name = match.group(1).strip()
-        stem = name[:-4] if name.endswith(".tex") else name
-        for cand in [base_dir / name, base_dir / f"{stem}.tex", base_dir / stem]:
-            # Containment check mirrors includes.py (audit5 G3-4): a
-            # "../.." path must not read files outside the archive.
-            if cand.exists() and cand.is_file() and cand.resolve().is_relative_to(base_dir.resolve()):
-                return _expand_tex_includes(cand, base_dir, stack)
-        for p in base_dir.rglob(Path(name).name):
-            # rglob patterns with ".." escape base_dir; check containment
-            # (audit5 G3-4)
-            if p.is_file() and p.resolve().is_relative_to(base_dir.resolve()):
-                return _expand_tex_includes(p, base_dir, stack)
-        return ""
+    return resolve_latex_includes(
+        tex_file,
+        base_dir,
+        expand_lstinputlisting=False,
+        expand_bibliography=False,
+        fix_orphan_ends=False,
+    )
 
-    expanded = include_pattern.sub(replace_include, content)
-    stack.discard(tex_file)
+
+# One expansion per (main tex, extract dir) serves the image parse, the
+# figure-env parse and the author/affiliation parse (audit5 X2: it used to
+# run three times). Keyed with the extract dir's mtime so a fresh extract
+# re-expands; LRU-capped because expanded trees are megabyte-scale strings.
+_EXPANDED_TEX_CACHE: OrderedDict[tuple[str, str, int], str] = OrderedDict()
+_EXPANDED_TEX_CACHE_MAX = 8
+
+
+def _expanded_tex_cached(tex_file: Path, base_dir: Path) -> str:
+    """Memoized :func:`_expand_tex_includes`."""
+    try:
+        sig = base_dir.stat().st_mtime_ns
+    except OSError:
+        sig = 0
+    key = (str(tex_file), str(base_dir), sig)
+    hit = _EXPANDED_TEX_CACHE.get(key)
+    if hit is not None:
+        _EXPANDED_TEX_CACHE.move_to_end(key)
+        return hit
+    expanded = _expand_tex_includes(tex_file, base_dir)
+    _EXPANDED_TEX_CACHE[key] = expanded
+    while len(_EXPANDED_TEX_CACHE) > _EXPANDED_TEX_CACHE_MAX:
+        _EXPANDED_TEX_CACHE.popitem(last=False)
     return expanded
 
 
@@ -575,7 +577,7 @@ def expand_tex_source_for_parsing(tex_source_info: TexSourceInfo) -> str:
     r"""Expand ``\\input`` / ``\\include`` from the main ``.tex`` for author/affiliation parsing."""
     if not tex_source_info.main_tex_file:
         return ""
-    return _expand_tex_includes(tex_source_info.main_tex_file, tex_source_info.extracted_dir)
+    return _expanded_tex_cached(tex_source_info.main_tex_file, tex_source_info.extracted_dir)
 
 
 def _find_matching_brace_end(text: str, open_brace_idx: int) -> int | None:
@@ -721,7 +723,7 @@ def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path
     metadata (``\\affiliation{...}`` logos) are excluded so institution logos do
     not occupy processing slots.
     """
-    expanded = _expand_tex_includes(tex_file, base_dir)
+    expanded = _expanded_tex_cached(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
     expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
     index = _ImageIndex.build(all_images)
@@ -768,7 +770,7 @@ def _parse_figure_env_images_from_tex(tex_file: Path, base_dir: Path, all_images
     This list feeds the figure-index map only; every image still gets processed
     via :func:`_parse_images_from_tex`.
     """
-    expanded = _expand_tex_includes(tex_file, base_dir)
+    expanded = _expanded_tex_cached(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
     expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
     figure_text = _extract_figure_env_text(expanded)
