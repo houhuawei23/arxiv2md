@@ -15,6 +15,7 @@ from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.latex.tex_source import (
     ArchiveExtractionError,
     TexSourceInfo,
+    _find_matching_brace_end,
     extract_local_archive,
 )
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
@@ -564,16 +565,113 @@ def _texsoup_extract_text(node) -> str:
     else:
         content = str(node)
 
-    content = re.sub(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?", "", content)
+    content = _strip_latex_commands(content)
     content = re.sub(r"\{|\}", "", content)
     content = re.sub(r"\s+", " ", content)
     return content.strip()
 
 
+# Commands whose brace argument is decoration, not content: the argument is
+# dropped with the command name. Everything else keeps its argument text.
+_TEX_DROP_ARG_COMMANDS = frozenset(
+    {
+        "begin",
+        "end",
+        "vspace",
+        "hspace",
+        "vfill",
+        "hfill",
+        "vskip",
+        "hskip",
+        "vglue",
+        "hglue",
+        "rule",
+        "label",
+        "includegraphics",
+        "setlength",
+        "addtolength",
+        "setcounter",
+        "addtocounter",
+        "pagestyle",
+        "thispagestyle",
+        "usepackage",
+        "documentclass",
+        "newcommand",
+        "renewcommand",
+        "bibliographystyle",
+        "nocite",
+    }
+)
+
+_TEX_COMMAND_NAME_RE = re.compile(r"\\([a-zA-Z]+)\*?")
+
+
+def _strip_latex_commands(text: str) -> str:
+    r"""Remove LaTeX command names but keep their brace-group arguments.
+
+    ``\textbf{fast}`` must yield ``fast`` — the previous single regex dropped
+    the argument together with the command name, silently deleting words from
+    extracted titles/abstracts (audit4 B5). Decoration commands (spacing,
+    labels, packages, ...) lose their argument by design; escaped literals
+    (``\%``, ``\&``, ``\$``) survive as the literal character and ``\\``
+    becomes a space. Recurses through brace groups, so nested formatting
+    peels correctly.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "{":
+            end = _find_matching_brace_end(text, i)
+            if end is None:
+                out.append(text[i + 1 :])  # unbalanced: keep inner text
+                break
+            out.append(_strip_latex_commands(text[i + 1 : end]))
+            i = end + 1
+            continue
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+        m = _TEX_COMMAND_NAME_RE.match(text, i)
+        if m is None:
+            # Not a letter command: escaped literal or line break.
+            nxt = text[i + 1] if i + 1 < n else ""
+            out.append(" " if nxt == "\\" else nxt)
+            i += 2 if nxt else 1
+            continue
+        cmd = m.group(1)
+        i = m.end()
+        # Skip whitespace and optional [...] args before the groups.
+        while i < n:
+            if text[i].isspace():
+                i += 1
+            elif text[i] == "[":
+                close = text.find("]", i)
+                i = close + 1 if close != -1 else n
+            else:
+                break
+        drop_args = cmd in _TEX_DROP_ARG_COMMANDS
+        while i < n and text[i] == "{":
+            end = _find_matching_brace_end(text, i)
+            if end is None:
+                if not drop_args:
+                    out.append(text[i + 1 :])
+                i = n
+                break
+            if not drop_args:
+                out.append(_strip_latex_commands(text[i + 1 : end]))
+            i = end + 1
+    # Collapsed here so dropping a command+args never leaves a doubled space
+    # behind (callers strip, but the function is self-consistent on its own).
+    return re.sub(r"\s+", " ", "".join(out))
+
+
 def _clean_latex_text(text: str) -> str:
     """Clean LaTeX text by removing commands and formatting."""
     text = re.sub(r"^\s*%\s*", "", text)
-    text = re.sub(r"\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*(\{[^\}]*\})?", "", text)
+    text = _strip_latex_commands(text)
     text = re.sub(r"\{|\}", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
