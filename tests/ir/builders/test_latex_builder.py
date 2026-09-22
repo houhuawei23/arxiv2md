@@ -845,3 +845,61 @@ class TestTableRowspanAlignment:
         assert len(rows[0]) == 2, f"row shifted: {[len(r) for r in rows]}"
         assert rows[0][0] == []
         assert rows[0][1][0].text == "bottom"
+
+
+class TestBibliographySlotPreservation:
+    """audit5 G1-6: every thebibliography entry must keep its slot.
+
+    Inline ``[N]`` citations index into the entry list; dropping an
+    empty/unparseable entry silently shifted every later citation onto the
+    wrong entry. Slots now get placeholders (or keep their printed label).
+    """
+
+    @staticmethod
+    def _refs_section():
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        blocks = [
+            {"t": "Header", "c": [1, ["", [], []], [{"t": "Str", "c": "Intro"}]]},
+            {"t": "Para", "c": [{"t": "Str", "c": "Body text."}]},
+            {
+                "t": "Div",
+                "c": [
+                    ["", ["thebibliography"], []],
+                    [
+                        {"t": "Para", "c": []},  # entry 1: empty body
+                        # entry 2: Div whose children all filter away
+                        {
+                            "t": "Div",
+                            "c": [
+                                ["", [], []],
+                                [{"t": "Para", "c": []}],
+                            ],
+                        },
+                        # entry 3: numeric-only paragraph (bibitem label)
+                        {"t": "Para", "c": [{"t": "Str", "c": "10"}]},
+                        # entry 4: a real entry
+                        {"t": "Para", "c": [{"t": "Str", "c": "Real entry text."}]},
+                    ],
+                ],
+            },
+        ]
+        sections = B()._build_sections(blocks)
+        refs = [s for s in sections if s.title == "References"]
+        assert refs, "References section not materialized"
+        return refs[0]
+
+    def test_empty_entries_keep_placeholder_slots(self) -> None:
+        items = self._refs_section().blocks[0].items
+        assert len(items) == 4, f"entry slots lost: {len(items)}"
+        assert items[0][0].inlines[0].text == "[reference entry could not be parsed]"
+        assert items[1][0].inlines[0].text == "[reference entry could not be parsed]"
+
+    def test_numeric_label_kept_as_slot_content(self) -> None:
+        items = self._refs_section().blocks[0].items
+        # the printed label is informative: keep it rather than dropping
+        assert items[2][0].inlines[0].text == "10"
+
+    def test_real_entry_unchanged(self) -> None:
+        items = self._refs_section().blocks[0].items
+        assert items[3][0].inlines[0].text == "Real entry text."

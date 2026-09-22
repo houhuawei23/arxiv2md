@@ -160,6 +160,16 @@ _GLUE_STRIP_RE = re.compile(r"\\(?:v|h|m)skip(?:\s*\{[^{}]*\})?")
 _BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
 _REF_FRAGMENT_RE = re.compile(r"#ref-\d+")
 
+
+def _ref_entry_placeholder() -> ParagraphIR:
+    """Placeholder for a bibliography slot whose content could not be parsed.
+
+    The slot still occupies a reference number; dropping it would shift every
+    later inline ``[N]`` citation onto the wrong entry (audit4 P2, audit5 G1-6).
+    """
+    return ParagraphIR(inlines=[TextIR(text="[reference entry could not be parsed]")])
+
+
 # TeX conditionals with a statically-false literal condition. Pandoc does NOT
 # evaluate ``\if0...\fi`` / ``\iffalse...\fi`` (it keeps BOTH branches), so a
 # disabled block that carries unbalanced ``\begin{enumerate}``/``\end{...}``
@@ -587,18 +597,17 @@ class LaTeXBuilder(IRBuilder):
                 ref_items: list[list[BlockUnion]] = []
                 for ref_blk in inner_blocks:
                     ref_ir = self._block_from_pandoc(ref_blk, section_id="", order=0)
-                    if ref_ir is None:
+                    if ref_ir is None or (
+                        isinstance(ref_ir, ParagraphIR) and not self._inlines_to_plain_text(ref_ir.inlines).strip()
+                    ):
                         # The entry still occupies a reference number: dropping
                         # it would shift every later inline [N] citation onto
-                        # the wrong entry (audit4 P2). Emit a placeholder.
-                        ref_items.append([ParagraphIR(inlines=[TextIR(text="[reference entry could not be parsed]")])])
+                        # the wrong entry (audit4 P2; audit5 G1-6 extends the
+                        # placeholder to all unparseable slots, not just
+                        # ref_ir=None). Numeric-only label paragraphs keep
+                        # their printed number as the slot content.
+                        ref_items.append([_ref_entry_placeholder()])
                         continue
-                    # Skip empty paragraphs and bibitem label paragraphs
-                    # (text is only a number like "10").
-                    if isinstance(ref_ir, ParagraphIR):
-                        plain = self._inlines_to_plain_text(ref_ir.inlines).strip()
-                        if not plain or re.match(r"^\d+\s*$", plain):
-                            continue
                     if isinstance(ref_ir, list):
                         non_empty = [
                             b
@@ -611,8 +620,9 @@ class LaTeXBuilder(IRBuilder):
                                 )
                             )
                         ]
-                        if non_empty:
-                            ref_items.append(non_empty)
+                        # A Div-wrapped entry whose children all filter away
+                        # still holds a reference number (audit5 G1-6).
+                        ref_items.append(non_empty if non_empty else [_ref_entry_placeholder()])
                     else:
                         ref_items.append([ref_ir])
                 ref_list = ListIR(
