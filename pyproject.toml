@@ -24,17 +24,6 @@ latex = [
     "pypandoc>=1.12",
     "TexSoup>=0.3.0",
 ]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-benchmark>=4.0.0",
-    "respx>=0.20.0",
-    "pre-commit>=3.0.0",
-    "ruff>=0.6.0",
-    "mypy>=1.8.0",
-    "types-aiofiles>=24.0.0",
-    "types-beautifulsoup4>=4.12.0",
-]
 
 [project.scripts]
 arxiv2md-beta = "arxiv2md_beta.cli:main"
@@ -56,11 +45,25 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Benchmark calibration (tests/benchmarks) stays out of the default run
+# (audit5 T-5): invoke it explicitly via `pytest tests/benchmarks`.
+norecursedirs = ".* build dist CVS _darcs {arch} *.egg tests/benchmarks"
 # Real-network tests are opt-in: `pytest -m real_paper` (they hit arxiv.org
 # and would otherwise run by default on any machine with proxy env vars set).
 addopts = "-m 'not real_paper'"
 markers = [
     "real_paper: tests that download and parse real arXiv papers (requires network + proxy)",
+]
+
+[tool.coverage.run]
+source = ["src/arxiv2md_beta"]
+omit = ["*/config/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
 ]
 
 [tool.ruff]
@@ -136,3 +139,20 @@ strict_equality = false
 ignore_missing_imports = true
 show_error_codes = true
 exclude = ["tests/", "demo/"]
+
+# uv-native dev group: `uv sync` installs it by default (the old
+# [project.optional-dependencies].dev extra was invisible to uv sync, so
+# tooling silently vanished from synced environments — audit5 T-1/T-6).
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
+    "pytest-cov>=7.1.0",
+    "respx>=0.20.0",
+    "pre-commit>=3.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.8.0",
+    "types-aiofiles>=24.0.0",
+    "types-beautifulsoup4>=4.12.0",
+]
