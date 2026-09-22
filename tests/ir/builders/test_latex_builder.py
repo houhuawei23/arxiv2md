@@ -903,3 +903,47 @@ class TestBibliographySlotPreservation:
     def test_real_entry_unchanged(self) -> None:
         items = self._refs_section().blocks[0].items
         assert items[3][0].inlines[0].text == "Real entry text."
+
+
+class TestDivAnchorFirstBlockOnly:
+    """audit5 G1-7: a Div's anchor must mark its FIRST child block only.
+
+    Spreading the id onto every child emitted one ``<a id="X">`` per block —
+    duplicate HTML ids and ambiguous repoint targets.
+    """
+
+    def test_anchor_lands_on_first_block_only(self) -> None:
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        blk = {
+            "t": "Div",
+            "c": [
+                ["fig-wrap", [], []],
+                [
+                    {"t": "Para", "c": [{"t": "Str", "c": "one"}]},
+                    {"t": "Para", "c": [{"t": "Str", "c": "two"}]},
+                    {"t": "Para", "c": [{"t": "Str", "c": "three"}]},
+                ],
+            ],
+        }
+        out = B()._block_from_pandoc(blk)
+        assert isinstance(out, list) and len(out) == 3
+        assert [b.anchor for b in out] == ["fig-wrap", None, None]
+
+    def test_child_own_anchor_not_overwritten(self) -> None:
+        from arxiv2md_beta.ir import LaTeXBuilder as B
+
+        blk = {
+            "t": "Div",
+            "c": [
+                ["outer", [], []],
+                [
+                    {"t": "Header", "c": [2, ["inner", [], []], [{"t": "Str", "c": "Sub"}]]},
+                    {"t": "Para", "c": [{"t": "Str", "c": "text"}]},
+                ],
+            ],
+        }
+        out = B()._block_from_pandoc(blk)
+        assert isinstance(out, list) and len(out) == 2
+        assert out[0].anchor == "inner"
+        assert out[1].anchor == "outer"

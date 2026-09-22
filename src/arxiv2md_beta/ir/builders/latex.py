@@ -999,9 +999,13 @@ class LaTeXBuilder(IRBuilder):
             anchor = _pandoc_attrs_id(attrs)
             div_blocks = self._blocks_from_pandoc(inner_blocks if isinstance(inner_blocks, list) else [], section_id)
             if anchor:
+                # Mark only the FIRST child: the id denotes where the Div
+                # starts. Spreading it onto every anchorless child emitted a
+                # duplicate ``<a id>`` per block (audit5 G1-7).
                 for b in div_blocks:
                     if not b.anchor:
                         b.anchor = anchor
+                        break
             return div_blocks if len(div_blocks) > 0 else None
         elif t == "RawBlock":
             fmt = str(c[0]) if isinstance(c, list) and len(c) > 0 else "latex"
