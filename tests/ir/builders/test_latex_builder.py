@@ -716,3 +716,58 @@ a & b & c \\
         collect(doc.sections)
         assert rows, "table not built"
         assert all(len(r) == 3 for r in rows), f"ragged rows: {[len(r) for r in rows]}"
+
+
+class TestConditionalCommentAwareness:
+    r"""audit5 C4: the \if scanner must not read comments or verbatim text.
+
+    The scanner counted \if…/\fi tokens anywhere in the file. A \if0 opened
+    inside a comment (the common "comment out a block with \if0" idiom) with
+    its \fi in another comment made the scanner strip every *real* line in
+    between; an untoken \fi made it drop the rest of the document entirely
+    (``i = n``).
+    """
+
+    def test_if0_opened_in_comment_keeps_real_lines(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = "% \\if0 debug block\nreal content line\n% \\fi\nmore content"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert "real content line" in out
+        assert "more content" in out
+
+    def test_commented_pair_around_real_text(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        # % \if0 … % \fi with real text between: nothing may be stripped.
+        tex = "keep-a\n% \\if0\nKEEP-B\n% \\fi\nkeep-c"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert all(k in out for k in ("keep-a", "KEEP-B", "keep-c"))
+
+    def test_if0_inside_verbatim_untouched(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = "\\begin{verbatim}\n\\if0 X \\fi\n\\end{verbatim}\ntail"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert "tail" in out
+        assert "X" in out
+
+    def test_escaped_percent_is_not_a_comment_start(self):
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = r"win rate 50\% here \if0 x \fi done"
+        out = _sanitize_tex_for_pandoc(tex)
+        assert "50\\%" in out
+        assert "x" not in out
+        assert "done" in out
+
+    def test_unterminated_if0_keeps_rest_and_warns(self, caplog):
+        import logging
+
+        from arxiv2md_beta.ir.builders.latex import _sanitize_tex_for_pandoc
+
+        tex = "keep me \\if0 never closed\nimportant tail"
+        with caplog.at_level(logging.WARNING):
+            out = _sanitize_tex_for_pandoc(tex)
+        assert "important tail" in out
+        assert "nclosed" in caplog.text or "nterminated" in caplog.text

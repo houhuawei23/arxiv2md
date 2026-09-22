@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 from collections import deque
 from pathlib import Path
@@ -155,6 +156,51 @@ _GLUE_STRIP_RE = re.compile(r"\\(?:v|h|m)skip(?:\s*\{[^{}]*\})?")
 _IF_TOKEN_RE = re.compile(r"\\unless\s*\\if[a-zA-Z@0-9]*|\\if[a-zA-Z@0-9]*")
 _SCAN_TOKEN_RE = re.compile(r"\\unless\s*\\if[a-zA-Z@0-9]*|\\if[a-zA-Z@0-9]*|\\else|\\or|\\fi")
 
+# Regions whose content is literal, not TeX control flow: verbatim-like
+# environments and \verb arguments. A \if0 inside them must be left alone
+# (audit5 C4).
+_VERBATIM_ENV_RE = re.compile(r"\\begin\{(verbatim\*?|lstlisting|minted)\}.*?\\end\{\1\}", re.DOTALL)
+_VERB_RE = re.compile(r"\\verb\*?([^a-zA-Z\s])(.*?)\1", re.DOTALL)
+
+logger = logging.getLogger(__name__)
+
+
+def _backslash_run_length(line: str, i: int) -> int:
+    """Number of consecutive backslashes immediately before position *i*."""
+    j = i - 1
+    while j >= 0 and line[j] == "\\":
+        j -= 1
+    return i - 1 - j
+
+
+def _build_ignored_mask(tex: str) -> bytearray:
+    r"""Byte mask marking positions the conditional scanner must not inspect.
+
+    Two sources, in order (comment detection must skip verbatim material):
+
+    - verbatim spans: ``verbatim``/``verbatim*``/``lstlisting``/``minted``
+      environments and ``\\verb`` arguments — ``%`` and ``\\if`` are literal;
+    - TeX comments: from the first unescaped ``%`` on a line to EOL. A ``%``
+      preceded by an *even* backslash run starts a comment (``\\%`` is the
+      literal percent, ``\\\\%`` is a control symbol plus a live comment).
+    """
+    mask = bytearray(len(tex))
+    for pattern in (_VERBATIM_ENV_RE, _VERB_RE):
+        for m in pattern.finditer(tex):
+            for k in range(m.start(), min(m.end(), len(tex))):
+                mask[k] = 1
+    line_start = 0
+    for line in tex.splitlines(keepends=True):
+        for i, ch in enumerate(line):
+            if ch != "%" or mask[line_start + i]:
+                continue
+            if _backslash_run_length(line, i) % 2 == 0:
+                for k in range(line_start + i, line_start + len(line)):
+                    mask[k] = 1
+                break
+        line_start += len(line)
+    return mask
+
 
 def _is_false_conditional(token: str, pos: int, tex: str) -> bool:
     r"""True when *token* is a conditional Pandoc can't evaluate and TeX reads as false.
@@ -178,15 +224,17 @@ def _strip_false_conditionals(tex: str) -> str:
     """
     out: list[str] = []
     i, n = 0, len(tex)
+    ignored = _build_ignored_mask(tex)
     while i < n:
         m = _IF_TOKEN_RE.match(tex, i)
-        if m and _is_false_conditional(m.group(0), m.end(), tex):
+        if m and not ignored[i] and _is_false_conditional(m.group(0), m.end(), tex):
             depth = 1
             j = m.end()
             else_start: int | None = None
             block_end: int | None = None  # position just past the closing ``\fi``
             while depth > 0 and j < n:
-                mm = _SCAN_TOKEN_RE.match(tex, j)
+                # Tokens inside comments/verbatim are literal text, not flow.
+                mm = None if ignored[j] else _SCAN_TOKEN_RE.match(tex, j)
                 if mm:
                     tok = mm.group(0)
                     if tok in (r"\else", r"\or"):
@@ -208,7 +256,15 @@ def _strip_false_conditionals(tex: str) -> str:
                     out.append(tex[else_start : block_end - len(r"\fi")])
                 i = block_end
             else:
-                i = n  # unterminated conditional — drop the rest
+                # Unterminated (the matching \fi may sit in a comment or
+                # verbatim text). Dropping "the rest of the document" was
+                # audit5 C4's silent data loss; keep the text instead.
+                logger.warning(
+                    "Unterminated %s block left as-is (no matching \\fi outside comments/verbatim)",
+                    m.group(0),
+                )
+                out.append(m.group(0))
+                i = m.end()
         else:
             out.append(tex[i])
             i += 1

@@ -144,8 +144,18 @@ def _strip_tex_comments(text: str) -> str:
         buf: list[str] = []
         i = 0
         while i < len(line):
-            if line[i] == "%" and (i == 0 or line[i - 1] != "\\"):
-                break
+            if line[i] == "%":
+                # A % preceded by an *even* backslash run starts a comment:
+                # \% is the literal percent, \\% is a control symbol followed
+                # by a live comment (counting only the previous character
+                # misread the latter — audit5 R6).
+                run = 0
+                j = i - 1
+                while j >= 0 and line[j] == "\\":
+                    run += 1
+                    j -= 1
+                if run % 2 == 0:
+                    break
             buf.append(line[i])
             i += 1
         out_lines.append("".join(buf))
