@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -57,7 +57,7 @@ def test_missing_user_keys_are_filled_from_fresh() -> None:
 def test_date_added_is_ingestion_date_not_publication_date() -> None:
     """Regression (audit4 A4): date_added used to be the arXiv pub date."""
     fresh = _metadata_to_paper_yml({"arxiv_id": "2501.00000", "title": "T", "submission_date": "2020-01-01"})
-    assert fresh["paper"]["workflow"]["date_added"] == datetime.now().strftime("%Y-%m-%d")
+    assert fresh["paper"]["workflow"]["date_added"] == datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 async def test_update_refuses_degraded_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

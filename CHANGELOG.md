@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **占位页检测（R-3）**：ar5iv "No content available" 检测从精确字符串改为大小写/空白容忍正则。
 - **list 内标题拍扁（I-13）**：`_is_block_level_in_list` 补 heading，标题不再变字面 `# Foo`。
 
+### Fixed（2026-09-23 audit5 S5：配置与数据族，详见 docs/REVIEW_2026-09-22b.md）
+
+- **`paper-yml --update --force` 不可达（G4-1）**：CLI 层硬编码 `force=False`，报错文案让用户 "pass --force" 却永远复现同一拒绝；现透传。
+- **settings 缓存键（G4-2 + T-8）**：缓存键只含 (user_path, environment)，进程内 env 变更 / YAML 编辑永远返回陈旧对象；现键含 env overlay 内容与用户文件 (mtime_ns, size)。附带：带引号的 env 值保持字符串（`USER_AGENT="true"` 曾被强转为布尔）；未知 env 键获得与 YAML 相同的 typo 告警。
+- **search 排序映射（G4-3）**：`--sort submitted` 不是合法 arXiv sortBy 值，API 静默回落 relevance；对外语法保留，进 URL 前映射为 `submittedDate`。
+- **BibTeX key Unicode（G4-5）**：`[^a-zA-Z]` 把 "Müller" 剥成空串、key 退化为 `{year}{yymm}` 易撞；改 Unicode 感知（与 formatter 一致），纯符号姓回退占位符。
+- **config init 漂移（G4-6 + T-9）**：手写 starter 与 schema 漂移（dpi 200 vs 150、backoff 1.0 vs 3.0、整节缺失）且把版本号写死进 user_agent 使占位符注入永不更新；现直接产出经过 schema 校验的内置 default_config.yml（注释与占位符保留）。`config show --resolve-paths` 帮助文案改为只声明 cache.dir 解析。
+- **settings 级 allow_stub 可审计（R-10）**：质量门槛按 "CLI 或 settings" 放行，但 manifest 只认 CLI 旗标；现 `_manifest_stub_status` 与门槛语义完全一致。
+- **paper.yml 备份轮换（R-11 + T-10 + T-11）**：`.bak` 只有一代深，连续两次坏写失去原始副本；现先轮换到 `.bak2`。`date_added` 改 UTC（本地时区在午夜附近日期漂移）；`content.language` 优先取元数据值。pyyaml 可选导入为死代码（硬依赖），连同 metadata.py 的 E402 per-file ignore 一并移除。
+- **bibliography 解析放宽（R-13）**：只认 `<section class="ltx_bibliography">`，ar5iv 变体（div/ul 顶层）落碎片化兜底；现按 class 匹配任意标签。
+- **Crossref 结构化作者直传（R-14）**：display name 喂姓氏启发式，对 "van der Berg S."/"Y. Chen Jr."/"Jun Liu" 全错；现保留 given/family/suffix 结构化字段，resolver 直出 "Family, Given"（key 生成与 BibTeX formatter 均原生支持）。
+- **幽灵 validator（T-7）**：`expand_cache_dir` 名不副实（原样返回，实际展开在 `resolved_cache_path`）；删除并在字段描述中注明。
+
 ### Fixed（2026-09-22 audit5 S4：运行时与并发族，详见 docs/REVIEW_2026-09-22b.md）
 
 - **图片同名覆盖 + 并发撕裂（G3-1）**：不同子目录同名图都写 `images/fig.png`——并发下撕裂、后写覆盖前写的 stem 映射；现并发前预分配唯一名（`fig_1/_2`，对齐 local 路径既有消歧），全部写入走临时文件 + `os.replace` 原子替换。
