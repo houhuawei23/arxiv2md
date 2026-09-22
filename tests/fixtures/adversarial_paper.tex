@@ -1,0 +1,73 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\title{Adversarial Fixture: Under_scores, Stars* and Brackets [2026]}
+\author{Wei Chen and M\"uller \and Jos\'e van der Berg}
+\begin{document}
+\maketitle
+
+
+\if0
+This disabled chunk carries an unbalanced \begin{enumerate} and must
+never appear in the output.
+\else
+\section{Special _chars_ in Titles: *stars* [brackets]}
+\fi
+
+\iffalse
+\section{Never Typeset}
+\else
+\section{Escapes and Verbatim}
+\fi
+
+% A commented-out \if0 block (the "comment out with \if0" idiom): the
+% scanner must not treat the tokens as live control flow.
+% \if0
+\section{Comment Guard}
+% \fi
+
+\begin{verbatim}
+\if0 inside verbatim $x$ **bold** |pipe|
+\end{verbatim}
+
+Line-start syntax must be escaped so it does not render as a quote:
+\[e = mc^2\]
+followed by ordinary prose.
+
+\begin{enumerate}
+\item alpha
+\end{enumerate}
+
+\begin{enumerate}
+\setcounter{enumi}{4}
+\item fifth item (the list must keep its start number)
+\end{enumerate}
+
+\begin{table}[h]
+\begin{tabular}{|l|l|}
+\hline
+\multicolumn{2}{|c|}{Spanning header} \\
+\hline
+\multirow{2}{*}{RS} & A \\
+ & B \\
+\hline
+\end{tabular}
+\caption{Rowspan table with \& and \_ marks}
+\end{table}
+
+\begin{figure}[h]
+\includegraphics[width=0.5\textwidth]{fig_special-name.png}
+\caption{Figure caption with 50\% gain and $x_i$ math}
+\end{figure}
+
+中文段落：这是一个很长的中文标题段落，用于检验 CJK 内容在折行、
+转义与编号场景下的行为保持稳定，不产生上万字符的单行输出。
+
+\begin{thebibliography}{9}
+\bibitem{a1} Author A. A title with _underscore_ and \& ampersand. Journal of Edge Cases, 2026.
+\bibitem{a2} Müller, H. Unicode surname handling in bibliographies. 2025.
+\end{thebibliography}
+
+\end{document}

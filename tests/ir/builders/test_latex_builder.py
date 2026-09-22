@@ -947,3 +947,44 @@ class TestDivAnchorFirstBlockOnly:
         assert isinstance(out, list) and len(out) == 2
         assert out[0].anchor == "inner"
         assert out[1].anchor == "outer"
+
+
+class TestVerbatimCodeRoundTrip:
+    """audit5 (found by the S7 adversarial corpus): verbatim must survive.
+
+    Content must land in CodeIR.text, not be swallowed as the fence
+    info-string.
+    """
+
+    def test_verbatim_text_preserved(self):
+        tex = (
+            "\\documentclass{article}\n\\begin{document}\n\\begin{verbatim}\n"
+            "def hello():\n    print(\"world\")\n\\end{verbatim}\n\\end{document}"
+        )
+        doc = LaTeXBuilder().build(tex, arxiv_id="test")
+        codes: list = []
+
+        def collect(blocks):
+            for b in blocks:
+                if b.type == "code":
+                    codes.append(b)
+                collect(getattr(b, "blocks", []))
+
+        for s in doc.sections:
+            collect(s.blocks)
+        assert len(codes) == 1
+        assert 'print("world")' in codes[0].text
+        # The content must never leak into the language field.
+        assert not (codes[0].language or "").startswith("print")
+
+    def test_verbatim_markdown_output_fenced_correctly(self):
+        from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+
+        tex = (
+            "\\documentclass{article}\n\\begin{document}\n\\begin{verbatim}\n"
+            "x = 1\n\\end{verbatim}\n\\end{document}"
+        )
+        doc = LaTeXBuilder().build(tex, arxiv_id="test")
+        md = MarkdownEmitter().emit(doc)
+        assert "```x = 1" not in md  # content glued onto the opening fence
+        assert "\nx = 1\n```" in md

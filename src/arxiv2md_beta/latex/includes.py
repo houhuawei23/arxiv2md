@@ -277,6 +277,12 @@ def _fix_orphan_ends(tex_content: str) -> str:
     token with the same text), and scanning continues after an orphan so later
     ``\begin``/``\end`` tokens on the same line still update the stack
     (audit4 P2).
+
+    ``\end{document}`` is exempt: the stack can legitimately carry a phantom
+    entry here (e.g. an unbalanced ``\begin{enumerate}`` inside a statically
+    false ``\if0`` chunk — the false-conditional strip runs later, in the
+    builder). Commenting the document terminator kills the whole pandoc parse
+    ("expecting \end{document}") where keeping it is always correct.
     """
     stack: list[str] = []
     result_lines: list[str] = []
@@ -289,6 +295,13 @@ def _fix_orphan_ends(tex_content: str) -> str:
             cmd, env = m.group(1), m.group(2)
             if cmd == "begin":
                 stack.append(env)
+                out.append(m.group(0))
+            elif env == "document":
+                # Document terminator: never comment it, matched or not —
+                # a phantom stack entry (e.g. an unbalanced \begin{enumerate}
+                # inside a statically false \if0 chunk; the false-conditional
+                # strip runs later, in the builder) must not cause commenting
+                # it, which kills the whole pandoc parse.
                 out.append(m.group(0))
             elif stack and stack[-1] == env:
                 stack.pop()

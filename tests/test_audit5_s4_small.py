@@ -170,3 +170,23 @@ class TestEmptyOutputDirWarns:
         warnings.clear()
         layout.determine_output_dir(None)
         assert not warnings
+
+
+def test_orphan_fix_never_comments_end_document(tmp_path: Path) -> None:
+    r"""audit5 (found by the S7 adversarial corpus): \\end{document} stays live.
+
+    An unbalanced \\begin{enumerate} inside a statically false \\if0 chunk
+    poisoned the env stack (the false-conditional strip runs later, in the
+    builder), and _fix_orphan_ends then commented the document terminator —
+    killing the whole pandoc parse with "expecting \\end{document}".
+    """
+    main = tmp_path / "main.tex"
+    tex = (
+        "\\begin{document}\n"
+        "\\if0\n\\begin{enumerate}\n\\else\nreal\n\\fi\n"
+        "\\end{document}\n"
+    )
+    main.write_text(tex, encoding="utf-8")
+    out = resolve_latex_includes(main, tmp_path)
+    assert any(line.strip() == r"\end{document}" for line in out.splitlines()), out
+    assert "% \\end{document}" not in out

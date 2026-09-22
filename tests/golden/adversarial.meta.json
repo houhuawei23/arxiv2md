@@ -1,0 +1,31 @@
+{
+  "abstract_text": null,
+  "arxiv_id": "adversarial",
+  "arxiv_version": null,
+  "authors": [
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "Wei Chen and M\u00fcller",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    },
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "Jos\u00e9 van der Berg",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    }
+  ],
+  "content_sha256": "d2c549cf2fcef614bfd6f35ac8dde8704b1c9f470e733ff947dca8c138819615",
+  "parser": "latex",
+  "schema_version": "2.0",
+  "source_url": null,
+  "submission_date": null,
+  "title": "Adversarial Fixture: Under_scores, Stars* and Brackets [2026]",
+  "tool_name": "arxiv2md-beta",
+  "tool_version": "0.15.1"
+}

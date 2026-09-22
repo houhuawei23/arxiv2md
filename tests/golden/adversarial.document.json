@@ -1,0 +1,1222 @@
+{
+  "abstract": [],
+  "abstract_text": null,
+  "arxiv_id": "adversarial",
+  "arxiv_version": null,
+  "authors": [
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "Wei Chen and M\u00fcller",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    },
+    {
+      "affiliations": [],
+      "id": "",
+      "name": "Jos\u00e9 van der Berg",
+      "order_index": 0,
+      "section_id": "",
+      "type": "author"
+    }
+  ],
+  "content_sha256": "d2c549cf2fcef614bfd6f35ac8dde8704b1c9f470e733ff947dca8c138819615",
+  "front_matter": [],
+  "parser": "latex",
+  "schema_version": "2.0",
+  "sections": [
+    {
+      "anchor": "special-_chars_-in-titles-stars-brackets",
+      "blocks": [],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_1",
+      "title": "1 Special _chars_ in Titles: *stars* [brackets]"
+    },
+    {
+      "anchor": "escapes-and-verbatim",
+      "blocks": [],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_2",
+      "title": "2 Escapes and Verbatim"
+    },
+    {
+      "anchor": "comment-guard",
+      "blocks": [
+        {
+          "id": "sec_3:b0:code",
+          "order_index": 0,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "text": "\\if0 inside verbatim $x$ **bold** |pipe|",
+          "type": "code"
+        },
+        {
+          "id": "sec_3:b1:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Line-start",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "syntax",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "must",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "be",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "escaped",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "so",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "it",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "does",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "not",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "render",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "as",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "a",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "quote:",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            }
+          ],
+          "order_index": 1,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        },
+        {
+          "anchor": "eq-1",
+          "equation_number": "(1)",
+          "id": "sec_3:b2:equation",
+          "latex": "e = mc^2",
+          "order_index": 2,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "equation"
+        },
+        {
+          "id": "sec_3:b3:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "followed",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "by",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "ordinary",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "prose.",
+              "type": "text"
+            }
+          ],
+          "order_index": 3,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        },
+        {
+          "id": "sec_3:b4:list",
+          "items": [
+            [
+              {
+                "id": "",
+                "inlines": [
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "alpha",
+                    "type": "text"
+                  }
+                ],
+                "order_index": 0,
+                "section_id": "",
+                "source": {
+                  "parser": "latex"
+                },
+                "type": "paragraph"
+              }
+            ]
+          ],
+          "order_index": 4,
+          "ordered": true,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "list"
+        },
+        {
+          "id": "sec_3:b5:list",
+          "items": [
+            [
+              {
+                "id": "",
+                "inlines": [
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "fifth",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "item",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "(the",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "list",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "must",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "keep",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "its",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "start",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "number)",
+                    "type": "text"
+                  }
+                ],
+                "order_index": 0,
+                "section_id": "",
+                "source": {
+                  "parser": "latex"
+                },
+                "type": "paragraph"
+              }
+            ]
+          ],
+          "order_index": 5,
+          "ordered": true,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "start": 5,
+          "type": "list"
+        },
+        {
+          "anchor": "table-1",
+          "caption": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Rowspan",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "table",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "with",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "&",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "and",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "_",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "marks",
+              "type": "text"
+            }
+          ],
+          "headers": [
+            [
+              {
+                "id": "",
+                "order_index": 0,
+                "section_id": "",
+                "text": "Spanning",
+                "type": "text"
+              },
+              {
+                "id": "",
+                "order_index": 0,
+                "section_id": "",
+                "text": " ",
+                "type": "text"
+              },
+              {
+                "id": "",
+                "order_index": 0,
+                "section_id": "",
+                "text": "header",
+                "type": "text"
+              }
+            ],
+            []
+          ],
+          "id": "sec_3:b6:table",
+          "order_index": 6,
+          "rows": [
+            [
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "RS",
+                  "type": "text"
+                }
+              ],
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "A",
+                  "type": "text"
+                }
+              ]
+            ],
+            [
+              [],
+              [
+                {
+                  "id": "",
+                  "order_index": 0,
+                  "section_id": "",
+                  "text": "B",
+                  "type": "text"
+                }
+              ]
+            ]
+          ],
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "table_id": "table-1",
+          "type": "table"
+        },
+        {
+          "anchor": "figure-1",
+          "caption": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "Figure",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "caption",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "with",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "50%",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "gain",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "and",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "display": false,
+              "id": "",
+              "latex": "x_i",
+              "order_index": 0,
+              "section_id": "",
+              "type": "math"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "math",
+              "type": "text"
+            }
+          ],
+          "figure_id": "figure-1",
+          "id": "sec_3:b7:figure",
+          "images": [
+            {
+              "alt": "",
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "src": "fig_special-name.png",
+              "type": "image_ref"
+            }
+          ],
+          "kind": "image",
+          "order_index": 7,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "figure"
+        },
+        {
+          "id": "sec_3:b8:paragraph",
+          "inlines": [
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "\u4e2d\u6587\u6bb5\u843d\uff1a\u8fd9\u662f\u4e00\u4e2a\u5f88\u957f\u7684\u4e2d\u6587\u6807\u9898\u6bb5\u843d\uff0c\u7528\u4e8e\u68c0\u9a8c",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "CJK",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "\u5185\u5bb9\u5728\u6298\u884c\u3001",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": " ",
+              "type": "text"
+            },
+            {
+              "id": "",
+              "order_index": 0,
+              "section_id": "",
+              "text": "\u8f6c\u4e49\u4e0e\u7f16\u53f7\u573a\u666f\u4e0b\u7684\u884c\u4e3a\u4fdd\u6301\u7a33\u5b9a\uff0c\u4e0d\u4ea7\u751f\u4e0a\u4e07\u5b57\u7b26\u7684\u5355\u884c\u8f93\u51fa\u3002",
+              "type": "text"
+            }
+          ],
+          "order_index": 8,
+          "section_id": "sec_3",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "paragraph"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_3",
+      "title": "3 Comment Guard"
+    },
+    {
+      "anchor": "references",
+      "blocks": [
+        {
+          "id": "sec_3-2:b0:list",
+          "items": [
+            [
+              {
+                "id": "",
+                "inlines": [
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "9",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Author",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "A.",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "A",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "title",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "with",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "_underscore_",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "and",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "&",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "ampersand.",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Journal",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "of",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Edge",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Cases,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "2026.",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "M\u00fcller,",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "H.",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "Unicode",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "surname",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "handling",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "in",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "bibliographies.",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": " ",
+                    "type": "text"
+                  },
+                  {
+                    "id": "",
+                    "order_index": 0,
+                    "section_id": "",
+                    "text": "2025.",
+                    "type": "text"
+                  }
+                ],
+                "order_index": 0,
+                "section_id": "",
+                "source": {
+                  "parser": "latex"
+                },
+                "type": "paragraph"
+              }
+            ]
+          ],
+          "order_index": 0,
+          "ordered": false,
+          "section_id": "sec_3-2",
+          "source": {
+            "parser": "latex"
+          },
+          "type": "list"
+        }
+      ],
+      "children": [],
+      "level": 2,
+      "struct_id": "sec_3-2",
+      "title": "References"
+    }
+  ],
+  "source_url": null,
+  "submission_date": null,
+  "title": "Adversarial Fixture: Under_scores, Stars* and Brackets [2026]",
+  "tool_name": "arxiv2md-beta",
+  "tool_version": "0.15.1"
+}

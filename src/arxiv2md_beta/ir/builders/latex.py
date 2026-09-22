@@ -930,13 +930,20 @@ class LaTeXBuilder(IRBuilder):
                 order_index=order,
             )
         elif t == "CodeBlock":
-            c_list = c if isinstance(c, list) else [["", [], []], "", ""]
-            attrs = c_list[0] if len(c_list) > 0 else ["", [], []]
-            lang = str(c_list[1]) if len(c_list) > 1 else ""
-            code = str(c_list[2]) if len(c_list) > 2 else ""
+            # Pandoc's shape is [attr, text]; the language lives in the attr
+            # classes, never as a separate element. The old reading assumed
+            # [attr, lang, text], so every verbatim body landed in
+            # ``language`` with empty text — the emitter then glued the
+            # content onto the opening fence as an info-string and the code
+            # vanished from the output (audit5 adversarial corpus).
+            c_list = c if isinstance(c, list) else []
+            if len(c_list) >= 2 and isinstance(c_list[0], list):
+                attrs, code = c_list[0], str(c_list[1])
+            else:
+                attrs, code = ["", [], []], str(c_list[0]) if c_list else ""
             anchor = _pandoc_attrs_id(attrs)
             classes = _pandoc_attrs_classes(attrs)
-            language = lang if lang else (classes[0] if classes else None)
+            language = classes[0] if classes else None
             return CodeIR(
                 language=language,
                 text=code,
