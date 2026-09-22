@@ -540,8 +540,15 @@ def _generate_bibtex(
         parts = first_author.split()
         last_name = parts[-1] if parts else "author"
 
-    # Clean last name for citation key
-    last_name_clean = re.sub(r"[^a-zA-Z]", "", last_name).lower()
+    # Clean last name for citation key. Unicode-aware ([^\w], matching
+    # generate_citation_key in citations/formatter.py): the old [^a-zA-Z]
+    # stripped "Müller" to "" and collapsed the key to {year}{yymm}, which
+    # collides across papers (audit5 G4-5).
+    last_name_clean = re.sub(r"[^\w]", "", last_name).lower()
+    if not last_name_clean:
+        # Surname reduced to nothing usable (symbols only): a placeholder in
+        # the surname slot keeps keys from degenerating to a bare year.
+        last_name_clean = "ref"
     citation_key = f"{last_name_clean}{year}{arxiv_id.split('.')[0]}"
 
     # Format authors for BibTeX
