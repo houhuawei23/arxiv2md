@@ -302,3 +302,49 @@ class TestSectionNumberingIdempotency:
         assert twice == once
         sub = doc.sections[1].children[0]
         assert sub.title == "2.1 Setup"
+
+
+class TestSectionNumberingDigitTitles:
+    """audit5 G1-1: the idempotency strip must not eat real digit-led titles."""
+
+    def _doc(self, title: str) -> DocumentIR:
+        return DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="latex"),
+            sections=[SectionIR(title=title, level=2, children=[])],
+        )
+
+    def test_digit_leading_title_keeps_its_words(self) -> None:
+        from arxiv2md_beta.ir.transforms.numbering import SectionNumberingPass
+
+        doc = self._doc("2000 Swarms: A Survey")
+        SectionNumberingPass().run(doc)
+        assert doc.sections[0].title == "1 2000 Swarms: A Survey"
+
+    def test_digit_leading_title_still_idempotent(self) -> None:
+        from arxiv2md_beta.ir.transforms.numbering import SectionNumberingPass
+
+        doc = self._doc("2000 Swarms: A Survey")
+        SectionNumberingPass().run(doc)
+        once = doc.sections[0].title
+        SectionNumberingPass().run(doc)
+        assert doc.sections[0].title == once
+
+    def test_renumber_after_filter_rewrites_own_prefix(self) -> None:
+        """After a filter renumbers, the recorded prefix is replaced, not stacked."""
+        from arxiv2md_beta.ir.transforms.numbering import SectionNumberingPass
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t", parser="latex"),
+            sections=[
+                SectionIR(title="A", level=2, children=[]),
+                SectionIR(title="B", level=2, children=[]),
+                SectionIR(title="C", level=2, children=[]),
+            ],
+        )
+        SectionNumberingPass().run(doc)
+        assert [s.title for s in doc.sections] == ["1 A", "2 B", "3 C"]
+        # A section filter keeps only the last one; renumbering must strip the
+        # recorded "3 " and write the new "1 ", yielding "1 C" not "1 3 C".
+        doc.sections = [doc.sections[2]]
+        SectionNumberingPass().run(doc)
+        assert doc.sections[0].title == "1 C"

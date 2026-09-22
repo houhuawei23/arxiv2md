@@ -35,6 +35,11 @@ class SectionIR(IRNode):
     # headings; the SectionNumberingPass skips them. HTML sections never set it
     # (ar5iv bakes the number into the title text instead).
     unnumbered: bool = False
+    # The hierarchical number prefix ("2.3") this pass itself prepended to
+    # ``title`` — recorded so a re-run strips exactly its own prefix instead
+    # of regex-guessing one (a ``^\d+(\.\d+)*\s+`` guess used to eat real
+    # digit-led titles like "2000 Swarms", audit5 G1-1).
+    number_prefix: str | None = None
     blocks: list[BlockUnion] = Field(default_factory=list)
     children: list[SectionIR] = Field(default_factory=list)
 
