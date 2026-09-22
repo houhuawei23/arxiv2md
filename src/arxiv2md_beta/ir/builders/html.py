@@ -734,7 +734,12 @@ class HTMLBuilder(IRBuilder):
                 label=tag_id,
                 caption=caption,
                 algorithm_number=alg_num,
-                steps=self._algorithm_steps(tag, caption_tag, section_id, base_idx),
+                steps=self._algorithm_steps(
+                    tag,
+                    caption_tag if isinstance(caption_tag, Tag) else None,
+                    section_id,
+                    base_idx,
+                ),
             )
 
         # Table figure

@@ -49,3 +49,19 @@ class TestApplyCliOverridesExplicitOnly:
     def test_explicit_linked_citations_true(self, settings: AppSettings) -> None:
         out = apply_cli_overrides(settings, SimpleNamespace(linked_citations=True))
         assert out.output.linked_citations is True
+
+
+def test_version_single_sourced() -> None:
+    """audit5 T-6: installed metadata version must equal arxiv2md_beta.__version__.
+
+    pyproject now declares dynamic = [version] read from the package attr;
+    the two sources can no longer drift.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    from arxiv2md_beta import __version__
+
+    try:
+        assert version("arxiv2md-beta") == __version__
+    except PackageNotFoundError:  # pragma: no cover - non-installed checkout
+        pytest.skip("package not installed in this environment")

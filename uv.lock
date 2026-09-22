@@ -49,7 +49,6 @@ wheels = [
 
 [[package]]
 name = "arxiv2md-beta"
-version = "0.15.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
