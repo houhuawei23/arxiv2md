@@ -143,10 +143,21 @@ class CitationResolver:
 
         from arxiv2md_beta.citations.models import CitationEntry
 
-        # Build entry from Crossref metadata
+        # Build entry from Crossref metadata. Structured given/family fields
+        # become "Family, Given" directly — the old display-name form fed the
+        # surname heuristic, which mis-split "van der Berg S.", "Y. Chen Jr."
+        # and CJK names (audit5 R-14). Both generate_citation_key and the
+        # BibTeX author formatter parse the "Family, Given" shape natively.
         authors = []
-        if "crossref_authors" in metadata:
-            authors = [a.get("name", "") for a in metadata["crossref_authors"] if a.get("name")]
+        for a in metadata.get("crossref_authors", []):
+            family, given, suffix = a.get("family"), a.get("given"), a.get("suffix")
+            if family:
+                name = f"{family}, {given}" if given else family
+                if suffix:
+                    name = f"{name} {suffix}"
+                authors.append(name)
+            elif a.get("name"):
+                authors.append(a["name"])
 
         entry = CitationEntry(
             key=generate_citation_key(

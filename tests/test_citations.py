@@ -332,6 +332,48 @@ class TestCrossrefTitleExtraction:
         assert entry.title == "Real Article Title"
         assert entry.journal == "Nature"
 
+    def test_resolve_by_doi_uses_structured_family_given(self):
+        """audit5 R-14: Crossref given/family must reach the entry directly.
+
+        The display name "Jun Liu" fed the surname heuristic, which took the
+        last whitespace token and produced the key "liu…" for family=Liu —
+        wrong for "van der Berg S.", "Y. Chen Jr.", and CJK names alike.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from arxiv2md_beta.citations.models import ParsedCitation
+        from arxiv2md_beta.citations.resolver import CitationResolver
+        from arxiv2md_beta.network.crossref_api import _parse_crossref_response
+
+        async def run():
+            metadata = _parse_crossref_response(
+                {
+                    "message": {
+                        "title": ["Structured Authors"],
+                        "container-title": "Journal of Names",
+                        "published-print": {"date-parts": [[2019, 5, 1]]},
+                        "author": [
+                            {"given": "Jun", "family": "Liu"},
+                            {"given": "Sanne", "family": "van der Berg"},
+                            {"given": "Y.", "family": "Chen", "suffix": "Jr."},
+                        ],
+                    }
+                }
+            )
+
+            async def fake_fetch(doi):
+                return metadata
+
+            resolver = CitationResolver()
+            parsed = ParsedCitation(key="x", text="x", identifiers={"doi": "10.1234/names"})
+            with patch("arxiv2md_beta.citations.resolver.fetch_crossref_metadata", side_effect=fake_fetch):
+                return await resolver.resolve_citation(parsed, 0)
+
+        entry = asyncio.run(run())
+        assert entry.authors == ["Liu, Jun", "van der Berg, Sanne", "Chen, Y. Jr."]
+        assert entry.key.startswith("liu2019")
+
     def test_title_falls_back_to_container_when_absent(self):
         import asyncio
         from unittest.mock import patch

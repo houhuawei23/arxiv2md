@@ -139,6 +139,14 @@ def _parse_crossref_response(json_data: dict) -> dict:
                     author_dict["name"] = family
                 elif given:
                     author_dict["name"] = given
+                # Structured parts survive alongside the display name so the
+                # citation layer can skip its surname heuristic (audit5 R-14).
+                if given:
+                    author_dict["given"] = given
+                if family:
+                    author_dict["family"] = family
+                if author.get("suffix"):
+                    author_dict["suffix"] = author["suffix"]
 
                 # ORCID
                 orcid_list = author.get("ORCID", "")
