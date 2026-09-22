@@ -26,26 +26,30 @@ def resolve_latex_includes(main_file: Path, base_dir: Path) -> str:
     Returns the complete LaTeX content of *main_file* with all includes inlined
     into a single string. Missing files emit a warning and are substituted with
     empty content (so pandoc does not choke on a dangling ``\input``). Circular
-    includes are detected and broken.
+    includes are detected and broken; a file included twice by *disjoint*
+    subtrees (a diamond) expands both times — only the active recursion chain
+    guards the cycle check (audit4 P2: the old global visited set dropped the
+    second inclusion's content).
     """
-    visited: set[Path] = set()
-    return _resolve_includes_recursive(main_file, base_dir, visited)
+    stack: set[Path] = set()
+    return _resolve_includes_recursive(main_file, base_dir, stack)
 
 
 def _resolve_includes_recursive(
     tex_file: Path,
     base_dir: Path,
-    visited: set[Path],
+    stack: set[Path],
 ) -> str:
-    """Recursively resolve includes in a LaTeX file."""
-    if tex_file in visited:
+    """Recursively resolve includes in a LaTeX file (*stack* = active chain)."""
+    if tex_file in stack:
         logger.warning(f"Circular include detected: {tex_file}")
         return ""
 
-    visited.add(tex_file)
+    stack.add(tex_file)
 
     if not tex_file.exists():
         logger.warning(f"LaTeX file not found: {tex_file}")
+        stack.discard(tex_file)
         return ""
 
     content = tex_file.read_text(encoding="utf-8", errors="ignore")
@@ -89,7 +93,7 @@ def _resolve_includes_recursive(
             return ""
 
         # Recursively resolve includes in the included file
-        return _resolve_includes_recursive(included_file, base_dir, visited)
+        return _resolve_includes_recursive(included_file, base_dir, stack)
 
     def replace_lstinputlisting(match: re.Match[str]) -> str:
         r"""Replace ``\lstinputlisting{file}`` with file content as a code block."""
@@ -117,6 +121,7 @@ def _resolve_includes_recursive(
     content = _LSTINPUT_PATTERN.sub(replace_lstinputlisting, content)
     content = _resolve_bibliography(content, base_dir, tex_file)
     content = _fix_orphan_ends(content)
+    stack.discard(tex_file)
     return content
 
 
@@ -188,20 +193,31 @@ def _strip_bbl_preamble(body: str) -> str:
 
 
 def _fix_orphan_ends(tex_content: str) -> str:
-    r"""Remove or comment orphan ``\end{env}`` with no matching ``\begin{env}``."""
+    r"""Comment out orphan ``\end{env}`` tokens with no matching ``\begin{env}``.
+
+    Position-aware per line: the comment prefix must land on the exact orphan
+    token (the old ``str.replace`` could rewrite an earlier, *legitimate*
+    token with the same text), and scanning continues after an orphan so later
+    ``\begin``/``\end`` tokens on the same line still update the stack
+    (audit4 P2).
+    """
     stack: list[str] = []
     result_lines: list[str] = []
     for line in tex_content.split("\n"):
+        out: list[str] = []
+        pos = 0
         for m in _ENV_PATTERN.finditer(line):
+            out.append(line[pos : m.start()])
+            pos = m.end()
             cmd, env = m.group(1), m.group(2)
             if cmd == "begin":
                 stack.append(env)
-            else:  # end
-                if stack and stack[-1] == env:
-                    stack.pop()
-                else:
-                    # Orphan \end - comment it out
-                    line = line.replace(m.group(0), "% " + m.group(0))
-                    break
-        result_lines.append(line)
+                out.append(m.group(0))
+            elif stack and stack[-1] == env:
+                stack.pop()
+                out.append(m.group(0))
+            else:
+                out.append("% " + m.group(0))
+        out.append(line[pos:])
+        result_lines.append("".join(out))
     return "\n".join(result_lines)

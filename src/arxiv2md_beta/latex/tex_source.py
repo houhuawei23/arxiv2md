@@ -515,14 +515,20 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     return max(tex_files, key=lambda p: p.stat().st_size)
 
 
-def _expand_tex_includes(tex_file: Path, base_dir: Path, visited: set[Path] | None = None) -> str:
-    r"""Expand \\input and \\include in document order for image extraction."""
-    if visited is None:
-        visited = set()
-    if tex_file in visited:
+def _expand_tex_includes(tex_file: Path, base_dir: Path, stack: set[Path] | None = None) -> str:
+    r"""Expand \\input and \\include in document order for image extraction.
+
+    *stack* holds the active recursion chain (not a global visited set): the
+    same file legitimately included by two sibling subtrees expands both
+    times, while a true cycle still terminates (audit4 P2).
+    """
+    if stack is None:
+        stack = set()
+    if tex_file in stack:
         return ""
-    visited.add(tex_file)
+    stack.add(tex_file)
     if not tex_file.exists():
+        stack.discard(tex_file)
         return ""
     content = tex_file.read_text(encoding="utf-8", errors="ignore")
     include_pattern = re.compile(r"\\(?:input|include)\{([^}]+)\}")
@@ -535,13 +541,15 @@ def _expand_tex_includes(tex_file: Path, base_dir: Path, visited: set[Path] | No
         stem = name[:-4] if name.endswith(".tex") else name
         for cand in [base_dir / name, base_dir / f"{stem}.tex", base_dir / stem]:
             if cand.exists() and cand.is_file():
-                return _expand_tex_includes(cand, base_dir, visited)
+                return _expand_tex_includes(cand, base_dir, stack)
         for p in base_dir.rglob(Path(name).name):
             if p.is_file():
-                return _expand_tex_includes(p, base_dir, visited)
+                return _expand_tex_includes(p, base_dir, stack)
         return ""
 
-    return include_pattern.sub(replace_include, content)
+    expanded = include_pattern.sub(replace_include, content)
+    stack.discard(tex_file)
+    return expanded
 
 
 def expand_tex_source_for_parsing(tex_source_info: TexSourceInfo) -> str:
