@@ -45,8 +45,13 @@ def build_paper_manifest(
     naming_scheme: str,
     duration_seconds: float | None,
     status: str,
+    token_count: int | None = None,
 ) -> dict[str, Any]:
-    """Assemble the per-paper manifest payload (pure; no I/O)."""
+    """Assemble the per-paper manifest payload (pure; no I/O).
+
+    ``token_count`` accepts a count already computed upstream so the full
+    text is encoded once per paper, not once per consumer (audit5 X3).
+    """
     if not source_url and arxiv_id:
         source_url = f"https://arxiv.org/abs/{arxiv_id}"
     return {
@@ -59,7 +64,7 @@ def build_paper_manifest(
         "markdown_file": markdown_file,
         "content_chars": len(output_text),
         "content_bytes": len(output_text.encode("utf-8")),
-        "token_estimate": count_tokens(output_text),
+        "token_estimate": token_count if token_count is not None else count_tokens(output_text),
         "parser": parser,
         "naming_scheme": naming_scheme,
         "tool_version": _tool_version(),

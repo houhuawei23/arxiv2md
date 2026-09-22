@@ -134,3 +134,27 @@ async def test_batch_recorder_arecord_offloads_flush(tmp_path: Path) -> None:
     await rec.arecord(input_line="2501.11122", status="ok", output_dir="/c")
     data = json.loads((tmp_path / BATCH_MANIFEST_FILENAME).read_text(encoding="utf-8"))
     assert len(data["entries"]) == 3  # due flush went through the executor
+
+
+def test_build_paper_manifest_reuses_token_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """audit5 X3: manifest accepts the finalize pass's token count verbatim."""
+
+    def boom(text: str) -> int | None:
+        raise AssertionError("count_tokens must not be called when token_count is given")
+
+    monkeypatch.setattr("arxiv2md_beta.output.manifest.count_tokens", boom)
+    m = build_paper_manifest(
+        arxiv_id="2501.11120",
+        title="T",
+        submission_date=None,
+        source_url=None,
+        pdf_path=None,
+        markdown_file="paper.md",
+        output_text="text",
+        parser="html",
+        naming_scheme="arxiv-ym",
+        duration_seconds=None,
+        status="ok",
+        token_count=4242,
+    )
+    assert m["token_estimate"] == 4242

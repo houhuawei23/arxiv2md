@@ -13,6 +13,7 @@ from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
 from arxiv2md_beta.output.layout import FIXED_INTERNAL_SCHEMES, build_output_basename
 from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
+from arxiv2md_beta.output.markdown_utils import count_tokens
 from arxiv2md_beta.output.quality_gate import ensure_not_stub, is_stub
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult
@@ -81,7 +82,13 @@ def format_output(summary: str, tree: str, content: str, *, include_tree: bool) 
     return f"{summary}\n\n{content}".strip()
 
 
-def _manifest_stub_status(output_text: str, *, cli_allow_stub: bool, settings: Any) -> str:
+def _manifest_stub_status(
+    output_text: str,
+    *,
+    cli_allow_stub: bool,
+    settings: Any,
+    token_count: int | None = None,
+) -> str:
     """Manifest status for stub gating, mirroring :func:`ensure_not_stub` exactly.
 
     The gate bypasses on ``cli flag OR settings.output.allow_stub``; the
@@ -90,7 +97,7 @@ def _manifest_stub_status(output_text: str, *, cli_allow_stub: bool, settings: A
     (audit5 R-10).
     """
     allowed = cli_allow_stub or settings.output.allow_stub
-    return "allowed_stub" if allowed and is_stub(output_text, settings=settings) else "ok"
+    return "allowed_stub" if allowed and is_stub(output_text, settings=settings, token_count=token_count) else "ok"
 
 
 def resolve_paper_output_dir(
@@ -236,9 +243,14 @@ async def finalize_convert_output(
         include_tree=params.include_tree,
     )
 
+    # Encode the full text once and pass the count to every consumer
+    # (gate + manifest; audit5 X3) — the gate used to trigger up to three
+    # full-text tiktoken encodes per paper.
+    token_count = count_tokens(output_text)
+
     # Quality gate before any disk writes (including the PDF download task
     # below) so a rejected stub leaves no half-written artifacts behind.
-    ensure_not_stub(output_text, settings=s, allow_stub=params.allow_stub)
+    ensure_not_stub(output_text, settings=s, allow_stub=params.allow_stub, token_count=token_count)
 
     if naming_scheme in FIXED_INTERNAL_SCHEMES:
         output_filename = "paper.md"
@@ -297,7 +309,9 @@ async def finalize_convert_output(
 
     # Self-describing artifact: id/title/size/timing for downstream consistency
     # checks (batch manifests aggregate these).
-    manifest_status = _manifest_stub_status(output_text, cli_allow_stub=params.allow_stub, settings=s)
+    manifest_status = _manifest_stub_status(
+        output_text, cli_allow_stub=params.allow_stub, settings=s, token_count=token_count
+    )
     manifest = build_paper_manifest(
         arxiv_id=metadata.get("arxiv_id"),
         title=title,
@@ -312,6 +326,7 @@ async def finalize_convert_output(
         naming_scheme=naming_scheme,
         duration_seconds=(result.performance or {}).get("total_seconds"),
         status=manifest_status,
+        token_count=token_count,
     )
     write_paper_manifest(paper_output_dir, manifest)
 

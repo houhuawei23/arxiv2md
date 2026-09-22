@@ -51,3 +51,31 @@ def test_count_tokens_matches_format_token_count() -> None:
 def test_count_tokens_none_or_positive() -> None:
     raw = count_tokens("hello")
     assert raw is None or raw > 0
+
+
+def test_ensure_not_stub_counts_tokens_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """audit5 X3: the stub path must not encode the full text twice."""
+    calls = {"n": 0}
+    real = count_tokens
+
+    def counting(text: str) -> int | None:
+        calls["n"] += 1
+        return real(text)
+
+    monkeypatch.setattr("arxiv2md_beta.output.quality_gate.count_tokens", counting)
+    with pytest.raises(EmptyContentError):
+        ensure_not_stub("hello world")
+    assert calls["n"] == 1
+
+
+def test_precomputed_token_count_skips_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """audit5 X3: finalize encodes once and passes the count through."""
+
+    def boom(text: str) -> int | None:
+        raise AssertionError("count_tokens must not be called when token_count is given")
+
+    monkeypatch.setattr("arxiv2md_beta.output.quality_gate.count_tokens", boom)
+    with pytest.raises(EmptyContentError):
+        ensure_not_stub("hello world", token_count=3)
+    # Over both thresholds (bytes AND tokens) → passes without any encoding.
+    ensure_not_stub("a" * 6000, token_count=100000)
