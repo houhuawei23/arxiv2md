@@ -9,6 +9,7 @@ import shutil
 import tarfile
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -717,6 +718,7 @@ def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path
     expanded = _expand_tex_includes(tex_file, base_dir)
     expanded = _strip_title_blocks_for_image_extraction(expanded)
     expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
+    index = _ImageIndex.build(all_images)
     includegraphics_pattern = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
     # overpic environment: \begin{overpic}[options]{path}
     overpic_pattern = re.compile(r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}")
@@ -730,7 +732,7 @@ def _parse_images_from_tex(tex_file: Path, base_dir: Path, all_images: list[Path
         if expanded[line_start : match.start()].strip().startswith("%"):
             return
         image_path_str = match.group(1).strip()
-        image_path = _resolve_image_path(image_path_str, base_dir, all_images)
+        image_path = _resolve_image_path(image_path_str, base_dir, index)
         if image_path and image_path not in seen_paths:
             seen_paths.add(image_path)
             image_map[f"fig_{counter}"] = image_path
@@ -764,6 +766,7 @@ def _parse_figure_env_images_from_tex(tex_file: Path, base_dir: Path, all_images
     expanded = _strip_title_blocks_for_image_extraction(expanded)
     expanded = _strip_affiliation_blocks_for_image_extraction(expanded)
     figure_text = _extract_figure_env_text(expanded)
+    index = _ImageIndex.build(all_images)
     includegraphics_pattern = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
     overpic_pattern = re.compile(r"\\begin\{overpic\}(?:\[[^\]]*\])?\{([^}]+)\}")
     ordered: list[Path] = []
@@ -774,7 +777,7 @@ def _parse_figure_env_images_from_tex(tex_file: Path, base_dir: Path, all_images
         if figure_text[line_start : match.start()].strip().startswith("%"):
             return
         image_path_str = match.group(1).strip()
-        image_path = _resolve_image_path(image_path_str, base_dir, all_images)
+        image_path = _resolve_image_path(image_path_str, base_dir, index)
         if image_path and image_path not in seen_paths:
             seen_paths.add(image_path)
             ordered.append(image_path)
@@ -786,7 +789,31 @@ def _parse_figure_env_images_from_tex(tex_file: Path, base_dir: Path, all_images
     return ordered
 
 
-def _resolve_image_path(image_path_str: str, base_dir: Path, all_images: list[Path]) -> Path | None:
+@dataclass(frozen=True)
+class _ImageIndex:
+    r"""Stem lookup tables over one extracted image set (audit5 X5).
+
+    ``\includegraphics`` resolution used to linear-scan ``all_images`` up to
+    twice per reference (exact stem, then case-folded) — O(graphics × images).
+    The index is built once per parse; first-occurrence-wins keeps the old
+    scan's precedence, and exact matches still beat case-folded ones.
+    """
+
+    paths: set[Path]
+    exact: dict[str, Path]
+    folded: dict[str, Path]
+
+    @classmethod
+    def build(cls, all_images: list[Path]) -> _ImageIndex:
+        exact: dict[str, Path] = {}
+        folded: dict[str, Path] = {}
+        for p in all_images:
+            exact.setdefault(p.stem, p)
+            folded.setdefault(p.stem.lower(), p)
+        return cls(set(all_images), exact, folded)
+
+
+def _resolve_image_path(image_path_str: str, base_dir: Path, index: _ImageIndex) -> Path | None:
     """Resolve image path from LaTeX reference to actual file."""
     # Remove common LaTeX path prefixes
     image_path_str = image_path_str.strip()
@@ -795,22 +822,15 @@ def _resolve_image_path(image_path_str: str, base_dir: Path, all_images: list[Pa
 
     # Try direct match
     candidate = base_dir / image_path_str
-    if candidate.exists() and candidate in all_images:
+    if candidate.exists() and candidate in index.paths:
         return candidate
 
-    # Try with common extensions
+    # Try stem match (exact first, then case-insensitive — as before)
     base_name = Path(image_path_str).stem
-    for img_path in all_images:
-        if img_path.stem == base_name:
-            return img_path
-
-    # Try case-insensitive match
-    base_name_lower = base_name.lower()
-    for img_path in all_images:
-        if img_path.stem.lower() == base_name_lower:
-            return img_path
-
-    return None
+    hit = index.exact.get(base_name)
+    if hit is not None:
+        return hit
+    return index.folded.get(base_name.lower())
 
 
 def _has_tex_files(extracted_dir: Path) -> bool:
