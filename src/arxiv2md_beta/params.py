@@ -7,6 +7,10 @@ depend on the CLI layer for its parameter type.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from arxiv2md_beta.output.layout import CompletedIdentityIndex
 
 
 @dataclass(frozen=True)
@@ -33,3 +37,7 @@ class ConvertParams:
     linked_citations: bool = False
     force: bool = False
     allow_stub: bool = False
+    # Per-batch shared idempotency index (audit5 X1): one scan of the base
+    # output dir replaces the per-row full-directory rescans. None = the
+    # single-convert path scans on demand.
+    completed_index: CompletedIdentityIndex | None = None

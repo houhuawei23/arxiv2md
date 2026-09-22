@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from arxiv2md_beta.cli.runner.convert import find_completed_for_input, run_convert_flow
 from arxiv2md_beta.exceptions import Arxiv2mdError, PdfFallbackCompleted
-from arxiv2md_beta.output.layout import determine_output_dir
+from arxiv2md_beta.output.layout import CompletedIdentityIndex, determine_output_dir
 from arxiv2md_beta.output.manifest import (
     BatchManifestRecorder,
     batch_entry_details_from_manifest,
@@ -118,11 +118,15 @@ async def run_batch_flow(
                 first_seen[key] = index
 
         # Resume index: identities already converted under the base output dir
-        # are skipped before ingestion. The per-item check inside
-        # run_convert_flow stays authoritative; this only labels the row.
+        # are skipped before ingestion. Built once and shared with the
+        # authoritative check inside run_convert_flow (audit5 X1) instead of
+        # two full-directory rescans per row.
         force = params_template.force
         template = params_template
         base_output_dir = determine_output_dir(template.output)
+        if not force:
+            built: CompletedIdentityIndex = await asyncio.to_thread(CompletedIdentityIndex.build, base_output_dir)
+            template = replace(template, completed_index=built)
         # Offloaded: the prefill reads + parses the previous run's whole
         # manifest (sync IO) before the first worker even starts.
         recorder = await asyncio.to_thread(BatchManifestRecorder, base_output_dir)

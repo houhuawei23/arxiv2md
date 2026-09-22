@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
@@ -302,6 +303,46 @@ def _has_nonempty_markdown(directory: Path) -> bool:
         )
     except OSError:
         return False
+
+
+@dataclass(frozen=True)
+class CompletedIdentityIndex:
+    """identity → completed output directory, from ONE scan of the base dir.
+
+    Batch used to walk every sibling directory per row — twice (the batch
+    pre-check plus the authoritative check inside ``run_convert_flow``) —
+    O(n²) stat calls at n=1000. The index is built once at batch start and
+    shared by both. Lookup semantics mirror
+    :func:`find_completed_output_dir`: only directories with a
+    ``.arxiv2md-paper`` marker count, and a legacy *empty* marker matches
+    any identity (wildcard).
+    """
+
+    by_identity: dict[str, Path]
+    wildcard: Path | None
+
+    @classmethod
+    def build(cls, base_output_dir: Path) -> CompletedIdentityIndex:
+        by_identity: dict[str, Path] = {}
+        wildcard: Path | None = None
+        if base_output_dir.exists():
+            for entry in base_output_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                marker = entry / ".arxiv2md-paper"
+                if not marker.exists():
+                    continue
+                existing = marker.read_text(encoding="utf-8", errors="replace").strip()
+                if existing:
+                    if existing not in by_identity and _has_nonempty_markdown(entry):
+                        by_identity[existing] = entry
+                elif wildcard is None and _has_nonempty_markdown(entry):
+                    wildcard = entry
+        return cls(by_identity, wildcard)
+
+    def lookup(self, identity: str) -> Path | None:
+        """Completed directory for ``identity``, or None (wildcard as fallback)."""
+        return self.by_identity.get(identity) or self.wildcard
 
 
 def determine_images_dir(settings: AppSettings | None = None) -> str:

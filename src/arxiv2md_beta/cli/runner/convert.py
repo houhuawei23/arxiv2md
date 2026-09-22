@@ -136,9 +136,13 @@ async def _process_with(
     # --force bypasses the check. The identity must match the value each
     # ingestion path writes into the marker (see layout.identity_for_*).
     if not params.force:
-        # Offloaded: the scan walks every sibling output directory (sync IO)
-        # and would otherwise stall the loop for all batch workers.
-        done = await asyncio.to_thread(find_completed_output_dir, base_output_dir, spec.identity(query))
+        if params.completed_index is not None:
+            # Batch supplied a shared one-scan index (audit5 X1): no rescan.
+            done = params.completed_index.lookup(spec.identity(query))
+        else:
+            # Offloaded: the scan walks every sibling output directory (sync IO)
+            # and would otherwise stall the loop for all batch workers.
+            done = await asyncio.to_thread(find_completed_output_dir, base_output_dir, spec.identity(query))
         if done is not None:
             logger.info(f"Skip (already converted): {done}; use --force to re-convert")
             return done
@@ -290,6 +294,8 @@ def find_completed_for_input(input_text: str, params: ConvertParams) -> Path | N
             return None
         spec, _label = _select_spec(input_text, params)
         query = spec.parse(input_text)
+        if params.completed_index is not None:
+            return params.completed_index.lookup(spec.identity(query))
         base_output_dir = determine_output_dir(params.output)
         return find_completed_output_dir(base_output_dir, spec.identity(query))
     except Exception:
