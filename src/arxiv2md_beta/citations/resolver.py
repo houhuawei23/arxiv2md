@@ -83,9 +83,14 @@ class CitationResolver:
                 self._cache[doi] = entry
                 return entry
 
-        # Try arXiv ID (coalesced per id)
+        # Try arXiv ID (coalesced per id, cached like DOIs — the same paper
+        # cited twice otherwise triggers two arXiv API calls, audit4 PR4.5)
         if parsed.identifiers.get("arxiv_id"):
             arxiv_id = parsed.identifiers["arxiv_id"]
+            cache_key = f"arxiv:{arxiv_id}"
+            if cache_key in self._cache:
+                logger.debug(f"Cache hit for arXiv id: {arxiv_id}")
+                return self._cache[cache_key]
             if arxiv_id in self._inflight:
                 entry = await self._inflight[arxiv_id]
             else:
@@ -96,6 +101,7 @@ class CitationResolver:
                 finally:
                     self._inflight.pop(arxiv_id, None)
             if entry:
+                self._cache[cache_key] = entry
                 return entry
 
         # Fall back to parsed text

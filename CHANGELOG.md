@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-09-22 audit4，详见 docs/REVIEW_2026-09-22.md）
+
+三路并行审计新发现 11 个 P1 + 20 余个 P2，分 6 阶段修复（S1-S5.2 + S6.1 本轮落地，~20 commits）：
+
+- **转换正确性（上轮盲区）**：单图 emitter 零转义（alt 含 `]` 即断链）；表格 cell 转义破坏 `$P(a|b)$`（`\|` 变范数符号）；sidecar 重复 front matter；LaTeX 内链 target_id 语义错误 + label 缺失致交叉引用 repoint 失效；local.py 清洗连参删字（`\textbf{fast}` 丢 "fast"）
+- **管线/网络**：orchestrator 非取消异常泄漏 tex_task；403/410/451 满重试（`http.non_retryable_status_codes` 可配置）+ raise_for_status 丢失 status_code；退避加 jitter；marker 认领竞态（`os.link` 原子认领）
+- **输出/配置**：半截 paper.md 被幂等收养（原子写 + 主产物校验）；`~/path` 字面目录；paper-yml --update 覆写用户字段（`USER_OWNED_PATHS` 保护）+ 降级拒绝空壳覆写 + `.bak` 备份；CJK 标题字节截断（255B 限制）；`ARXIV2MD_RESULT_JSON` 移到落盘后
+- **IR 加固**：FigureReorder 匹配 "Figures N" 复数/续接列表 + LaTeX label-ref 引用；SectionNumberingPass 幂等；thebibliography 后内容保留；ref-N 占位保号；colspan 保列对齐；菱形包含递归栈判环；`_fix_orphan_ends` 位置感知
+- **语义卫生**：search 无结果 exit 1；引号剥离（透传保留）；host 精确匹配；ingest_paper 陷阱默认值 + 最后一个裸 ValueError 消失；citation 缓存扩展 arXiv id；real_paper 门槛改连通性探测
+
 ### Fixed（2026-09-20 审计，P1 确定性 bug）
 
 - **Markdown 后处理不再破坏代码块**：`$5 and $10` 曾被当作 inline math 改写、fence 内 `**Table N**` 被改成引用块、fence 内空行被折叠；现所有后处理规则先摘出 fenced code 再处理（inline code 亦保护 math 清理），`$` 配对采用 pandoc flanking 规则（内容首尾空白视为字面量）。

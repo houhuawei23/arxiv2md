@@ -62,6 +62,16 @@ pip install -e ".[latex]"
 pip install pypandoc_binary
 ```
 
+### 开发者：启用本地提交门禁
+
+克隆后执行一次（hooksPath 不随仓库分发，新 clone 默认静默无门禁）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+启用后每次提交都会运行 ruff、mypy 与密钥扫描。
+
 ## 使用方法
 
 ### 基本用法
