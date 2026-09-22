@@ -8,8 +8,8 @@ Two halves:
    may not break.
 
 2. *Known-divergence whitelist* — the HTML and LaTeX builders currently
-   disagree on five IR conventions (see ``KNOWN_DIVERGENCES``). Each entry is
-   pinned by a test asserting the CURRENT state of both sides. That makes any
+   disagree on the IR conventions listed in ``KNOWN_DIVERGENCES``. Each entry
+   is pinned by a test asserting the CURRENT state of both sides. That makes any
    accidental convergence or further drift fail loudly here instead of
    surfacing as an emitter/golden surprise. S4 fixes flip an entry by
    updating both the test and the dict — the whitelist is the acceptance

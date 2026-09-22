@@ -101,30 +101,6 @@ def normalize_structured_mode(mode: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _flatten_section_blocks(
-    sections: list[SectionIR],
-) -> list[dict[str, Any]]:
-    """Return a flat list of block dicts with assigned ``id`` and ``section_id``."""
-    out: list[dict[str, Any]] = []
-
-    def walk(secs: list[SectionIR]) -> None:
-        for sec in secs:
-            sid = sec.struct_id or "sec_unknown"
-            for bi, blk in enumerate(sec.blocks):
-                d = blk.model_dump(exclude_none=True)
-                d["id"] = f"{sid}:b{bi}:{blk.type}"
-                d["section_id"] = sid
-                # Keep the builder's document-wide order_index; only fill in
-                # the positional value when the block never got one.
-                if d.get("order_index") is None:
-                    d["order_index"] = bi
-                out.append(d)
-            walk(sec.children)
-
-    walk(sections)
-    return out
-
-
 def _section_to_dict(sec: SectionIR) -> dict[str, Any]:
     """Recursively convert a :class:`SectionIR` to a dict for JSON."""
     sid = sec.struct_id or "sec_unknown"

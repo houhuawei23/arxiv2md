@@ -75,12 +75,6 @@ def _next_is_citation(items: list, idx: int) -> bool:
     return False
 
 
-# Escape policies live in ir/emitters/escapes.py (single source for all
-# syntax positions); keep module-local aliases for the historic names.
-_escape_md_text = escape_md_text
-_escape_url = escape_url
-
-
 def _blockquote_lines(text: str) -> str:
     """Prefix every line with ``> `` so multi-line captions stay one block."""
     return "\n".join(f"> {line}" if line.strip() else ">" for line in text.split("\n"))
@@ -298,12 +292,12 @@ class MarkdownEmitter(IREmitter):
                 if cite_text.startswith("[") and cite_text.endswith("]"):
                     cite_text = cite_text[1:-1].strip()
                 if inline.target_id and self.linked_citations:
-                    return f"[{_escape_md_text(cite_text)}](#{_escape_url(inline.target_id)})"
-                return f"[{_escape_md_text(cite_text)}]"
+                    return f"[{escape_md_text(cite_text)}](#{escape_url(inline.target_id)})"
+                return f"[{escape_md_text(cite_text)}]"
             if inline.kind == "internal" and inline.target_id:
-                return f"[{_escape_md_text(text)}](#{_escape_url(inline.target_id)})"
+                return f"[{escape_md_text(text)}](#{escape_url(inline.target_id)})"
             elif inline.url:
-                return f"[{_escape_md_text(text)}]({_escape_url(inline.url)})"
+                return f"[{escape_md_text(text)}]({escape_url(inline.url)})"
             return text
         elif t == "math":
             if inline.display:
@@ -314,7 +308,7 @@ class MarkdownEmitter(IREmitter):
             src = inline.src or ""
             # GFM image syntax has no width/height inside the URL parens;
             # appending them there makes the path part of the link target.
-            return f"![{_escape_md_text(alt)}]({_escape_url(src)})"
+            return f"![{escape_md_text(alt)}]({escape_url(src)})"
         elif t == "superscript":
             # HTML tags render reliably; bare ^/_ prefixes collide with
             # Markdown emphasis and math shorthand.

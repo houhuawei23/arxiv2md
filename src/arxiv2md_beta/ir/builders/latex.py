@@ -531,8 +531,6 @@ class LaTeXBuilder(IRBuilder):
         if not text:
             return []
         # Split by \and
-        import re
-
         return [a.strip() for a in re.split(r"\\and|\\AND", text) if a.strip()]
 
     # ------------------------------------------------------------------
