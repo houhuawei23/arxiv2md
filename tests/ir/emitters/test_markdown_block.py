@@ -501,3 +501,48 @@ class TestOrderedListStart:
         out = emitter._emit_list(lst)
         assert "9. a" in out
         assert "10. b" in out
+
+
+class TestHtmlAttrEscaping:
+    """audit5 I-1, I-11, I-12: raw-HTML emission positions must be escaped."""
+
+    def test_anchor_id_escaped(self):
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata, SectionIR
+
+        doc = DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t"),
+            sections=[SectionIR(title="S", level=1, blocks=[], anchor='x"y<z')],
+        )
+        out = MarkdownEmitter().emit(doc)
+        assert '<a id="x&quot;y&lt;z">' in out
+
+    def test_multipanel_alt_not_double_escaped(self):
+        fig = FigureIR(
+            images=[
+                ImageRefIR(src="./a.png", alt="path\\to\\thing"),
+                ImageRefIR(src="./b.png", alt="b"),
+            ],
+            caption=[],
+        )
+        out = MarkdownEmitter()._emit_block(fig)
+        assert 'alt="path\\to\\thing"' in out, "backslashes must display once, not \\\\"
+
+    def test_multipanel_width_escaped(self):
+        fig = FigureIR(
+            images=[
+                ImageRefIR(src="./a.png", alt="a", width='45"'),
+                ImageRefIR(src="./b.png", alt="b"),
+            ],
+            caption=[],
+        )
+        out = MarkdownEmitter()._emit_block(fig)
+        assert 'width="45&quot;"' in out
+
+    def test_grid_cell_markup_escaped(self):
+        fig = FigureIR(
+            images=[ImageRefIR(src="./a.png")],
+            grid=[[[TextIR(text="a<b>c")]]],
+            caption=[],
+        )
+        out = MarkdownEmitter()._emit_block(fig)
+        assert "a&lt;b&gt;c" in out

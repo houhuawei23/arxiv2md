@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -140,6 +141,13 @@ def _ensure_html_response(response: httpx.Response) -> None:
         raise NetworkError(f"Unexpected content-type: {content_type}")
 
 
+# Placeholder pages vary in spacing/case ("<title> No content available "
+# "</title>", "<title>No content available</title>", …); exact matching let
+# variants through and produced empty "No content available" documents
+# (audit5 R-3).
+_PLACEHOLDER_TITLE_RE = re.compile(r"<title[^>]*>\s*No content available\s*</title>", re.IGNORECASE)
+
+
 def _reject_no_content_placeholder(html_text: str) -> None:
     """Reject ar5iv/arXiv "No content available" placeholder pages.
 
@@ -148,7 +156,7 @@ def _reject_no_content_placeholder(html_text: str) -> None:
     document titled "No content available", so raise instead and let the
     caller surface a clear error.
     """
-    if "<title> No content available </title>" in html_text:
+    if _PLACEHOLDER_TITLE_RE.search(html_text):
         raise NetworkError(
             "No HTML content available for this paper (ar5iv/arXiv returned a "
             "placeholder page). The paper was likely submitted as PDF-only and "

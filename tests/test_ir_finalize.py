@@ -66,3 +66,36 @@ def test_input_doc_is_not_mutated() -> None:
     assert len(doc.front_matter) == before_front_len == 1
     # Section content survives intact (split works on the original list).
     assert [s.title for s in doc.sections] == ["Introduction", "References", "Appendix A"]
+
+
+class TestRefAnchorSpacing:
+    """audit5 I-2: ref anchors sit on blank-line-separated lines.
+
+    Same contract as every other anchor emission path.
+    """
+
+    def test_anchor_has_blank_line_after(self):
+        from arxiv2md_beta.ingestion.ir_finalize import _number_reference_entries
+
+        md = "## References\n\n- First entry\n- Second entry\n"
+        out = _number_reference_entries(md, include_anchors=True)
+        lines = out.split("\n")
+        anchor_idx = next(i for i, ln in enumerate(lines) if ln.startswith('<a id="ref-1"'))
+        assert lines[anchor_idx + 1] == "", "anchor glued to the list entry"
+
+    def test_anchor_blank_line_before_when_glued(self):
+        from arxiv2md_beta.ingestion.ir_finalize import _number_reference_entries
+
+        md = "## References\n- First entry\n"
+        out = _number_reference_entries(md, include_anchors=True)
+        lines = out.split("\n")
+        anchor_idx = next(i for i, ln in enumerate(lines) if ln.startswith('<a id="ref-1"'))
+        assert lines[anchor_idx - 1] == "", "anchor glued to the heading line"
+
+    def test_no_anchor_mode_untouched(self):
+        from arxiv2md_beta.ingestion.ir_finalize import _number_reference_entries
+
+        md = "- First entry\n- Second entry\n"
+        out = _number_reference_entries(md, include_anchors=False)
+        assert "<a id=" not in out
+        assert out.split("\n")[0] == "- [1] First entry"

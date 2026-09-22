@@ -45,7 +45,12 @@ def _number_reference_entries(markdown: str, *, include_anchors: bool) -> str:
             n += 1
             marker = m.group("marker")
             if include_anchors:
+                # Own paragraph, blank-line separated on both sides — glued
+                # anchors read as list text in strict parsers (audit5 I-2)
+                if out and out[-1].strip():
+                    out.append("")
                 out.append(f'<a id="ref-{n}"></a>')
+                out.append("")
             out.append(f"{marker}[{n}] " + line[len(marker) :])
         else:
             out.append(line)

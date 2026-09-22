@@ -86,6 +86,11 @@ def _blockquote_lines(text: str) -> str:
     return "\n".join(f"> {line}" if line.strip() else ">" for line in text.split("\n"))
 
 
+def _a_id(anchor: str) -> str:
+    """``<a id="…">`` line with the id attribute HTML-escaped (audit5 I-11)."""
+    return f'<a id="{escape_html_attr(anchor)}"></a>'
+
+
 class MarkdownEmitter(IREmitter):
     """Serialize a :class:`DocumentIR` to GitHub-flavoured Markdown."""
 
@@ -129,9 +134,9 @@ class MarkdownEmitter(IREmitter):
 
         # Anchor
         if section.anchor:
-            parts.append(f'<a id="{section.anchor}"></a>')
+            parts.append(_a_id(section.anchor))
         elif section.struct_id:
-            parts.append(f'<a id="{section.struct_id}"></a>')
+            parts.append(_a_id(section.struct_id))
 
         # Heading
         hashes = "#" * max(1, min(6, section.level))
@@ -165,7 +170,7 @@ class MarkdownEmitter(IREmitter):
             level = getattr(block, "level", 2)
             text = self._emit_inlines(getattr(block, "inlines", []))
             anchor = getattr(block, "anchor", None)
-            prefix = f'<a id="{anchor}"></a>\n\n' if anchor else ""
+            prefix = f"{_a_id(anchor)}\n\n" if anchor else ""
             return f"{prefix}{'#' * level} {text}"
         elif t == "figure":
             return self._emit_figure(block)
@@ -330,7 +335,7 @@ class MarkdownEmitter(IREmitter):
         # Anchor
         fid = fig.figure_id or fig.anchor
         if fid:
-            lines.append(f'<a id="{fid}"></a>')
+            lines.append(_a_id(fid))
             lines.append("")
 
         # Images — every path routes alt/src through the escape policies
@@ -350,9 +355,12 @@ class MarkdownEmitter(IREmitter):
             lines.append('<div align="center">')
             width = "45%" if len(images) == 2 else f"{max(14, min(90 // len(images), 45))}%"
             for img in images:
-                alt = escape_html_attr(escape_md_text(img.alt or "Figure panel"))
+                # HTML attr context: escape_html_attr only — escape_md_text
+                # would display literal backslashes (audit5 I-1)
+                alt = escape_html_attr(img.alt or "Figure panel")
                 src = escape_html_attr(escape_url(img.src or ""))
-                w_attr = f' width="{img.width}"' if img.width else f' width="{width}"'
+                w = escape_html_attr(str(img.width)) if img.width else width
+                w_attr = f' width="{w}"'
                 lines.append(f'  <img src="{src}"{w_attr} alt="{alt}" />')
             lines.append("</div>")
 
@@ -381,10 +389,13 @@ class MarkdownEmitter(IREmitter):
                 for inline in cell:
                     if isinstance(inline, ImageRefIR):
                         src = escape_html_attr(escape_url(inline.src or ""))
-                        alt = escape_html_attr(escape_md_text(inline.alt or "Figure panel"))
+                        alt = escape_html_attr(inline.alt or "Figure panel")
                         parts.append(f'<img src="{src}" width="100%" alt="{alt}" />')
                     else:
-                        parts.append(self._emit_inlines([inline]))
+                        # Raw text inside an HTML <td>: escape markup
+                        # characters so source <> cannot break the table
+                        # (audit5 I-12)
+                        parts.append(escape_html_attr(self._emit_inlines([inline])))
                 cells.append(f"<td>{''.join(parts)}</td>")
             rows.append("<tr>" + "".join(cells) + "</tr>")
         return "\n".join(["<table>", *rows, "</table>"])
@@ -395,7 +406,7 @@ class MarkdownEmitter(IREmitter):
         # Anchor
         tid = tbl.table_id or tbl.anchor
         if tid:
-            lines.append(f'<a id="{tid}"></a>')
+            lines.append(_a_id(tid))
             lines.append("")
 
         # Headers & rows. Cell content is flattened to one line: a literal
@@ -461,7 +472,7 @@ class MarkdownEmitter(IREmitter):
         parts: list[str] = []
         anchor = eq.anchor
         if anchor:
-            parts.append(f'<a id="{anchor}"></a>')
+            parts.append(_a_id(anchor))
             parts.append("")
         num = eq.equation_number
         latex = eq.latex
@@ -568,7 +579,7 @@ class MarkdownEmitter(IREmitter):
         lines: list[str] = []
         anchor = alg.anchor
         if anchor:
-            lines.append(f'<a id="{anchor}"></a>')
+            lines.append(_a_id(anchor))
             lines.append("")
         caption = self._emit_inlines(alg.caption)
         if caption:

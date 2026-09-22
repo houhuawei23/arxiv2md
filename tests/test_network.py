@@ -544,3 +544,30 @@ class TestPoisonedCacheSelfHeal:
         assert result == good_html
         # The poisoned entry was replaced with the fresh download.
         assert html_path.read_text(encoding="utf-8") == good_html
+
+
+class TestPlaceholderDetectionVariants:
+    """audit5 R-3: placeholder detection tolerates spacing variants.
+
+    Must not depend on one exact string form.
+    """
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            "<html><head><title> No content available </title></head></html>",
+            "<html><head><title>No content available</title></head></html>",
+            "<html><head><title>\nNo content available\t</title></head></html>",
+            "<html><head><TITLE>no content available</TITLE></head></html>",
+        ],
+    )
+    def test_placeholder_variants_rejected(self, html):
+        from arxiv2md_beta.network.fetch import _reject_no_content_placeholder
+
+        with pytest.raises(Exception, match="No HTML content available"):
+            _reject_no_content_placeholder(html)
+
+    def test_normal_paper_html_passes(self):
+        from arxiv2md_beta.network.fetch import _reject_no_content_placeholder
+
+        _reject_no_content_placeholder("<html><head><title>[1234.5678] A Real Paper</title></head><body></body></html>")
