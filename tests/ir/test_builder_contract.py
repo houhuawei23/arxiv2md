@@ -31,24 +31,13 @@ from arxiv2md_beta.settings import get_settings
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
-# The five documented HTML/LaTeX convention gaps. Keyed by short id; tests
-# below reference these ids in their docstrings so a failure points straight
-# at the whitelist entry to update.
+# The documented HTML/LaTeX convention gaps that remain. Keyed by short id;
+# tests below reference these ids in their docstrings so a failure points
+# straight at the whitelist entry to update.
 KNOWN_DIVERGENCES: dict[str, str] = {
-    "figure_label": (
-        "HTML figures carry label=ar5iv element id (e.g. 'S2.F1') so "
-        "NumberingPass can repoint cross-references; LaTeX figures never set "
-        "label, so LaTeX cross-reference repointing is a no-op."
-    ),
     "figure_id_semantics": (
         "HTML figure_id is caption-derived ('figure-N'); LaTeX figure_id is "
         "the pandoc element id (e.g. 'fig:setup') or pass-assigned."
-    ),
-    "internal_link_target": (
-        "HTML internal links resolve target_id to the mapped anchor with "
-        "url=None; LaTeX keeps url='#pandoc-slug' and (when present) sets "
-        "target_id to the LINK'S OWN anchor, not the target's — the target_id "
-        "field is semantically wrong on this path (audit4 B4)."
     ),
     "struct_id": (
         "LaTeX sections get struct_id='sec_N' from SectionNumberingPass; HTML "
@@ -160,15 +149,23 @@ def test_citation_targets_are_emitter_compatible(doc_fixture: str, request: pyte
             assert _CITATION_NUM_RE.match(link.target_id), f"unrenderable citation target: {link.target_id!r}"
 
 
+# ── Converged conventions (formerly divergences; keep guarding) ───────
+
+
+@pytest.mark.parametrize("doc_fixture", ["html_doc", "latex_doc"])
+def test_figures_carry_label_for_crossref_repoint(doc_fixture: str, request: pytest.FixtureRequest) -> None:
+    """NumberingPass's label→anchor repointing needs figure.label populated.
+
+    audit4 B4 point fix: the LaTeX builder used to leave label None, making
+    cross-reference repointing a no-op on that path.
+    """
+    doc = request.getfixturevalue(doc_fixture)
+    for fig in _collect(doc).figures:
+        if fig.figure_id:
+            assert fig.label, f"figure {fig.figure_id!r} lost its label"
+
+
 # ── Known-divergence whitelist pins ───────────────────────────────────
-
-
-def test_w1_figure_label(html_doc: DocumentIR, latex_doc: DocumentIR) -> None:
-    """Whitelist: figure_label."""
-    html_labels = [f.label for f in _collect(html_doc).figures]
-    latex_labels = [f.label for f in _collect(latex_doc).figures]
-    assert html_labels and all(html_labels), "html figures must carry ar5iv element ids"
-    assert latex_labels and all(lbl is None for lbl in latex_labels), "latex figures must not have grown labels"
 
 
 def test_w2_figure_id_semantics(html_doc: DocumentIR, latex_doc: DocumentIR) -> None:
@@ -183,14 +180,18 @@ def test_w2_figure_id_semantics(html_doc: DocumentIR, latex_doc: DocumentIR) -> 
 
 
 def test_w3_internal_link_target(html_doc: DocumentIR, latex_doc: DocumentIR) -> None:
-    """Whitelist: internal_link_target (audit4 B4 marker — flip in PR2.2)."""
+    """audit4 B4: internal links carry the target fragment, never self-ids."""
+    for doc in (html_doc, latex_doc):
+        for link in _collect(doc).links:
+            if link.kind == "internal" and link.url:
+                # An internal link must not keep a raw '#...' url once it has
+                # a resolvable target fragment.
+                assert link.target_id == link.url.lstrip("#") or not link.target_id, (
+                    f"internal link keeps stale url={link.url!r} with target_id={link.target_id!r}"
+                )
     for link in _collect(latex_doc).links:
         if link.kind == "internal":
-            # Current (wrong) semantics: url keeps the pandoc slug; target_id
-            # is either None or the link element's OWN anchor.
-            assert link.url and link.url.startswith("#")
-    # html_doc has no internal links in the shared fixture; the html-side
-    # mechanism (_repoint_section_fragments) is covered by transforms tests.
+            assert link.target_id, "latex internal link lost its target fragment"
 
 
 def test_w4_struct_id(html_doc: DocumentIR, latex_doc: DocumentIR) -> None:

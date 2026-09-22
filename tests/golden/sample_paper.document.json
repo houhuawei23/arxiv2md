@@ -433,8 +433,8 @@
               "kind": "internal",
               "order_index": 0,
               "section_id": "",
-              "type": "link",
-              "url": "#fig:setup"
+              "target_id": "fig:setup",
+              "type": "link"
             },
             {
               "id": "",
@@ -531,6 +531,7 @@
             }
           ],
           "kind": "image",
+          "label": "fig:setup",
           "order_index": 1,
           "section_id": "sec_2",
           "source": {
@@ -641,8 +642,8 @@
               "kind": "internal",
               "order_index": 0,
               "section_id": "",
-              "type": "link",
-              "url": "#tab:comparison"
+              "target_id": "tab:comparison",
+              "type": "link"
             },
             {
               "id": "",
@@ -719,6 +720,7 @@
             ]
           ],
           "id": "sec_3:b1:table",
+          "label": "tab:comparison",
           "order_index": 1,
           "rows": [
             [

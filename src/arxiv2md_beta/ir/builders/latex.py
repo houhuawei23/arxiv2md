@@ -1040,17 +1040,24 @@ class LaTeXBuilder(IRBuilder):
             anchor = _pandoc_attrs_id(attrs)
             # Determine link kind
             kind: str = "external"
+            fragment: str | None = None
             if url.startswith("#"):
                 kind = "internal"
                 if "cite" in url.lower() or "ref" in url.lower():
                     kind = "citation"
+                # IR convention (shared with the HTML builder): an internal
+                # link carries the TARGET fragment in target_id and no url.
+                # The old code stored the link element's OWN anchor here, so
+                # any downstream consumer resolving by target_id got the
+                # wrong node (audit4 B4).
+                fragment = url[1:] or None
             elif not url:
                 kind = "internal"
             return LinkIR(
-                url=url if url else None,
+                url=None if fragment else (url or None),
                 inlines=inner,
                 kind=kind,  # type: ignore[arg-type]
-                target_id=anchor if anchor else None,
+                target_id=fragment if fragment else (anchor if anchor else None),
             )
         elif t == "Image":
             c_list = c if isinstance(c, list) else [["", [], []], [], ["", ""]]
@@ -1172,6 +1179,10 @@ class LaTeXBuilder(IRBuilder):
             caption=caption_inlines,
             figure_id=anchor if anchor else None,
             anchor=anchor if anchor else None,
+            # label enables NumberingPass's label→anchor cross-reference
+            # repointing (no-op identity today, correct when anchors are
+            # rewritten by dedup) — parity with the HTML builder, audit4 B4.
+            label=anchor if anchor else None,
             source=_SHARED_SOURCE,
             section_id=section_id,
             order_index=order,
@@ -1263,6 +1274,7 @@ class LaTeXBuilder(IRBuilder):
             caption=caption_inlines,
             anchor=anchor if anchor else None,
             table_id=anchor if anchor else None,
+            label=anchor if anchor else None,
             source=_SHARED_SOURCE,
             section_id=section_id,
             order_index=order,
