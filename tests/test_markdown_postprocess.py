@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from arxiv2md_beta.output.markdown_postprocess import (
     _clean_math_latex,
-    _remove_anchor_tags,
+    _strip_anchor_tags,
     clean_markdown_output,
 )
 from arxiv2md_beta.schemas import IngestionResult
@@ -13,11 +13,13 @@ from arxiv2md_beta.schemas import IngestionResult
 class TestRemoveAnchors:
     def test_removes_inline_anchor(self) -> None:
         text = 'Hello\n\n<a id="S1"></a>\n\n# Intro'
-        assert _remove_anchor_tags(text) == "Hello\n\n# Intro"
+        assert _strip_anchor_tags(text) == "Hello\n\n# Intro"
 
     def test_collapses_blank_lines(self) -> None:
         text = '<a id="figure-1"></a>\n\n\n\n![img](path.png)'
-        assert _remove_anchor_tags(text) == "![img](path.png)"
+        # Leading blank lines are trimmed by the caller's final strip
+        # (audit5 X6: this helper no longer lifts/restores fences itself).
+        assert _strip_anchor_tags(text) == "\n\n![img](path.png)"
 
 
 class TestCleanMathLatex:
@@ -208,3 +210,29 @@ class TestMathScannerProtections:
         text = "good$C_{\\text{gen}}\\,$nice\n"
         result = clean_markdown_output(text, include_anchors=False)
         assert "good $C_{\\text{gen}}$ nice" in result
+
+
+def test_clean_markdown_output_lifts_fences_once(monkeypatch) -> None:
+    """audit5 X6: one cleanup pass must scan for fences once, not per sub-pass.
+
+    clean_markdown_output, _strip_anchor_tags and _clean_math_and_spacing
+    each lifted the (already fence-free) text themselves — 3 full-text line
+    loops per finalize.
+    """
+    import re
+
+    from arxiv2md_beta.output import markdown_postprocess as mp
+
+    calls = {"n": 0}
+    real = mp.protect_fenced_code
+
+    def counting(text):
+        calls["n"] += 1
+        return real(text)
+
+    monkeypatch.setattr(mp, "protect_fenced_code", counting)
+    text = "intro\n\n```python\ncode $1$\n```\n\n$$x=1$$ done **b**\n\n| a | b |\n|---|---|\n| $1$ | 2 |"
+    out = mp.clean_markdown_output(text)
+    assert calls["n"] == 1
+    assert "```python" in out and "code $1$" in out  # fence intact
+    assert not re.search(r"\n{3,}", out)

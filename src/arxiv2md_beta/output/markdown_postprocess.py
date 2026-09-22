@@ -38,19 +38,16 @@ _TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
 _TABLE_ROW_PLACEHOLDER_RE = re.compile(r"\x00MD_ROW_(\d+)\x00")
 
 
-def _remove_anchor_tags(text: str) -> str:
+def _strip_anchor_tags(text: str) -> str:
     r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines.
 
-    Fenced code blocks are lifted out first: blank-line collapsing and per-line
-    ``rstrip`` must not touch their contents.
+    Caller has already lifted fenced code blocks out: blank-line collapsing
+    and per-line ``rstrip`` must not touch their contents.
     """
-    text, saved_fences = protect_fenced_code(text)
     text = _ANCHOR_TAG_RE.sub("", text)
     # Collapse 3+ newlines to 2 and trim trailing whitespace per line.
     text = re.sub(r"\n{3,}", "\n\n", text)
-    text = "\n".join(line.rstrip() for line in text.split("\n"))
-    text = restore_protected_code(text, saved_fences)
-    return text.strip()
+    return "\n".join(line.rstrip() for line in text.split("\n"))
 
 
 def _clean_math_latex(latex: str) -> str:
@@ -84,10 +81,10 @@ def _clean_math_and_spacing(text: str) -> str:
     links/images and pipe-table rows are likewise protected — a URL containing
     ``$`` would be rewritten into a broken link, and touching ``$`` content
     inside a row can tear the table apart.
-    """
-    # Step 0: lift fenced code blocks out of the way entirely.
-    text, saved_fences = protect_fenced_code(text)
 
+    Fenced code blocks must already be lifted by the caller (one lift per
+    finalize; audit5 X6).
+    """
     # Step 1: protect multi-line display math blocks and preserve indentation.
     protected: list[str] = []
 
@@ -242,7 +239,7 @@ def _clean_math_and_spacing(text: str) -> str:
         return protected[int(m.group(1))]
 
     result = _DISPLAY_MATH_PLACEHOLDER_RE.sub(_restore, result)
-    return restore_protected_code(result, saved_fences)
+    return result
 
 
 def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> str:
@@ -265,11 +262,13 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
         include_anchors = get_settings().output.include_anchors
     if not text:
         return text
-    # Lift fences out first: the final blank-line collapse below must not
-    # touch their contents (the sub-passes protect fences on their own too).
+    # ONE fence lift for the whole cleanup (audit5 X6): the sub-passes used
+    # to re-lift the already fence-free text themselves, two extra full-text
+    # line scans per finalize. The final blank-line collapse below must not
+    # touch fence contents either.
     text, saved_fences = protect_fenced_code(text)
     if not include_anchors:
-        text = _remove_anchor_tags(text)
+        text = _strip_anchor_tags(text)
     text = _clean_math_and_spacing(text)
     # Ensure no excessive blank lines remain.
     text = re.sub(r"\n{3,}", "\n\n", text)
