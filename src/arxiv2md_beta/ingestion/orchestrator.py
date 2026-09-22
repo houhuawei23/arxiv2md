@@ -108,8 +108,13 @@ class IngestionOrchestrator:
         # HTML 与 API 元数据相互独立，并行获取以减少网络等待
         try:
             await self._fetch_html_and_metadata()
-        except asyncio.CancelledError:
-            if tex_task is not None:
+        except BaseException:
+            # Any failure here (cache OSError, ParseError, cancellation, ...)
+            # must reap the in-flight TeX download: a leaked task keeps its
+            # full retry cycle running (occupying rate-limit slots in batch
+            # mode) and later surfaces as "Task exception was never retrieved"
+            # (audit4 A1).
+            if tex_task is not None and not tex_task.done():
                 tex_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await tex_task
@@ -157,8 +162,12 @@ class IngestionOrchestrator:
             await asyncio.to_thread(self._emit_markdown)
         result = self._build_result()
         # paper.yml and the structured JSON export are independent — run them
-        # concurrently.
-        await asyncio.gather(self._save_paper_yml(), self._structured_export_wrap())
+        # concurrently. return_exceptions=True waits for both, so a failure in
+        # one cannot leak the other as a still-running sibling task (audit4 P2).
+        results = await asyncio.gather(self._save_paper_yml(), self._structured_export_wrap(), return_exceptions=True)
+        for res in results:
+            if isinstance(res, BaseException):
+                raise res
         metadata = self._build_metadata(self._structured_export_result)
         result.performance = self._performance.snapshot()
         metadata["performance"] = result.performance

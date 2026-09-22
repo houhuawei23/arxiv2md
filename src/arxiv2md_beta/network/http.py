@@ -18,6 +18,7 @@ _client: httpx.AsyncClient | None = None
 # per rate value; disabled (0.0 default) means acquire() is a no-op.
 _rate_lock: asyncio.Lock | None = None
 _rate_next_slot: float = 0.0
+_rate_lock_loop: asyncio.AbstractEventLoop | None = None
 # Event loop the shared client was created on. If a later caller runs on a
 # different loop (e.g. a second asyncio.run in the same process, or a test),
 # we rebuild so the client is never bound to a dead loop.
@@ -112,14 +113,18 @@ async def acquire_rate_slot() -> None:
     Called by fetch sites right before issuing a request so every HTTP call in
     the process inherits the same client-side throttling.
     """
-    global _rate_lock, _rate_next_slot
+    global _rate_lock, _rate_next_slot, _rate_lock_loop
     rate = get_settings().http.max_requests_per_second
     if rate <= 0:
         return
-    if _rate_lock is None:
+    loop = asyncio.get_running_loop()
+    if _rate_lock is None or _rate_lock_loop is not loop:
+        # Rebuild on loop change: a lock left over from a dead loop raises
+        # "bound to a different event loop" on acquire (audit4 P2 — only
+        # close_http_client used to reset it).
         _rate_lock = asyncio.Lock()
+        _rate_lock_loop = loop
     async with _rate_lock:
-        loop = asyncio.get_running_loop()
         now = loop.time()
         interval = 1.0 / rate
         wait = _rate_next_slot - now

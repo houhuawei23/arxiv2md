@@ -67,12 +67,14 @@ async def test_ar5iv_fallback_triggers_on_typed_404(monkeypatch: pytest.MonkeyPa
     # The 404 also rates a mirror attempt (mirror_on_404) before ar5iv.
     respx.get("https://export.arxiv.org/html/2501.12345").mock(return_value=Response(404, text="no html"))
     ar5iv = respx.get("https://ar5iv.labs.arxiv.org/html/2501.12345").mock(
-        return_value=Response(
-            200, text="<html>ar5iv body</html>", headers={"content-type": "text/html; charset=utf-8"}
-        )
+        return_value=Response(200, text="<html>ar5iv body</html>", headers={"content-type": "text/html; charset=utf-8"})
     )
     text = await fetch_arxiv_html(
-        URL, arxiv_id="2501.12345", version=None, use_cache=False, ar5iv_url="https://ar5iv.labs.arxiv.org/html/2501.12345"
+        URL,
+        arxiv_id="2501.12345",
+        version=None,
+        use_cache=False,
+        ar5iv_url="https://ar5iv.labs.arxiv.org/html/2501.12345",
     )
     assert "ar5iv body" in text
     assert ar5iv.call_count == 1
@@ -95,9 +97,7 @@ def test_compute_backoff_matches_exponential_shape() -> None:
 
 
 @respx.mock
-async def test_pdf_download_survives_garbage_content_length(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_pdf_download_survives_garbage_content_length(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A malformed Content-Length header must not kill the PDF download."""
     _no_sleep(monkeypatch)
     cache_dir = tmp_path / "cache"

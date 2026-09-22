@@ -76,7 +76,6 @@ def _get_html(arxiv_id: str) -> str:
     return _fetch_and_cache_html(arxiv_id)
 
 
-
 def _arxiv_reachable(timeout: float = 5.0) -> bool:
     """Cheap connectivity probe so the suite skips cleanly on offline machines.
 
