@@ -386,9 +386,12 @@ class MarkdownEmitter(IREmitter):
 
         # Headers & rows. Cell content is flattened to one line: a literal
         # newline would tear the pipe table apart, so BreakIR-style breaks
-        # become <br>.
-        headers = [_escape_pipe_cell(_cell_text(self._emit_inlines(h))) for h in tbl.headers]
-        rows = [[_escape_pipe_cell(_cell_text(self._emit_inlines(c))) for c in row] for row in tbl.rows]
+        # become <br>. Cells render through _cell_inlines: math latex gets
+        # '|' → \vert on copies so the pipe escaping below cannot rewrite it.
+        headers = [_escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(h)))) for h in tbl.headers]
+        rows = [
+            [_escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(c)))) for c in row] for row in tbl.rows
+        ]
 
         if not headers and not rows:
             return ""
@@ -416,6 +419,31 @@ class MarkdownEmitter(IREmitter):
             lines.append(_blockquote_lines(caption))
 
         return "\n".join(lines)
+
+    # ── Table cell rendering ───────────────────────────────────────────
+
+    def _cell_inlines(self, inlines: list) -> list:
+        r"""Cell-scoped copies of *inlines* whose math latex is table-safe.
+
+        The pipe-table renderer escapes every unescaped ``|`` in a cell; inside
+        ``$…$`` that rewrite is semantic damage (KaTeX renders ``\|`` as ‖,
+        turning a conditional probability into a norm). Replacing the character
+        with the equivalent ``\vert`` on *copies* keeps both the math and the
+        table intact — the emitter never mutates the IR it renders.
+        """
+        return [self._cell_safe_copy(il) for il in inlines]
+
+    def _cell_safe_copy(self, il):
+        t = getattr(il, "type", "")
+        if t == "math":
+            if "|" in il.latex:
+                # Trailing space keeps \vert from absorbing the next letters
+                # into an undefined command name (\vertb); math mode ignores it.
+                return il.model_copy(update={"latex": il.latex.replace("|", "\\vert ")})
+            return il
+        if t in ("emphasis", "superscript", "subscript") and getattr(il, "inlines", None):
+            return il.model_copy(update={"inlines": self._cell_inlines(il.inlines)})
+        return il
 
     def _emit_equation(self, eq: EquationIR) -> str:
         parts: list[str] = []

@@ -24,6 +24,18 @@ _DISPLAY_MATH_PLACEHOLDER_RE = re.compile(r"\x00DISPLAY_MATH_(\d+)\x00")
 # the dollars inside them. Multi-line code spans don't occur in emitted docs.
 _INLINE_CODE_RE = re.compile(r"`{1,3}[^`\n]+`{1,3}")
 _INLINE_CODE_PLACEHOLDER_RE = re.compile(r"\x00INLINE_CODE_(\d+)\x00")
+# Inline links/images: a URL containing '$' (pairing would rewrite it into a
+# broken link). Alt text may carry ``\[``-escaped brackets; matching stops at
+# the first unescaped-shaped ']' — links with literal ']' in alt + '$' in URL
+# stay unprotected, an accepted edge.
+_INLINE_LINK_RE = re.compile(r"!?\[[^\]\n]*\]\([^)\n]*\)")
+_INLINE_LINK_PLACEHOLDER_RE = re.compile(r"\x00MD_LINK_(\d+)\x00")
+# Pipe-table rows (any line whose first non-blank char is '|'): rewriting '$'
+# content inside a row can inject spacing or a multi-line display block that
+# tears the table apart. Display-math blocks are already placeholders by the
+# time this runs, so their content cannot trigger a false row match.
+_TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
+_TABLE_ROW_PLACEHOLDER_RE = re.compile(r"\x00MD_ROW_(\d+)\x00")
 
 
 def _remove_anchor_tags(text: str) -> str:
@@ -68,7 +80,10 @@ def _clean_math_and_spacing(text: str) -> str:
     — accepted degradation for pathological input.
 
     Fenced code blocks and inline code spans are lifted out first: neither the
-    display-block pass nor the ``$`` scanner may rewrite their contents.
+    display-block pass nor the ``$`` scanner may rewrite their contents. Inline
+    links/images and pipe-table rows are likewise protected — a URL containing
+    ``$`` would be rewritten into a broken link, and touching ``$`` content
+    inside a row can tear the table apart.
     """
     # Step 0: lift fenced code blocks out of the way entirely.
     text, saved_fences = protect_fenced_code(text)
@@ -93,6 +108,24 @@ def _clean_math_and_spacing(text: str) -> str:
         return f"\x00INLINE_CODE_{len(inline_protected) - 1}\x00"
 
     text = _INLINE_CODE_RE.sub(_protect_inline, text)
+
+    # Step 1c: protect inline links/images and pipe-table rows — the scanner
+    # must never rewrite their '$' content (URLs would corrupt, tables tear).
+    link_protected: list[str] = []
+
+    def _protect_link(m: re.Match) -> str:
+        link_protected.append(m.group(0))
+        return f"\x00MD_LINK_{len(link_protected) - 1}\x00"
+
+    text = _INLINE_LINK_RE.sub(_protect_link, text)
+
+    row_protected: list[str] = []
+
+    def _protect_row(m: re.Match) -> str:
+        row_protected.append(m.group(0))
+        return f"\x00MD_ROW_{len(row_protected) - 1}\x00"
+
+    text = _TABLE_ROW_RE.sub(_protect_row, text)
 
     # Step 2: tokenize the remaining text on "$" and parse math regions.
     # tokens alternates literal text and "$" markers: re.split(r"(\$)", s).
@@ -199,7 +232,10 @@ def _clean_math_and_spacing(text: str) -> str:
 
     result = "".join(out_parts)
 
-    # Step 3: restore protected spans in a single pass each.
+    # Step 3: restore protected spans in reverse protection order (row content
+    # embeds link placeholders, link content may embed code placeholders).
+    result = _TABLE_ROW_PLACEHOLDER_RE.sub(lambda m: row_protected[int(m.group(1))], result)
+    result = _INLINE_LINK_PLACEHOLDER_RE.sub(lambda m: link_protected[int(m.group(1))], result)
     result = _INLINE_CODE_PLACEHOLDER_RE.sub(lambda m: inline_protected[int(m.group(1))], result)
 
     def _restore(m: re.Match) -> str:

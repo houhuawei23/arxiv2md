@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from arxiv2md_beta.ir import FigureIR, ImageRefIR
+from arxiv2md_beta.ir import EmphasisIR, FigureIR, ImageRefIR, MathIR, TableIR, TextIR
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 
 
@@ -90,8 +90,6 @@ class TestMultiImageAttributeEscaping:
 
 class TestGridImageAttributeEscaping:
     def test_alt_with_double_quote_cannot_break_attribute(self, emitter: MarkdownEmitter) -> None:
-        from arxiv2md_beta.ir import TextIR
-
         grid = [
             [
                 [ImageRefIR(src="a.png", alt='row "one"')],  # type: ignore[list-item]
@@ -100,3 +98,32 @@ class TestGridImageAttributeEscaping:
         fig = FigureIR(grid=grid, caption=[TextIR(text="grid")], images=[])
         out = emitter._emit_block(fig)
         assert 'alt="row &quot;one&quot;"' in out
+
+
+# ── Table cells: math pipes (audit4 B2) ───────────────────────────────
+
+
+class TestTableCellMathPipes:
+    def test_conditional_probability_pipe_becomes_vert(self, emitter: MarkdownEmitter) -> None:
+        r"""A math pipe must become \vert, never \| (KaTeX reads \| as ‖)."""
+        tbl = TableIR(headers=[[TextIR(text="model")]], rows=[[[MathIR(latex="P(a|b)")]]])
+        out = emitter._emit_block(tbl)
+        assert r"$P(a\vert b)$" in out
+        assert r"\|" not in out
+
+    def test_math_without_pipes_unchanged(self, emitter: MarkdownEmitter) -> None:
+        tbl = TableIR(headers=[[TextIR(text="model")]], rows=[[[MathIR(latex="x^2 + 1")]]])
+        out = emitter._emit_block(tbl)
+        assert "$x^2 + 1$" in out
+
+    def test_math_pipe_inside_emphasis_also_becomes_vert(self, emitter: MarkdownEmitter) -> None:
+        cell = [EmphasisIR(style="bold", inlines=[MathIR(latex="P(a|b)")])]
+        tbl = TableIR(headers=[[TextIR(text="model")]], rows=[[cell]])
+        out = emitter._emit_block(tbl)
+        assert r"$P(a\vert b)$" in out
+        assert r"\|" not in out
+
+    def test_prose_pipe_in_text_cell_still_escaped(self, emitter: MarkdownEmitter) -> None:
+        tbl = TableIR(headers=[[TextIR(text="A | B")]], rows=[])
+        out = emitter._emit_block(tbl)
+        assert "| A \\| B |" in out

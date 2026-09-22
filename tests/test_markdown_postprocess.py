@@ -169,3 +169,42 @@ class TestFencedCodeProtection:
         assert "answer $x$ is here" in result  # post-fence content still cleaned
         inner = result.split("```\n", 1)[1].split("\n```", 1)[0]
         assert inner == "code $5 here"
+
+
+class TestMathScannerProtections:
+    """audit4 PR1.3: the ``$`` scanner must not rewrite link URLs or table rows."""
+
+    def test_link_url_with_dollars_untouched(self) -> None:
+        text = "see [x](https://a.com/$b$c?q=$d) now\n"
+        assert clean_markdown_output(text, include_anchors=False) == text
+
+    def test_image_url_with_dollars_untouched(self) -> None:
+        text = "![chart](https://img.com/$x$.png)\n"
+        assert clean_markdown_output(text, include_anchors=False) == text
+
+    def test_link_alt_text_with_dollars_untouched(self) -> None:
+        text = "[$a$ label](https://a.com/x)\n"
+        assert clean_markdown_output(text, include_anchors=False) == text
+
+    def test_table_row_conditional_probability_untouched(self) -> None:
+        """Row structure must stay byte-stable (no injected ``$`` spacing)."""
+        text = "| model | value |\n| --- | --- |\n| m1 | $P(a|b)$ |\n"
+        assert clean_markdown_output(text, include_anchors=False) == text
+
+    def test_table_row_display_dollars_not_expanded_multiline(self) -> None:
+        """``$$…$$`` in a cell must not expand into a table-tearing block."""
+        text = "| $$(x)$$ | y |\n| --- | --- |\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert result.count("\n") == 2
+        assert "| $$(x)$$ | y |" in result
+
+    def test_prose_dollar_pairing_still_works_outside_links_and_tables(self) -> None:
+        text = "cost $5 and $10 total, but $x$ is math\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert "$5 and $10" in result
+        assert "$x$" in result
+
+    def test_math_outside_table_still_cleaned(self) -> None:
+        text = "good$C_{\\text{gen}}\\,$nice\n"
+        result = clean_markdown_output(text, include_anchors=False)
+        assert "good $C_{\\text{gen}}$ nice" in result
