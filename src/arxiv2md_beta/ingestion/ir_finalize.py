@@ -118,8 +118,11 @@ def persist_inline_svgs(doc: DocumentIR, output_dir: Path) -> int:
     """Write inline ``<svg>`` figures collected by the HTML builder to disk.
 
     The builder carries raw SVG markup in :class:`SvgAsset` nodes (``content``)
-    instead of doing file I/O; this is the single persistence point. Returns
-    the number of files written.
+    instead of doing file I/O; this is the single persistence point. Each SVG
+    is rasterized to PNG first (cairosvg, 2x scale) and the document's image
+    references repointed — many Markdown viewers cannot render standalone
+    ``.svg`` files. Falls back to writing the raw ``.svg`` when conversion is
+    unavailable. Returns the number of assets persisted (PNG or SVG).
     """
     from arxiv2md_beta.ir.assets import SvgAsset
 
@@ -129,6 +132,12 @@ def persist_inline_svgs(doc: DocumentIR, output_dir: Path) -> int:
             continue
         path = output_dir / asset.path
         path.parent.mkdir(parents=True, exist_ok=True)
+        png_rel = str(Path(asset.path).with_suffix(".png"))
+        png_path = output_dir / png_rel
+        if _rasterize_svg(asset.content, png_path):
+            _repoint_svg_srcs(doc, asset.path, png_rel)
+            written += 1
+            continue
         path.write_text(asset.content, encoding="utf-8")
         written += 1
     if written:
@@ -136,6 +145,126 @@ def persist_inline_svgs(doc: DocumentIR, output_dir: Path) -> int:
 
         logger.info(f"Persisted {written} inline SVG figure(s) under {output_dir}")
     return written
+
+
+def _rasterize_svg(svg_content: str, png_path: Path, scale: float = 2.0) -> bool:
+    """Render *svg_content* to *png_path*; return True on success.
+
+    LaTeXML panel SVGs embed their labels as HTML/foreignObject (often with
+    MathML), which cairosvg cannot draw — it would rasterize only the
+    background shapes. Headless Chrome renders the full picture, so it is
+    tried first; cairosvg remains the fallback for plain-SVG input and for
+    environments without Chrome.
+    """
+    if _rasterize_svg_chrome(svg_content, png_path, scale):
+        return True
+    return _rasterize_svg_cairo(svg_content, png_path, scale)
+
+
+def _rasterize_svg_chrome(svg_content: str, png_path: Path, scale: float) -> bool:
+    """Render via headless Chrome/Chromium screenshot; True on success."""
+    import re
+    import shutil as _shutil
+    import subprocess
+    import tempfile
+
+    chrome = _shutil.which("google-chrome") or _shutil.which("chromium") or _shutil.which("chromium-browser")
+    if not chrome:
+        return False
+    svg_tag = re.search(r"<svg[^>]*>", svg_content)
+    if not svg_tag:
+        return False
+    # width/height appear in either order (LaTeXML emits height first)
+    w = re.search(r'\bwidth="([\d.]+)"', svg_tag.group(0))
+    h = re.search(r'\bheight="([\d.]+)"', svg_tag.group(0))
+    if not (w and h):
+        return False
+    width, height = float(w.group(1)), float(h.group(1))
+    view_w, view_h = max(1, round(width * scale)), max(1, round(height * scale))
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<style>html,body{margin:0;padding:0;background:#ffffff;}"
+        f"svg{{width:{view_w}px !important;height:{view_h}px !important;}}"
+        "</style></head><body>" + svg_content + "</body></html>"
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="arxiv2md_svg_") as tmp:
+            page = Path(tmp) / "page.html"
+            page.write_text(html, encoding="utf-8")
+            shot = Path(tmp) / "shot.png"
+            subprocess.run(
+                [
+                    chrome,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--hide-scrollbars",
+                    "--default-background-color=FFFFFFFF",
+                    f"--screenshot={shot}",
+                    f"--window-size={view_w},{view_h}",
+                    page.as_uri(),
+                ],
+                check=True,
+                timeout=60,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if not shot.is_file() or shot.stat().st_size == 0:
+                return False
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            _shutil.copyfile(shot, png_path)
+            return True
+    except (subprocess.SubprocessError, OSError) as e:
+        from loguru import logger
+
+        logger.debug(f"Chrome SVG rasterization unavailable for {png_path.name}: {e}")
+        return False
+
+
+def _rasterize_svg_cairo(svg_content: str, png_path: Path, scale: float) -> bool:
+    """Render via cairosvg; True on success (plain-SVG input only)."""
+    if "foreignObject" in svg_content:
+        # cairosvg cannot draw foreignObject content (HTML/MathML labels) —
+        # it would emit a background-only PNG. Writing the raw SVG (which
+        # browsers render fine) is the better fallback.
+        return False
+    try:
+        import cairosvg
+    except ImportError:
+        from loguru import logger
+
+        logger.debug("cairosvg not installed; keeping inline SVG as-is (pip install cairosvg)")
+        return False
+    try:
+        png_path.parent.mkdir(parents=True, exist_ok=True)
+        cairosvg.svg2png(bytestring=svg_content.encode("utf-8"), write_to=str(png_path), scale=scale)
+        return True
+    except Exception as e:  # noqa: BLE001 — a broken SVG must not abort the conversion
+        from loguru import logger
+
+        logger.warning(f"SVG→PNG conversion failed for {png_path.name}: {e}; keeping SVG")
+        return False
+
+
+def _repoint_svg_srcs(doc: DocumentIR, old_src: str, new_src: str) -> None:
+    """Rewrite every ``ImageRefIR`` pointing at *old_src* to *new_src*."""
+    from arxiv2md_beta.ir.blocks import FigureIR
+    from arxiv2md_beta.ir.inlines import ImageRefIR
+    from arxiv2md_beta.ir.visitor import iter_block_descendants, iter_inline_lists
+
+    def walk_sections(sections):
+        for sec in sections:
+            yield from sec.blocks
+            yield from iter_block_descendants(sec)
+            yield from walk_sections(sec.children or [])
+
+    for blk in walk_sections(doc.sections):
+        if not isinstance(blk, FigureIR):
+            continue
+        for inline_list in iter_inline_lists(blk):
+            for il in inline_list:
+                if isinstance(il, ImageRefIR) and il.src == old_src:
+                    il.src = new_src
 
 
 def finalize_ingestion_output(

@@ -773,15 +773,31 @@ class TestSvgFigures:
         assert fig.type == "figure"
         assert fig.images[0].src == "imgs/figure-1.svg"
 
-    def test_persist_inline_svgs_writes_files(self, tmp_path) -> None:
+    def test_persist_inline_svgs_rasterizes_to_png(self, tmp_path) -> None:
         from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
 
         doc = HTMLBuilder(images_subdir="images").build(self.SVG_HTML, arxiv_id="1234.5678")
         written = persist_inline_svgs(doc, tmp_path)
         assert written == 1
+        # cairosvg converts to PNG and the figure's src is repointed
+        out = tmp_path / "images" / "figure-1.png"
+        assert out.is_file() and out.stat().st_size > 0
+        assert not (tmp_path / "images" / "figure-1.svg").exists()
+        fig = doc.sections[0].blocks[0]
+        assert fig.images[0].src == "images/figure-1.png"
+
+    def test_persist_inline_svgs_falls_back_to_svg(self, tmp_path, monkeypatch) -> None:
+        import arxiv2md_beta.ingestion.ir_finalize as ir_finalize
+
+        monkeypatch.setattr(ir_finalize, "_rasterize_svg", lambda *a, **k: False)
+        doc = HTMLBuilder(images_subdir="images").build(self.SVG_HTML, arxiv_id="1234.5678")
+        written = ir_finalize.persist_inline_svgs(doc, tmp_path)
+        assert written == 1
         out = tmp_path / "images" / "figure-1.svg"
         assert out.is_file()
         assert "<svg" in out.read_text(encoding="utf-8")
+        fig = doc.sections[0].blocks[0]
+        assert fig.images[0].src == "images/figure-1.svg"
 
 
 class TestObjectFigure:
@@ -918,11 +934,14 @@ class TestAlgorithmSteps:
         doc = builder.build(self.ALGO_HTML, arxiv_id="test")
         alg = doc.sections[0].blocks[0]
         assert alg.type == "algorithm"
-        # Each listingline becomes its own paragraph step (raw get_text would
-        # mangle inline math into unicode+LaTeX soup).
-        assert [s.type for s in alg.steps] == ["paragraph", "paragraph"]
-        assert alg.steps[0].inlines[0].text == "Input: graph G"
-        assert alg.steps[1].inlines[0].text == "for v in V do"
+        # Listing lines become a single bullet list: one item per line, and
+        # lines after an opener ("for v in V do") nested one level deeper.
+        assert [s.type for s in alg.steps] == ["list"]
+        items = alg.steps[0].items
+        assert len(items) == 2
+        assert items[0][0].inlines[0].text == "Input: graph G"
+        assert items[1][0].inlines[0].text == "for v in V do"
+        assert items[1][0].type == "paragraph"
 
     def test_pseudocode_reaches_markdown_output(self, builder):
         doc = builder.build(self.ALGO_HTML, arxiv_id="test")
@@ -962,15 +981,43 @@ class TestAlgorithmSteps:
         doc = HTMLBuilder(images_subdir="images").build(html, arxiv_id="test")
         alg = doc.sections[0].blocks[0]
         assert alg.type == "algorithm"
-        step_texts = [
-            " ".join(il.text for il in s.inlines if il.type == "text") for s in alg.steps if s.type == "paragraph"
-        ]
-        assert any("Let" in t and "be the model" in t for t in step_texts)
-        assert any("while" in t and "not converged" in t for t in step_texts)
-        assert any("end while" in t for t in step_texts)
-        # no raw "\State"/"\While" leakage
         out = MarkdownEmitter().emit(doc)
+        assert "Let" in out and "be the model" in out
+        assert "- while not converged" in out
+        assert "- end while" in out
+        # the "Let ..." line stays at top level; "while" opens the nested level
+        assert "- Let " in out
+        # no raw "\State"/"\While" leakage
         assert "\\State" not in out and "\\While" not in out
+
+    def test_display_math_fence_starts_own_line(self):
+        # A display equation at the end of a pseudocode line must not emit
+        # "text: $$" — the opening fence has to start a fresh line or the
+        # rest of the paragraph fails to render as Markdown.
+        math = (
+            '<math alttext="\\mathcal{L}=0" display="block">'
+            '<annotation encoding="application/x-tex">\\mathcal{L}=0</annotation></math>'
+        )
+        html = f"""
+        <article class='ltx_document'>
+        <section class='ltx_section'><h2>T</h2>
+        <figure class="ltx_float_algorithm" id="alg1">
+        <figcaption>Demo</figcaption>
+        <div class="ltx_listing">
+        <div class="ltx_listingline">
+        <span class="ltx_ERROR undefined">\\State</span>Compute the loss
+        {math}
+        <span class="ltx_ERROR undefined">\\EndWhile</span>
+        </div>
+        </div>
+        </figure>
+        </section>
+        </article>"""
+        doc = HTMLBuilder(images_subdir="images").build(html, arxiv_id="test")
+        out = MarkdownEmitter().emit(doc)
+        # the fence opens on a fresh, item-indented line, not glued to the text
+        assert ": $$" not in out
+        assert "Compute the loss\n  $$\n" in out
 
     def test_caption_tag_span_not_double_bold(self, builder):
         # The "Algorithm 1" tag is a structural label; its bold styling must

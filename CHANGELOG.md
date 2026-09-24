@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Added（2026-09-24：算法排版与 SVG 栅格化）
+
+- **算法伪代码嵌套列表排版**：`AlgorithmIR.steps` 由平铺段落改为单个嵌套 `ListIR`——每行伪代码一个条目，`while`/`for`/`if`/`loop`/`function` 之后各行自动缩进一层，`end ...` 行回到 opener 自身层级，与印刷版算法的视觉缩进一致。列表发射器对含行内 display-math（`$$...$$`）的条目按多行内容处理：fence 独立成行并缩进到条目内容列（此前 "text: $$" 行中开 fence 会破坏后续 Markdown 渲染）；含 `$` 的条目跳过 `_wrap_line` 折行（字符级硬折行会把无空格 LaTeX 公式拦腰截断，如 `\mathcal` 被劈成 `\ cal`）。
+- **内联 SVG 自动栅格化为 PNG**：`persist_inline_svgs` 现优先用 headless Chrome/Chromium 把内联 SVG 截图为 2x PNG 并把文档内 `ImageRefIR.src` 重指向 `.png`——LaTeXML 面板 SVG 的文字是 foreignObject 里的 HTML/MathML，多数 Markdown 查看器不渲染独立 `.svg`，而 cairosvg 只能画出背景色块。Chrome 不可用时回退 cairosvg（对含 `foreignObject` 的输入视为失败，宁写原始 `.svg` 也不产出坏 PNG），再回退为直接写 `.svg`。`cairosvg` 加入可选依赖建议（`pip install cairosvg`），Chrome 为可选系统依赖。
+
 ### Fixed（2026-09-24：arXiv 2601.18734 实测回归）
 
 以真实论文（2601.18734）端到端转换复测，发现并修复 6 个 HTML 管线缺陷：

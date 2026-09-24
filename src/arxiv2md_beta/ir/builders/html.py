@@ -1000,7 +1000,7 @@ class HTMLBuilder(IRBuilder):
                 continue  # an inner listingline row, not a listing container
             steps.extend(self._build_algorithm_listing(listing))
         if steps:
-            return steps
+            return _nest_algorithm_steps(steps)
         body, _ = self._children_to_blocks(
             [c for c in tag.children if c is not caption_tag],
             section_id,
@@ -1480,6 +1480,75 @@ def _trim_inline_edges(inlines: list) -> list:
     if isinstance(inlines[-1], TextIR):
         inlines[-1] = inlines[-1].model_copy(update={"text": inlines[-1].text.rstrip()})
     return [il for il in inlines if not (il.type == "text" and il.text == "")]
+
+
+# Pseudocode keywords that open a nesting level ("for all ..." counts: the
+# first word decides). Closers must be checked before openers ("end for").
+_ALGO_LIST_OPENERS = frozenset({"while", "for", "if", "loop", "function"})
+_ALGO_LIST_CLOSERS = ("end while", "end for", "end if", "end loop", "end function")
+
+
+def _step_list_kind(step: BlockUnion) -> str:
+    """Classify a pseudocode line as ``opener``/``closer``/``plain`` for nesting."""
+    if getattr(step, "type", "") != "paragraph":
+        return "plain"
+    for il in getattr(step, "inlines", []):
+        if getattr(il, "type", "") != "text":
+            continue
+        text = il.text.strip().lower()
+        if not text:
+            continue
+        if text.startswith(_ALGO_LIST_CLOSERS):
+            return "closer"
+        if text.split(maxsplit=1)[0] in _ALGO_LIST_OPENERS:
+            return "opener"
+        return "plain"
+    return "plain"
+
+
+def _nest_algorithm_steps(steps: list[BlockUnion]) -> list[BlockUnion]:
+    """Group flat pseudocode lines into a bullet list nested under while/for/if.
+
+    Each line becomes one list item; lines following an opener are indented one
+    level deeper until the matching ``end ...`` line, which sits at the opener's
+    own level — mirroring the visual indentation of the rendered algorithm.
+    """
+    depth = 0
+    depths: list[int] = []
+    for step in steps:
+        kind = _step_list_kind(step)
+        if kind == "closer":
+            depth = max(0, depth - 1)
+            depths.append(depth)
+        elif kind == "opener":
+            depths.append(depth)
+            depth += 1
+        else:
+            depths.append(depth)
+
+    # nodes are [block, child_nodes] pairs; the stack holds the open levels.
+    root: list = []
+    stack = [root]
+    for step, level in zip(steps, depths, strict=True):
+        while len(stack) > level + 1:
+            stack.pop()
+        while len(stack) < level + 1:
+            current = stack[-1]
+            if not current:  # depth jump without an opener line — clamp
+                break
+            stack.append(current[-1][1])
+        stack[-1].append([step, []])
+
+    def to_items(nodes: list) -> list[list[BlockUnion]]:
+        items: list[list[BlockUnion]] = []
+        for blk, children in nodes:
+            item: list[BlockUnion] = [blk]
+            if children:
+                item.append(ListIR(items=to_items(children), ordered=False))
+            items.append(item)
+        return items
+
+    return [ListIR(items=to_items(root), ordered=False)]
 
 
 def _clean_image_alt(alt: str) -> str:

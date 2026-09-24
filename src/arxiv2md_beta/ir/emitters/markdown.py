@@ -244,7 +244,16 @@ class MarkdownEmitter(IREmitter):
                 flush_run()
                 parts.append(self._emit_inline(il))
         flush_run()
-        return "".join(parts)
+        result = "".join(parts)
+        # A display-math fence embedded mid-line breaks Markdown rendering
+        # (the opening "$$" must start a fresh line, or renderers treat the
+        # rest of the paragraph as math/literal). Pseudocode steps end with
+        # display equations ("...computed as: $$\n...\n$$"); force the fences
+        # onto their own lines without touching inline "$...$" spans.
+        if "$$" in result:
+            result = re.sub(r"([^\n])[ \t]*\$\$", r"\1\n$$", result)
+            result = re.sub(r"\$\$(?!\n)", "$$\n", result)
+        return result
 
     def _emit_inline(self, inline) -> str:
         t = inline.type
@@ -564,7 +573,23 @@ class MarkdownEmitter(IREmitter):
         if not text_blocks:
             return
         text = " ".join(self._emit_block(b) for b in text_blocks).strip()
+        if "\n" in text:
+            # Multi-line item content — a trailing display-math fence ("...
+            # computed as:\n$$\n...\n$$"). The first line carries the marker;
+            # the fence lines are indented to the item's content column so
+            # they stay inside the item.
+            segs = [seg.rstrip() for seg in text.split("\n")]
+            lines.append(f"{marker}{segs[0]}")
+            for seg in segs[1:]:
+                lines.append(f"{continuation_indent}{seg}" if seg else "")
+            return
         first_line = f"{marker}{text}" if text else marker
+        if "$" in text:
+            # _wrap_line hard-breaks tokens wider than the line budget at the
+            # character level — splitting an unspaced LaTeX formula mid-macro
+            # corrupts it. Emit math-bearing items as one long line instead.
+            lines.append(first_line)
+            return
         # Wrap long lines so continuation lines stay aligned with the item text.
         wrapped = _wrap_line(first_line, continuation_indent)
         lines.extend(wrapped)
