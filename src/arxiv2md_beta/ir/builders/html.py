@@ -473,17 +473,20 @@ class HTMLBuilder(IRBuilder):
         inlines: list[InlineUnion] = []
         for child in tag.children:
             if isinstance(child, NavigableString):
-                text = str(child)
-                # Skip whitespace-only strings (prevents blank lines in tables/lists)
-                if text and not text.strip():
-                    continue
-                if text:
-                    # Collapse internal whitespace (HTML source line wraps) so a
-                    # soft-wrapped sentence like "counting\nthe objects" does not
-                    # emit as two lines. Leading/trailing space is preserved to
-                    # keep word separation between adjacent inline siblings.
-                    text = re.sub(r"\s+", " ", text)
-                    inlines.append(TextIR(text=text))
+                # Collapse internal whitespace (HTML source line wraps) so a
+                # soft-wrapped sentence like "counting\nthe objects" does not
+                # emit as two lines. Leading/trailing space is preserved to
+                # keep word separation between adjacent inline siblings.
+                text = re.sub(r"\s+", " ", str(child))
+                if not text.strip():
+                    # A standalone space node between inline siblings is real
+                    # word separation: LaTeXML writes "<span>Figure</span> "
+                    # "<span>2</span>", and dropping the node glues "Figure2".
+                    # Emit a single space; block-level runs of whitespace-only
+                    # text are still dropped by _flush_current, so no blank
+                    # lines can appear in tables/lists.
+                    text = " "
+                inlines.append(TextIR(text=text))
             elif isinstance(child, Tag):
                 il = self._tag_to_inline(child)
                 if il is not None:
@@ -564,9 +567,9 @@ class HTMLBuilder(IRBuilder):
         if tag_name == "svg":
             return None
 
-        # Images
-        if tag_name == "img":
-            src = self._image_resolver.resolve(attr_str(tag, "src"))
+        # Images — <object data="..."> is LaTeXML's vector-figure form of <img>
+        if tag_name in ("img", "object"):
+            src = self._image_resolver.resolve(_graphic_src(tag))
             alt = _clean_image_alt(attr_str(tag, "alt"))
             return ImageRefIR(src=src, alt=alt)
 
@@ -591,6 +594,30 @@ class HTMLBuilder(IRBuilder):
             # Footnotes — extract marker inline, queue content as block
             if "ltx_note" in classes and "ltx_role_footnote" in classes:
                 return self._process_footnote(tag)
+
+            # Float/line tags ("Figure 1", "Algorithm 1", equation numbers) are
+            # structural labels. Their inner spans carry bold styling that would
+            # become Markdown emphasis and nest with the caption-level bold the
+            # emitters add (``****Algorithm 1** ...**``). Recurse on a copy with
+            # font styling stripped, so the label keeps its exact internal
+            # spacing ("Table 2: ") as plain text.
+            if "ltx_tag" in classes:
+                tag_copy = BeautifulSoup(str(tag), "html.parser").find(class_=re.compile(r"ltx_tag"))
+                if isinstance(tag_copy, Tag):
+                    for el in tag_copy.find_all(True):
+                        cls = el.get("class")
+                        if cls:
+                            el["class"] = [c for c in cls if not c.startswith("ltx_font_")]
+                    result = self._tag_to_inlines(tag_copy)
+                else:
+                    result = self._tag_to_inlines(tag)
+                # Drop the tag's own edge whitespace nodes ("<span>Algorithm 1</span> ");
+                # content-bearing edges like "Table 2: " keep their boundary space.
+                while result and isinstance(result[-1], TextIR) and not result[-1].text.strip():
+                    result = result[:-1]
+                while result and isinstance(result[0], TextIR) and not result[0].text.strip():
+                    result = result[1:]
+                return result
 
             inlines = self._tag_to_inlines(tag)
             if "ltx_font_italic" in classes:
@@ -763,7 +790,13 @@ class HTMLBuilder(IRBuilder):
         # entirely (the fallback ran only with no <img>), dropping the svg
         # and leaving the shared svg_src below pointing at a stale counter
         # value (audit5 G2-4). Both kinds share one document-order strip.
-        imgs: list[Tag] = [t for t in tag.find_all(["img", "svg"]) if isinstance(t, Tag)]
+        # <object data="...">: LaTeXML emits vector figures this way
+        # (\includegraphics of a PDF converted to an external SVG) instead
+        # of <img>; skipping it dropped the whole figure, caption included.
+        imgs: list[Tag] = [t for t in tag.find_all(["img", "svg", "object"]) if isinstance(t, Tag)]
+        # Drop <img> fallbacks nested inside an <object> so the same graphic
+        # is not collected twice.
+        imgs = [t for t in imgs if t.name != "img" or t.find_parent("object") is None]
         svg_srcs: dict[int, str] = {id(t): self._register_svg_asset(t) for t in imgs if t.name == "svg"}
         # ar5iv sometimes renders a table as a vector <svg> inside
         # <figure class="ltx_table"> with no <table> and no <img>. With nothing
@@ -778,7 +811,7 @@ class HTMLBuilder(IRBuilder):
         # strip and the grid is lost.
         grid: list[list[list[InlineUnion]]] | None = None
         inner_table = tag.find("table")
-        if isinstance(inner_table, Tag) and any(tr.find("img") for tr in inner_table.find_all("tr")):
+        if isinstance(inner_table, Tag) and any(tr.find(["img", "object"]) for tr in inner_table.find_all("tr")):
             rows: list[list[list[InlineUnion]]] = []
             for tr in inner_table.find_all("tr"):
                 cells = tr.find_all(["td", "th"], recursive=False)
@@ -808,7 +841,7 @@ class HTMLBuilder(IRBuilder):
         if grid:
             resolved_by_src: dict[str, str] = {}
             for img_tag, img_ref in zip(imgs, images, strict=False):
-                resolved_by_src.setdefault(attr_str(img_tag, "src"), img_ref.src)
+                resolved_by_src.setdefault(_graphic_src(img_tag), img_ref.src)
             if resolved_by_src:
                 for row in grid:
                     for cell in row:
@@ -830,8 +863,8 @@ class HTMLBuilder(IRBuilder):
         )
 
     def _resolve_image_src(self, img_tag: Tag, figure_index: int) -> str:
-        """Resolve an <img> src to a local path via :class:`ImageResolver`."""
-        src = attr_str(img_tag, "src")
+        """Resolve an <img>/<object> graphic src to a local path via :class:`ImageResolver`."""
+        src = _graphic_src(img_tag)
         if not src:
             return src
         return self._image_resolver.resolve(src, figure_index=figure_index)
@@ -954,19 +987,18 @@ class HTMLBuilder(IRBuilder):
         """Collect the pseudocode body of an algorithm float (audit5 C2).
 
         ar5iv wraps algorithm bodies either in ``div.ltx_listing`` containers
-        (reconstructed by :meth:`_build_listing`, base64 payload preferred) or,
-        more rarely, in plain ``ltx_p`` paragraphs. The caption tag is excluded
-        from the fallback scan. Without this the ``AlgorithmIR.steps`` list
-        stayed empty for every algorithm and the pseudocode never reached the
-        output — only the caption line was emitted.
+        (rebuilt line-by-line with real math IR by
+        :meth:`_build_algorithm_listing`) or, more rarely, in plain ``ltx_p``
+        paragraphs. The caption tag is excluded from the fallback scan. Without
+        this the ``AlgorithmIR.steps`` list stayed empty for every algorithm
+        and the pseudocode never reached the output — only the caption line
+        was emitted.
         """
         steps: list[BlockUnion] = []
         for listing in tag.find_all("div", class_=re.compile(r"ltx_listing")):
             if not _is_ltx_listing_container(listing):
                 continue  # an inner listingline row, not a listing container
-            code = self._build_listing(listing, section_id, base_idx)
-            if code is not None:
-                steps.append(code)
+            steps.extend(self._build_algorithm_listing(listing))
         if steps:
             return steps
         body, _ = self._children_to_blocks(
@@ -975,6 +1007,49 @@ class HTMLBuilder(IRBuilder):
             base_idx,
         )
         return body
+
+    def _build_algorithm_listing(self, listing: Tag) -> list[BlockUnion]:
+        r"""Rebuild algorithm pseudocode rows as paragraph steps with real math.
+
+        Raw ``get_text`` reconstruction (the ``_build_listing`` path) is wrong
+        for pseudocode: inline math degrades to unicode+LaTeX soup
+        (``pS(⋅∣x)p_{S}(\cdot\mid x)``), and LaTeXML sometimes collapses the
+        whole body into a single ``ltx_listingline`` with the algorithmic
+        keywords left as ``<span class="ltx_ERROR undefined">\State</span>``
+        markers (e.g. arXiv 2601.18734) — concatenating ``\StateLet``.
+        Instead each row becomes one paragraph via the generic inline path,
+        and unknown-command markers are turned into line breaks (with a
+        readable keyword where one exists).
+        """
+        rows = [
+            r
+            for r in listing.find_all("div", class_=re.compile(r"ltx_listingline"), recursive=False)
+            if isinstance(r, Tag)
+        ]
+        if not rows:
+            return []
+        steps: list[BlockUnion] = []
+        for row in rows:
+            # Work on a copy so the shared soup (used by other passes) stays intact.
+            row_soup = BeautifulSoup(str(row), "html.parser")
+            row_copy = row_soup.find("div", class_="ltx_listingline")
+            if not isinstance(row_copy, Tag):
+                continue
+            line_num = row_copy.find("span", class_=re.compile(r"ltx_tag_listingline"))
+            if isinstance(line_num, Tag):
+                line_num.decompose()
+            for marker in row_copy.find_all(class_="ltx_ERROR"):
+                keyword = _algorithm_keyword(_get_marker_text(marker))
+                br = row_soup.new_tag("br")
+                marker.replace_with(br)
+                if keyword:
+                    br.insert_after(NavigableString(keyword + " "))
+            inlines = self._tag_to_inlines(row_copy)
+            for segment in _split_at_breaks(inlines):
+                segment = _trim_inline_edges(segment)
+                if segment:
+                    steps.append(ParagraphIR(inlines=segment))
+        return steps
 
     def _build_list_items(self, tag: Tag) -> list[list[BlockUnion]]:
         """Build list items from a <ul> or <ol> tag."""
@@ -1342,6 +1417,69 @@ def _normalize_math_latex(latex: str) -> str:
 _PLACEHOLDER_IMAGE_ALTS = frozenset(
     {"", "[uncaptioned image]", "uncaptioned image", "refer to caption", "[ refer to caption ]"}
 )
+
+
+def _graphic_src(tag: Tag) -> str:
+    """Return the image URL of an ``<img>``/``<object>`` graphic.
+
+    LaTeXML renders vector figures as ``<object type="image/svg+xml"
+    data="...">``; the URL lives in ``data`` rather than ``src``.
+    """
+    return attr_str(tag, "data") if tag.name == "object" else attr_str(tag, "src")
+
+
+# algorithmic-package keywords that prefix a pseudocode line but carry no
+# readable content themselves ("\\State" is a pure line break).
+_ALGO_MARKER_KEYWORDS = {"state": ""}
+
+
+def _algorithm_keyword(raw: str) -> str:
+    r"""Map an unknown-command marker (``\EndWhile``) to readable pseudocode text."""
+    word = raw.strip().lstrip("\\").strip()
+    if not word:
+        return ""
+    spaced = re.sub(r"(?<!^)(?=[A-Z])", " ", word).lower()
+    return _ALGO_MARKER_KEYWORDS.get(spaced, spaced)
+
+
+def _get_marker_text(tag: Tag) -> str:
+    marker_text = tag.get_text(strip=True)
+    return marker_text if isinstance(marker_text, str) else ""
+
+
+def _split_at_breaks(inlines: list) -> list[list]:
+    """Split an inline sequence at BreakIR boundaries into per-line groups."""
+    groups: list[list] = []
+    current: list = []
+    for inline in inlines:
+        if getattr(inline, "type", "") == "break":
+            if current:
+                groups.append(current)
+                current = []
+        else:
+            current.append(inline)
+    if current:
+        groups.append(current)
+    return groups or [[]]
+
+
+def _trim_inline_edges(inlines: list) -> list:
+    r"""Drop edge whitespace and trim the outermost text inlines of a line.
+
+    Pseudocode lines are emitted verbatim, so a listing row's incidental
+    indentation ("<div>\n  Input: ...") must not leak into the output.
+    """
+    while inlines and isinstance(inlines[0], TextIR) and not inlines[0].text.strip():
+        inlines = inlines[1:]
+    while inlines and isinstance(inlines[-1], TextIR) and not inlines[-1].text.strip():
+        inlines = inlines[:-1]
+    if not inlines:
+        return inlines
+    if isinstance(inlines[0], TextIR):
+        inlines[0] = inlines[0].model_copy(update={"text": inlines[0].text.lstrip()})
+    if isinstance(inlines[-1], TextIR):
+        inlines[-1] = inlines[-1].model_copy(update={"text": inlines[-1].text.rstrip()})
+    return [il for il in inlines if not (il.type == "text" and il.text == "")]
 
 
 def _clean_image_alt(alt: str) -> str:

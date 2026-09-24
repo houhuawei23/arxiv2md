@@ -13,10 +13,15 @@ from arxiv2md_beta.settings import get_settings
 
 _ANCHOR_TAG_RE = re.compile(r'<a id="[^"]*"></a>')
 _TRAILING_MATH_SPACE_RE = re.compile(r"\\(?: |\,|\;|\:|\!|quad|qquad|hspace\{[^}]*\})\s*$")
-# Multi-line display math blocks, capturing leading indentation on both fences.
+# Multi-line display math blocks, capturing leading indentation on both
+# fences. The opening ``$$`` must not be required to sit at a line start:
+# a paragraph can legitimately end with inline text before ``$$`` ("...as:
+# $$"), and a lone closing ``$$`` at a line start would then be re-used as
+# the *next* opener, shifting every later fence pair and swallowing the
+# dollars of everything in between.
 _DISPLAY_MATH_BLOCK_RE = re.compile(
-    r"^([ \t]*)\$\$\n(.*?)\n\1\$\$",
-    re.DOTALL | re.MULTILINE,
+    r"([ \t]*)\$\$\n(.*?)\n\1\$\$",
+    re.DOTALL,
 )
 # Step-1 protection placeholder (\x00 sentinel + index).
 _DISPLAY_MATH_PLACEHOLDER_RE = re.compile(r"\x00DISPLAY_MATH_(\d+)\x00")
@@ -36,15 +41,23 @@ _INLINE_LINK_PLACEHOLDER_RE = re.compile(r"\x00MD_LINK_(\d+)\x00")
 # time this runs, so their content cannot trigger a false row match.
 _TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
 _TABLE_ROW_PLACEHOLDER_RE = re.compile(r"\x00MD_ROW_(\d+)\x00")
+# Fragment-only markdown links ([text](#target)); flattened when anchors are
+# stripped, since they cannot resolve without the anchor tags.
+_FRAGMENT_LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(#[^)\n]*\)")
 
 
 def _strip_anchor_tags(text: str) -> str:
     r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines.
 
+    Markdown links whose target is a bare fragment (``[Figure 2](#figure-2)``)
+    are flattened to their link text: with the anchors gone they could never
+    resolve, so keeping the syntax only ships dead links.
+
     Caller has already lifted fenced code blocks out: blank-line collapsing
     and per-line ``rstrip`` must not touch their contents.
     """
     text = _ANCHOR_TAG_RE.sub("", text)
+    text = _FRAGMENT_LINK_RE.sub(r"\2", text)
     # Collapse 3+ newlines to 2 and trim trailing whitespace per line.
     text = re.sub(r"\n{3,}", "\n\n", text)
     return "\n".join(line.rstrip() for line in text.split("\n"))

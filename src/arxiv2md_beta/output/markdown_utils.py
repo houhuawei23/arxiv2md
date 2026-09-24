@@ -169,8 +169,8 @@ def restore_protected_code(text: str, saved: list[str]) -> str:
 _ANCHOR_TAG_NEWLINE_RE = re.compile(r'(<a id="[^"]+"></a>)\n(?!\n)(?!\s*$)')
 _TABLE_CAPTION_RE = re.compile(r"\n\*\*(Table\s+\d+[^*]*)\*\*\s*\n(\|[^\n]*)")
 _DISPLAY_MATH_RE = re.compile(
-    r"^(\s*\$\$\n)(.*?)(\n\s*\$\$)",
-    re.DOTALL | re.MULTILINE,
+    r"(\$\$\n)(.*?)(\n\s*\$\$)",
+    re.DOTALL,
 )
 _DUPLICATE_BULLET_RE = re.compile(r"(?m)^(\s*-\s+)[•·◦]\s+")
 

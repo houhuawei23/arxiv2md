@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-09-24：arXiv 2601.18734 实测回归）
+
+以真实论文（2601.18734）端到端转换复测，发现并修复 6 个 HTML 管线缺陷：
+
+- **`<object>` 矢量图整图丢失**：LaTeXML 把 `\includegraphics` 的矢量图渲染为 `<object type="image/svg+xml" data="...svg">` 而非 `<img>`；图像 figure 收集只认 `img`/`svg`，`object` 落空导致整个 FigureIR（含 caption）被丢弃（如该文 Figure 1 `opsd.svg`）。现 `<object>` 按图收集（`data` 属性取址，stem 匹配复用 TeX 侧已处理 PNG），`<object>` 内嵌 `<img>` fallback 去重。
+- **算法伪代码退化为乱码（C2 修复的回归）**：`_algorithm_steps` 把 `ltx_listing` 交给 `_build_listing` 的裸 `get_text` 重建——内联数学退化为 unicode+LaTeX 叠加（`pS(⋅∣x)p_{S}(\cdot\mid x)`），且 LaTeXML 可能把整个算法体塌缩进单条 `ltx_listingline`、algorithmic 关键词留为 `<span class="ltx_ERROR undefined">\State</span>`，输出 `\StateLet` 之类粘连。现逐行经通用 inline 通道重建（数学保留 LaTeX），`ltx_ERROR` 标记转为换行（`\While`→`while`、`\EndWhile`→`end while` 等可读关键词，`\State` 为纯换行）。
+- **caption 标签双重加粗**：`ltx_tag` 浮动标签（"Algorithm 1"、"Table 2"）内部 span 带 bold，与发射层 caption 级 `**` 叠加成 `****Algorithm 1** ...**`。现标签 span 递归时剥离 `ltx_font_*` 样式，保留其内部精确间距（"Table 2: " 冒号紧贴）。
+- **display-math 定位符错配吞 `$`**：`_DISPLAY_MATH_RE`/`_DISPLAY_MATH_BLOCK_RE` 要求 `$$` 在行首，段内行中收尾的 `$$`（"...rollout: $$"）被跳过后，孤立的收尾 `$$` 行被复用为**下一个** opener，后续所有 fence 错位、其间文本的 `$` 全部被 simplify 剥掉。现去行首锚定，按文档序配对。
+- **独立空格文本节点被丢弃**：`_tag_to_inlines` 跳过纯空白字符串节点，LaTeXML 的 `<span>Figure</span> <span>2</span>` 粘成 "Figure2"（内链文本 "Table8"/"AppendixD" 同源）。现空格节点折叠为单个空格保留；块级纯空白 run 仍由 `_flush_current` 丢弃。
+- **anchors 关闭时死链**：`include_anchors=False` 剥掉 `<a id>` 后，`[Figure 2](#figure-2)` 类 fragment 链接永不解析；现一并摊平为链接文本。
+
 ### Fixed（2026-09-22 audit5 S1，详见 docs/REVIEW_2026-09-22b.md）
 
 三路并行审计发现 6 个 P1（全部人工读码复核），S1 阶段 6 个 PR 全部落地：

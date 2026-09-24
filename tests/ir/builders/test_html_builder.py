@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from arxiv2md_beta.ir.builders.html import HTMLBuilder, _normalize_math_latex
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+from arxiv2md_beta.ir.resolvers.images import ImageResolver
 from arxiv2md_beta.ir.transforms.numbering import NumberingPass
 
 
@@ -781,6 +784,48 @@ class TestSvgFigures:
         assert "<svg" in out.read_text(encoding="utf-8")
 
 
+class TestObjectFigure:
+    r"""Vector figures arrive as ``<object data=...>``, not ``<img>``.
+
+    LaTeXML renders ``\includegraphics`` of a vector graphic as
+    ``<object type="image/svg+xml" data="...">``. Collecting only img/svg
+    dropped the whole figure — caption included (e.g. arXiv 2601.18734
+    Figure 1 ``opsd.svg``).
+    """
+
+    OBJ_BODY = """
+    <figure class="ltx_figure" id="S1.F1">
+      <object type="image/svg+xml" data="2601.18734v3/opsd.svg" width="476" height="131"></object>
+      <figcaption>Figure 1: Overview of OPSD.</figcaption>
+    </figure>"""
+    OBJ_HTML = f"<article class='ltx_document'><section class='ltx_section'><h2>T</h2>{OBJ_BODY}</section></article>"
+
+    def test_object_figure_kept_and_resolved_by_stem(self) -> None:
+        resolver = ImageResolver(stem_map={"opsd": Path("images/opsd.png")})
+        doc = HTMLBuilder(image_resolver=resolver, images_subdir="images").build(self.OBJ_HTML, arxiv_id="2601.18734")
+        fig = doc.sections[0].blocks[0]
+        assert fig.type == "figure"
+        assert [img.src for img in fig.images] == ["images/opsd.png"]
+
+    def test_object_nested_img_fallback_not_duplicated(self) -> None:
+        # LaTeXML sometimes nests an <img> fallback inside the <object>;
+        # both point at the same graphic and must not be collected twice.
+        html = self.OBJ_HTML.replace("</object>", '<img src="fallback.png" /></object>')
+        doc = HTMLBuilder(images_subdir="images").build(html, arxiv_id="2601.18734")
+        fig = doc.sections[0].blocks[0]
+        assert [img.src for img in fig.images] == ["2601.18734v3/opsd.svg"]
+
+    def test_inline_object_becomes_image_ref(self) -> None:
+        html = (
+            "<article class='ltx_document'><section class='ltx_section'><h2>T</h2>"
+            "<p>See <object data='x/fig.svg'></object> below.</p></section></article>"
+        )
+        doc = HTMLBuilder(images_subdir="images").build(html, arxiv_id="test")
+        para = doc.sections[0].blocks[0]
+        types = [getattr(il, "type", "") for il in para.inlines]
+        assert "image_ref" in types
+
+
 class TestInternalFragmentLinks:
     """audit5 C1: internal links keep the raw arXiv fragment; NumberingPass repoints.
 
@@ -873,15 +918,68 @@ class TestAlgorithmSteps:
         doc = builder.build(self.ALGO_HTML, arxiv_id="test")
         alg = doc.sections[0].blocks[0]
         assert alg.type == "algorithm"
-        assert len(alg.steps) == 1
-        code = alg.steps[0]
-        assert code.type == "code"
-        assert "for v in V do" in code.text
+        # Each listingline becomes its own paragraph step (raw get_text would
+        # mangle inline math into unicode+LaTeX soup).
+        assert [s.type for s in alg.steps] == ["paragraph", "paragraph"]
+        assert alg.steps[0].inlines[0].text == "Input: graph G"
+        assert alg.steps[1].inlines[0].text == "for v in V do"
 
     def test_pseudocode_reaches_markdown_output(self, builder):
         doc = builder.build(self.ALGO_HTML, arxiv_id="test")
         out = MarkdownEmitter().emit(doc)
         assert "for v in V do" in out
+
+    def test_degenerate_single_row_with_error_markers(self):
+        # LaTeXML sometimes collapses the whole body into ONE ltx_listingline
+        # with algorithmic keywords left as ltx_ERROR undefined markers
+        # (e.g. arXiv 2601.18734): "\StateLet ... \Whilenot converged".
+        # Each marker must start a new step; \State itself is a pure break.
+        figcaption = (
+            '<figcaption class="ltx_caption"><span class="ltx_tag ltx_tag_float">'
+            '<span class="ltx_text ltx_font_bold">Algorithm 1</span> </span> Demo</figcaption>'
+        )
+        line = (
+            '<span class="ltx_tag ltx_tag_listingline">0:</span>\n'
+            '<span class="ltx_ERROR undefined">\\State</span>Let '
+            '<math alttext="p_{\\theta}" display="inline">'
+            '<annotation encoding="application/x-tex">p_{\\theta}</annotation></math> be the model\n'
+            '<span class="ltx_ERROR undefined">\\While</span>not converged\n'
+            '<span class="ltx_ERROR undefined">\\EndWhile</span>'
+        )
+        html = f"""
+        <article class='ltx_document'>
+        <section class='ltx_section'><h2>T</h2>
+        <figure class="ltx_float_algorithm" id="alg1">
+        {figcaption}
+        <div class="ltx_listing">
+        <div class="ltx_listingline">
+        {line}
+        </div>
+        </div>
+        </figure>
+        </section>
+        </article>"""
+        doc = HTMLBuilder(images_subdir="images").build(html, arxiv_id="test")
+        alg = doc.sections[0].blocks[0]
+        assert alg.type == "algorithm"
+        step_texts = [
+            " ".join(il.text for il in s.inlines if il.type == "text") for s in alg.steps if s.type == "paragraph"
+        ]
+        assert any("Let" in t and "be the model" in t for t in step_texts)
+        assert any("while" in t and "not converged" in t for t in step_texts)
+        assert any("end while" in t for t in step_texts)
+        # no raw "\State"/"\While" leakage
+        out = MarkdownEmitter().emit(doc)
+        assert "\\State" not in out and "\\While" not in out
+
+    def test_caption_tag_span_not_double_bold(self, builder):
+        # The "Algorithm 1" tag is a structural label; its bold styling must
+        # not nest with the emitter's caption bold (****Algorithm 1** ...**).
+        doc = builder.build(self.ALGO_HTML, arxiv_id="test")
+        alg = doc.sections[0].blocks[0]
+        assert all(il.type == "text" for il in alg.caption)
+        out = MarkdownEmitter().emit(doc)
+        assert "****" not in out
 
     def test_paragraph_body_fallback(self, builder):
         # ar5iv sometimes renders algorithm bodies as plain ltx_p paragraphs.
