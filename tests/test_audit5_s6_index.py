@@ -65,11 +65,11 @@ class TestCompletedIdentityIndex:
         assert idx.lookup("2501.11121") is None  # marker but no markdown
         assert idx.lookup("9999.00001") is None  # unknown identity
 
-    def test_empty_marker_is_wildcard(self, tmp_path: Path) -> None:
-        """Legacy empty markers match any identity, as in the direct scan."""
-        wild = _completed_dir(tmp_path, "legacy", "")
+    def test_empty_marker_matches_nothing(self, tmp_path: Path) -> None:
+        """Legacy empty markers match no identity (no wildcard)."""
+        _completed_dir(tmp_path, "legacy", "")
         idx = CompletedIdentityIndex.build(tmp_path)
-        assert idx.lookup("anything") == wild
+        assert idx.lookup("anything") is None
 
     def test_index_matches_direct_scan(self, tmp_path: Path) -> None:
         from arxiv2md_beta.output.layout import find_completed_output_dir

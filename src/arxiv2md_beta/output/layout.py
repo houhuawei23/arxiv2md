@@ -266,10 +266,14 @@ def find_completed_output_dir(base_output_dir: Path, identity: str) -> Path | No
     """Return the output directory where ``identity`` was already converted.
 
     A directory counts as completed when its ``.arxiv2md-paper`` marker exists
-    and matches ``identity`` (an empty marker counts as a match) and the
-    directory contains at least one non-empty ``.md`` file. Directories
-    without a marker are never adopted — an unrelated directory that happens
-    to contain Markdown must not swallow a conversion. Returns None otherwise.
+    and matches ``identity`` exactly, and the directory contains at least one
+    non-empty ``.md`` file. Directories without a marker are never adopted —
+    an unrelated directory that happens to contain Markdown must not swallow
+    a conversion. A legacy *empty* marker is likewise never a completion match:
+    treating it as a wildcard would make one leftover debris directory skip
+    every future conversion of any paper. Empty markers are only adopted at
+    claim time (:func:`_claim_paper_output_dir`), under the same directory
+    name. Returns None otherwise.
 
     Used by the convert runner to skip re-ingestion (resume / idempotency);
     ``--force`` bypasses the check.
@@ -283,7 +287,7 @@ def find_completed_output_dir(base_output_dir: Path, identity: str) -> Path | No
         if not marker.exists():
             continue
         existing = marker.read_text(encoding="utf-8", errors="replace").strip()
-        if existing and existing != identity:
+        if existing != identity:
             continue
         if _has_nonempty_markdown(entry):
             return entry
@@ -312,19 +316,16 @@ class CompletedIdentityIndex:
     Batch used to walk every sibling directory per row — twice (the batch
     pre-check plus the authoritative check inside ``run_convert_flow``) —
     O(n²) stat calls at n=1000. The index is built once at batch start and
-    shared by both. Lookup semantics mirror
-    :func:`find_completed_output_dir`: only directories with a
-    ``.arxiv2md-paper`` marker count, and a legacy *empty* marker matches
-    any identity (wildcard).
+    shared by both. Lookup semantics mirror :func:`find_completed_output_dir`:
+    only directories whose ``.arxiv2md-paper`` marker matches the identity
+    exactly count (legacy empty markers match nothing — see there).
     """
 
     by_identity: dict[str, Path]
-    wildcard: Path | None
 
     @classmethod
     def build(cls, base_output_dir: Path) -> CompletedIdentityIndex:
         by_identity: dict[str, Path] = {}
-        wildcard: Path | None = None
         if base_output_dir.exists():
             for entry in base_output_dir.iterdir():
                 if not entry.is_dir():
@@ -333,16 +334,13 @@ class CompletedIdentityIndex:
                 if not marker.exists():
                     continue
                 existing = marker.read_text(encoding="utf-8", errors="replace").strip()
-                if existing:
-                    if existing not in by_identity and _has_nonempty_markdown(entry):
-                        by_identity[existing] = entry
-                elif wildcard is None and _has_nonempty_markdown(entry):
-                    wildcard = entry
-        return cls(by_identity, wildcard)
+                if existing and existing not in by_identity and _has_nonempty_markdown(entry):
+                    by_identity[existing] = entry
+        return cls(by_identity)
 
     def lookup(self, identity: str) -> Path | None:
-        """Completed directory for ``identity``, or None (wildcard as fallback)."""
-        return self.by_identity.get(identity) or self.wildcard
+        """Completed directory for ``identity``, or None."""
+        return self.by_identity.get(identity)
 
 
 def determine_images_dir(settings: AppSettings | None = None) -> str:

@@ -39,6 +39,43 @@ class TexSourceInfo(NamedTuple):
     figure_image_files: list[Path] = []
 
 
+def _info_paths_intact(info: TexSourceInfo) -> bool:
+    """True when every path in *info* still resolves under ``extracted_dir``.
+
+    A concurrent conversion can rmtree+rename the shared extract dir while
+    another task is mid-read; that shows up as silently empty results (rglob
+    on a missing dir yields nothing), never as an exception. Callers use this
+    to detect the race and fall back to a fresh extraction.
+    """
+    paths = list(info.all_images) + list(info.image_files.values())
+    if info.main_tex_file is not None:
+        paths.append(info.main_tex_file)
+    return all(p.exists() for p in paths)
+
+
+def _rebase_tex_info(info: TexSourceInfo, old_root: Path, new_root: Path) -> TexSourceInfo:
+    """Re-root *info* paths from ``old_root`` to ``new_root`` (same tree, renamed).
+
+    Info is extracted from the private staging tree to avoid racing a
+    concurrent swap; this retargets the resulting paths onto the canonical
+    cache directory the rest of the pipeline expects.
+    """
+
+    def rebase(path: Path) -> Path:
+        try:
+            return new_root / path.relative_to(old_root)
+        except ValueError:
+            return path
+
+    return TexSourceInfo(
+        extracted_dir=new_root,
+        main_tex_file=rebase(info.main_tex_file) if info.main_tex_file is not None else None,
+        image_files={label: rebase(path) for label, path in info.image_files.items()},
+        all_images=[rebase(path) for path in info.all_images],
+        figure_image_files=[rebase(path) for path in info.figure_image_files],
+    )
+
+
 class TexSourceNotFoundError(NetworkError):
     """Raised when TeX source is not available (HTTP 404 or download exhausted)."""
 
@@ -128,10 +165,20 @@ async def fetch_and_extract_tex_source(
         and _has_tex_files(extracted_dir)
         and _mtime_within_ttl(tex_source_path)
     ):
-        logger.info(f"Using cached TeX source for {arxiv_id}")
-        info = _extract_info_from_dir(extracted_dir)
-        _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
-        return info
+        try:
+            info = _extract_info_from_dir(extracted_dir)
+            # A concurrent conversion may swap the shared extract dir between
+            # the checks above and the reads — that manifests as silently
+            # empty info, not an exception, so verify the paths still resolve.
+            if _info_paths_intact(info):
+                logger.info(f"Using cached TeX source for {arxiv_id}")
+                _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
+                return info
+            logger.warning(
+                f"Cached TeX extract for {arxiv_id} changed mid-read (concurrent conversion); re-extracting"
+            )
+        except OSError:
+            logger.warning(f"Cached TeX extract for {arxiv_id} vanished mid-read; re-extracting")
 
     # Download TeX source
     tex_url = get_settings().urls.arxiv_src_template.format(arxiv_id=arxiv_id)
@@ -161,12 +208,17 @@ async def fetch_and_extract_tex_source(
     # Extract archive into a task-private temp dir, then move into place.
     # Two concurrent conversions of the same paper share the cache path; a
     # shared extract dir let one task's failure rmtree delete the other's
-    # freshly extracted files mid-read.
+    # freshly extracted files mid-read (audit5 X8). Info extraction therefore
+    # happens on the PRIVATE staging tree, before the swap — a concurrent
+    # task's rmtree+rename of the shared path can no longer affect our reads.
+    # Last-writer-wins on the shared cache is safe: both tasks extracted the
+    # same tarball.
     logger.info(f"Extracting TeX source to {extracted_dir}")
     staging_dir = extracted_dir.with_name(f"{extracted_dir.name}.tmp-{uuid.uuid4().hex}")
     try:
         staging_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_extract_archive, tex_source_path, staging_dir)
+        staging_info = await asyncio.to_thread(_extract_info_from_dir, staging_dir)
 
         def _swap_into_place() -> None:
             # rmtree of the previous extract plus the rename: directory-wide
@@ -176,6 +228,9 @@ async def fetch_and_extract_tex_source(
             staging_dir.replace(extracted_dir)
 
         await asyncio.to_thread(_swap_into_place)
+        # staging_dir no longer exists (renamed); re-root info onto the
+        # canonical cache path.
+        info = _rebase_tex_info(staging_info, staging_dir, extracted_dir)
     except Exception as e:
         # Remove only our own partial extract — never a shared directory.
         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -249,29 +304,37 @@ def extract_local_archive(
 
     logger.info(f"Extracting local archive: {archive_path}")
 
+    # Extract into a task-private staging dir, read info there, then swap into
+    # place — same pattern as the remote TeX cache: a concurrent conversion of
+    # the same archive (or a failure cleanup) must never be able to delete or
+    # partially observe another task's shared extract (audit5 X8).
+    staging_dir = extracted_dir.with_name(f"{extracted_dir.name}.tmp-{uuid.uuid4().hex}")
     try:
-        extracted_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine archive type and extract
         if archive_path.suffix.lower() == ".zip" or str(archive_path).lower().endswith(".zip"):
-            _extract_zip_archive(archive_path, extracted_dir)
+            _extract_zip_archive(archive_path, staging_dir)
         elif (
             archive_path.suffix.lower() in (".gz", ".tgz")
             or str(archive_path).lower().endswith(".tar.gz")
             or str(archive_path).lower().endswith(".tgz")
         ):
-            _extract_tar_archive(archive_path, extracted_dir)
+            _extract_tar_archive(archive_path, staging_dir)
         else:
             raise ArchiveExtractionError(f"Unsupported archive format: {archive_path.suffix}")
 
+        # Extract images and find main tex file — on the private staging tree,
+        # before the swap, so no shared-state race can affect the reads.
+        staging_info = _extract_info_from_dir(staging_dir)
+        if extracted_dir.exists():
+            shutil.rmtree(extracted_dir, ignore_errors=True)
+        staging_dir.replace(extracted_dir)
+        return _rebase_tex_info(staging_info, staging_dir, extracted_dir)
     except Exception as e:
-        # Remove the partial extract so a later run does not mistake a half-
-        # extracted directory for a valid cache entry (cache poisoning).
-        shutil.rmtree(extracted_dir, ignore_errors=True)
+        # Remove only our own partial extract — never a shared directory.
+        shutil.rmtree(staging_dir, ignore_errors=True)
         raise ArchiveExtractionError(f"Failed to extract archive: {e}") from e
-
-    # Extract images and find main tex file
-    return _extract_info_from_dir(extracted_dir)
 
 
 def _extract_zip_archive(archive_path: Path, output_dir: Path) -> None:

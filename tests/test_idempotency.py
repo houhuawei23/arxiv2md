@@ -64,12 +64,14 @@ def test_find_completed_ignores_empty_markdown(tmp_path: Path) -> None:
     assert find_completed_output_dir(tmp_path, "2501.11120") is None
 
 
-def test_find_completed_empty_marker_counts_as_match(tmp_path: Path) -> None:
+def test_find_completed_empty_marker_is_not_a_match(tmp_path: Path) -> None:
+    """Legacy empty markers match nothing (regression: wildcard debris dir
+    used to make *every* subsequent paper report 'already converted')."""
     out = tmp_path / "202501-Arxiv-Some-Paper"
     out.mkdir(parents=True)
     (out / ".arxiv2md-paper").write_text("", encoding="utf-8")
     (out / "paper.md").write_text("x", encoding="utf-8")
-    assert find_completed_output_dir(tmp_path, "2501.11120") == out
+    assert find_completed_output_dir(tmp_path, "2501.11120") is None
 
 
 def test_find_completed_missing_base_dir(tmp_path: Path) -> None:
