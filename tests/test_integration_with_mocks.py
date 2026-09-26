@@ -218,7 +218,7 @@ class TestPdfFallback:
             raise TexSourceNotFoundError("Invalid tar file: invalid header")
 
         monkeypatch.setattr(
-            "arxiv2md_beta.cli.runner.convert._ingest_arxiv_latex",
+            "arxiv2md_beta.ingestion.latex.fetch_and_extract_tex_source",
             AsyncMock(side_effect=raise_tex_error),
         )
 

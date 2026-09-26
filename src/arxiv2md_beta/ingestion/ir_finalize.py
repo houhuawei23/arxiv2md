@@ -277,6 +277,7 @@ def finalize_ingestion_output(
     images_subdir: str,
     extra_metadata: dict[str, Any] | None = None,
     include_abstract_in_tree: bool | None = None,
+    include_anchors: bool | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Shared ingestion tail: emit Markdown, build result, write paper.yml + structured JSON.
 
@@ -312,6 +313,7 @@ def finalize_ingestion_output(
         reference_section_titles=reference_section_titles,
         linked_citations=linked_citations,
         remove_inline_citations=remove_inline_citations,
+        include_anchors=include_anchors,
     )
 
     m = doc.metadata

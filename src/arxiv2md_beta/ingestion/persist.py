@@ -120,10 +120,11 @@ def _resolve_output_filename(
     fallback_md_stem: str,
     source: str,
     short: str | None,
+    naming_scheme: str,
 ) -> str:
     """Main Markdown filename per the configured naming scheme."""
     s = get_settings()
-    if s.output_naming.naming_scheme in FIXED_INTERNAL_SCHEMES:
+    if naming_scheme in FIXED_INTERNAL_SCHEMES:
         return "paper.md"
     if submission_date and title:
         basename = build_output_basename(
@@ -138,8 +139,8 @@ def _resolve_output_filename(
     return f"{fallback_md_stem}.md"
 
 
-def _pdf_filename_for(paper_output_dir: Path, output_filename: str) -> str:
-    if get_settings().output_naming.naming_scheme in FIXED_INTERNAL_SCHEMES:
+def _pdf_filename_for(paper_output_dir: Path, output_filename: str, naming_scheme: str) -> str:
+    if naming_scheme in FIXED_INTERNAL_SCHEMES:
         return f"{paper_output_dir.name}.pdf"
     return Path(output_filename).with_suffix(".pdf").name
 
@@ -173,7 +174,8 @@ async def _finalize_pdf_only_output(
     s = get_settings()
     title = metadata.get("title")
     submission_date = metadata.get("submission_date")
-    pdf_path = paper_output_dir / _pdf_filename_for(paper_output_dir, fallback_md_stem)
+    naming_scheme = params.naming_scheme or s.output_naming.naming_scheme
+    pdf_path = paper_output_dir / _pdf_filename_for(paper_output_dir, fallback_md_stem, naming_scheme)
 
     downloaded = False
     if pdf_fetch is not None and params.download_pdf:
@@ -191,7 +193,7 @@ async def _finalize_pdf_only_output(
         markdown_file=None,
         output_text="",
         parser=params.parser,
-        naming_scheme=s.output_naming.naming_scheme,
+        naming_scheme=naming_scheme,
         duration_seconds=None,
         status="pdf_only",
     )
@@ -227,7 +229,7 @@ async def persist_ingestion_output(
 
     submission_date = metadata.get("submission_date")
     title = metadata.get("title")
-    naming_scheme = s.output_naming.naming_scheme
+    naming_scheme = params.naming_scheme or s.output_naming.naming_scheme
 
     # Markdown content/refs/appendix are already finalized at emission time
     # (emit_split_markdown applies the single format+clean pass), so no
@@ -265,6 +267,7 @@ async def persist_ingestion_output(
         fallback_md_stem=fallback_md_stem,
         source=params.source,
         short=params.short,
+        naming_scheme=naming_scheme,
     )
     output_path = paper_output_dir / output_filename
 
@@ -277,7 +280,7 @@ async def persist_ingestion_output(
     pdf_path: Path | None = None
     if pdf_fetch is not None and params.download_pdf:
         arxiv_id, version = pdf_fetch
-        pdf_path = paper_output_dir / _pdf_filename_for(paper_output_dir, output_filename)
+        pdf_path = paper_output_dir / _pdf_filename_for(paper_output_dir, output_filename, naming_scheme)
         pdf_task = asyncio.create_task(_download_pdf_to(pdf_path, arxiv_id, version, params))
 
     try:

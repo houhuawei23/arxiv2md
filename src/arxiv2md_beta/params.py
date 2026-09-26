@@ -36,6 +36,15 @@ class ConvertParams:
     no_cache: bool = False
     download_pdf: bool = True
     linked_citations: bool = False
+    # CLI flag channels (Phase 3 parameter unification): these used to be
+    # smuggled through set_settings() mutations of the process-global
+    # singleton; they now travel on params. None = fall back to the
+    # corresponding settings default at the consumer.
+    include_anchors: bool | None = None  # None = settings.output.include_anchors
+    naming_scheme: str | None = None  # None = settings.output_naming.naming_scheme
+    fetch_metadata: bool = False  # OR-ed with settings.ingestion.fetch_arxiv_metadata
+    no_progress: bool = False  # maps images.disable_tqdm
+    concurrency: int | None = None  # maps process_images_async(max_concurrency=...)
     force: bool = False
     allow_stub: bool = False
     # Plan-only mode (audit5 S8 F1): resolve mode/identity/idempotency and

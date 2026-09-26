@@ -199,19 +199,26 @@ import asyncio
 from pathlib import Path
 
 from arxiv2md_beta.ingestion import ingest_paper
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.query import parse_arxiv_input
 
 async def main():
     query = parse_arxiv_input("2501.11120")
-    result, metadata = await ingest_paper(
-        arxiv_id=query.arxiv_id,
-        version=query.version,
-        html_url=query.html_url,
-        ar5iv_url=query.ar5iv_url,
-        parser="html",
-        base_output_dir=Path("output"),
-        structured_output="document",
+    params = ConvertParams(
+        input_text="2501.11120",
+        parser="latex",
+        output="output",
+        source="Arxiv",
+        short=None,
+        no_images=False,
+        remove_refs=False,
+        remove_inline_citations=False,
+        section_filter_mode="exclude",
+        sections=None,
+        section=None,
+        include_tree=True,
     )
+    result, metadata = await ingest_paper(params, query, [], Path("output"))
     print(result.content)
 
 asyncio.run(main())

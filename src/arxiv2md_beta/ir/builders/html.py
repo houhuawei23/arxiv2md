@@ -12,7 +12,7 @@ import re
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -578,7 +578,9 @@ class HTMLBuilder(IRBuilder):
                     for el in tag_copy.find_all(True):
                         cls = el.get("class")
                         if cls:
-                            el["class"] = [c for c in cls if not c.startswith("ltx_font_")]
+                            # bs4's stubs type el["class"] as str | AttributeValueList;
+                            # a plain list assignment is accepted at runtime.
+                            el["class"] = cast("Any", [c for c in cls if not c.startswith("ltx_font_")])
                     result = self._tag_to_inlines(tag_copy)
                 else:
                     result = self._tag_to_inlines(tag)

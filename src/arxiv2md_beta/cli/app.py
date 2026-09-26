@@ -173,7 +173,7 @@ def convert_cmd(
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
     logger = get_logger()
-    parser_mode, source_v, mode, so = apply_convert_cli_settings(
+    cli = apply_convert_cli_settings(
         parser=parser,
         source=source,
         section_filter_mode=section_filter_mode,
@@ -185,31 +185,33 @@ def convert_cmd(
         fetch_arxiv_metadata=fetch_arxiv_metadata,
         concurrency=concurrency,
     )
-    # Effective output flags live in settings after apply_convert_cli_settings
-    # merged CLI values (explicit only) over YAML/env defaults.
-    eff = get_settings().output
     params = make_convert_params(
         input_text.strip(),
-        parser_mode=parser_mode,
+        parser_mode=cli.parser_mode,
         output=output,
-        source_v=source_v,
+        source_v=cli.source_v,
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
         remove_inline_citations=remove_inline_citations,
-        mode=mode,
+        mode=cli.mode,
         sections=sections,
         section=section,
         include_tree=include_tree,
         emit_result_json=emit_result_json,
-        so=so,
+        so=cli.so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
         download_pdf=download_pdf,
-        linked_citations=eff.linked_citations,
+        linked_citations=cli.linked_citations,
         force=force,
         allow_stub=allow_stub,
         dry_run=dry_run,
+        include_anchors=cli.include_anchors,
+        naming_scheme=cli.naming_scheme,
+        fetch_metadata=cli.fetch_metadata,
+        no_progress=cli.no_progress,
+        concurrency=cli.concurrency,
     )
     try:
         run_convert_sync(params)
@@ -277,7 +279,7 @@ def batch_cmd(
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
     logger = get_logger()
-    parser_mode, source_v, mode, so = apply_convert_cli_settings(
+    cli = apply_convert_cli_settings(
         parser=parser,
         source=source,
         section_filter_mode=section_filter_mode,
@@ -288,29 +290,32 @@ def batch_cmd(
         naming_scheme=naming_scheme,
         fetch_arxiv_metadata=fetch_arxiv_metadata,
     )
-    eff = get_settings().output
     template = make_convert_params(
         "",
-        parser_mode=parser_mode,
+        parser_mode=cli.parser_mode,
         output=output,
-        source_v=source_v,
+        source_v=cli.source_v,
         short=short,
         no_images=no_images,
         remove_refs=remove_refs,
         remove_inline_citations=remove_inline_citations,
-        mode=mode,
+        mode=cli.mode,
         sections=sections,
         section=section,
         include_tree=include_tree,
         emit_result_json=emit_result_json,
-        so=so,
+        so=cli.so,
         emit_graph_csv=emit_graph_csv,
         no_cache=no_cache,
         download_pdf=download_pdf,
-        linked_citations=eff.linked_citations,
+        linked_citations=cli.linked_citations,
         force=force,
         allow_stub=allow_stub,
         dry_run=dry_run,
+        include_anchors=cli.include_anchors,
+        naming_scheme=cli.naming_scheme,
+        fetch_metadata=cli.fetch_metadata,
+        no_progress=cli.no_progress,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
     try:

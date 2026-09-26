@@ -18,6 +18,7 @@ from arxiv2md_beta.latex.tex_source import (
     _find_matching_brace_end,
     extract_local_archive,
 )
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
 from arxiv2md_beta.settings import get_settings
 
@@ -29,60 +30,22 @@ class LocalIngestionError(IngestionError):
 
 
 async def ingest_local_archive(
+    params: ConvertParams,
     query: LocalArchiveQuery,
+    sections: list[str],
     base_output_dir: Path,
-    source: str = "Local",
-    short: str | None = None,
-    no_images: bool = False,
-    remove_refs: bool = False,
-    remove_inline_citations: bool = False,
-    linked_citations: bool = False,
-    section_filter_mode: str = "exclude",
-    sections: list[str] | None = None,
-    structured_output: str = "none",
-    emit_graph_csv: bool = False,
-    use_cache: bool = True,
 ) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a local archive file (tar.gz, tgz, or zip) and convert to Markdown.
 
     This function handles both LaTeX-based archives (containing .tex files)
-    and HTML-based archives (containing .html files).
-
-    Parameters
-    ----------
-    query : LocalArchiveQuery
-        Parsed local archive query
-    base_output_dir : Path
-        Base output directory (paper-specific directory will be created inside)
-    source : str
-        Source identifier (e.g., "CVPR", "ICML")
-    short : str | None
-        Short name for the paper
-    no_images : bool
-        If True, skip image processing
-    remove_refs : bool
-        Remove bibliography sections
-    remove_inline_citations : bool
-        Remove inline citations
-    linked_citations : bool
-        Render inline citations as [N](#ref-N) links
-    section_filter_mode : str
-        "include" or "exclude" section filtering
-    sections : list[str] | None
-        Section titles to filter
-
-    Returns:
-    -------
-    tuple[IngestionResult, dict]
-        Ingestion result and metadata
+    and HTML-based archives (containing .html files). All flags travel on
+    *params*.
 
     Raises:
     ------
     LocalIngestionError
         If ingestion fails
     """
-    sections = sections or []
-
     # Extract the archive (tar decompress is IO/CPU-bound — keep it off the
     # event loop so concurrent batch papers keep making progress).
     try:
@@ -90,7 +53,7 @@ async def ingest_local_archive(
             extract_local_archive,
             query.archive_path,
             output_dir=query.cache_dir / "extracted",
-            use_cache=use_cache,
+            use_cache=not params.no_cache,
         )
     except ArchiveExtractionError as e:
         raise LocalIngestionError(f"Failed to extract archive: {e}") from e
@@ -99,19 +62,11 @@ async def ingest_local_archive(
     if tex_source_info.main_tex_file:
         # LaTeX-based archive
         return await _ingest_latex_archive(
+            params=params,
             query=query,
             tex_source_info=tex_source_info,
-            base_output_dir=base_output_dir,
-            source=source,
-            short=short,
-            no_images=no_images,
-            remove_refs=remove_refs,
-            remove_inline_citations=remove_inline_citations,
-            linked_citations=linked_citations,
-            section_filter_mode=section_filter_mode,
             sections=sections,
-            structured_output=structured_output,
-            emit_graph_csv=emit_graph_csv,
+            base_output_dir=base_output_dir,
         )
     else:
         # Check for HTML files
@@ -119,20 +74,12 @@ async def ingest_local_archive(
         if html_files:
             # HTML-based archive
             return await _ingest_html_archive(
+                params=params,
                 query=query,
                 extracted_dir=tex_source_info.extracted_dir,
                 html_files=html_files,
-                base_output_dir=base_output_dir,
-                source=source,
-                short=short,
-                no_images=no_images,
-                remove_refs=remove_refs,
-                remove_inline_citations=remove_inline_citations,
-                linked_citations=linked_citations,
-                section_filter_mode=section_filter_mode,
                 sections=sections,
-                structured_output=structured_output,
-                emit_graph_csv=emit_graph_csv,
+                base_output_dir=base_output_dir,
             )
         else:
             raise LocalIngestionError(
@@ -142,19 +89,11 @@ async def ingest_local_archive(
 
 
 async def _ingest_latex_archive(
+    params: ConvertParams,
     query: LocalArchiveQuery,
     tex_source_info: TexSourceInfo,
+    sections: list[str],
     base_output_dir: Path,
-    source: str,
-    short: str | None,
-    no_images: bool,
-    remove_refs: bool = False,
-    remove_inline_citations: bool = False,
-    linked_citations: bool = False,
-    section_filter_mode: str = "exclude",
-    sections: list[str] | None = None,
-    structured_output: str = "none",
-    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a LaTeX-based local archive via the IR pipeline."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
@@ -177,16 +116,22 @@ async def _ingest_latex_archive(
         base_output_dir,
         query.submission_date,
         title,
-        source=source,
-        short=short,
+        source=params.source,
+        short=params.short,
         identity=str(query.archive_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
 
     # Process images if enabled
     processed_images = None
-    if not no_images:
-        processed_images = await process_images_async(tex_source_info, paper_output_dir, images_dir_name)
+    if not params.no_images:
+        processed_images = await process_images_async(
+            tex_source_info,
+            paper_output_dir,
+            images_dir_name,
+            disable_tqdm=params.no_progress or None,
+            max_concurrency=params.concurrency,
+        )
 
     # Build image map from LaTeX labels/paths to local paths
     from arxiv2md_beta.images.processor import build_latex_image_label_map
@@ -212,9 +157,9 @@ async def _ingest_latex_archive(
             authors=list(authors) if authors else None,
             abstract=abstract,
             images_subdir=images_dir_name,
-            section_filter_mode=section_filter_mode,
+            section_filter_mode=params.section_filter_mode,
             sections=sections,
-            remove_refs=remove_refs,
+            remove_refs=params.remove_refs,
         )
 
     try:
@@ -237,36 +182,29 @@ async def _ingest_latex_archive(
             "authors": [a.name for a in doc.metadata.authors],
             "abstract": doc.metadata.abstract_text,
             "submission_date": query.submission_date,
-            "source": source,
+            "source": params.source,
             "archive_path": str(query.archive_path),
         },
-        linked_citations=linked_citations,
-        remove_inline_citations=remove_inline_citations,
-        structured_output=structured_output,
-        emit_graph_csv=emit_graph_csv,
+        linked_citations=params.linked_citations,
+        remove_inline_citations=params.remove_inline_citations,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
         images_subdir=images_dir_name,
         extra_metadata={
             "submission_date": query.submission_date,
             "archive_path": str(query.archive_path),
         },
+        include_anchors=params.include_anchors,
     )
 
 
 async def _ingest_html_archive(
+    params: ConvertParams,
     query: LocalArchiveQuery,
     extracted_dir: Path,
     html_files: list[Path],
-    base_output_dir: Path,
-    source: str,
-    short: str | None,
-    no_images: bool,
-    remove_refs: bool,
-    remove_inline_citations: bool,
-    linked_citations: bool,
-    section_filter_mode: str,
     sections: list[str],
-    structured_output: str = "none",
-    emit_graph_csv: bool = False,
+    base_output_dir: Path,
 ) -> tuple[IngestionResult, dict[str, Any]]:
     """Process an HTML-based local archive via the IR pipeline."""
     from arxiv2md_beta.html.parser import parse_arxiv_html
@@ -290,8 +228,8 @@ async def _ingest_html_archive(
         base_output_dir,
         query.submission_date,
         title,
-        source=source,
-        short=short,
+        source=params.source,
+        short=params.short,
         identity=str(query.archive_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
@@ -300,7 +238,7 @@ async def _ingest_html_archive(
 
     # Copy images from extracted archive to output directory (bulk copies
     # are IO-bound: off the loop, audit5 X9)
-    if not no_images:
+    if not params.no_images:
         await asyncio.to_thread(_copy_local_images, extracted_dir, images_dir)
 
     # Build an image resolver from the copied files: map each image's name and
@@ -326,9 +264,9 @@ async def _ingest_html_archive(
             arxiv_id=arxiv_id,
             image_stem_map=image_stem_map,
             images_subdir=images_dir_name,
-            section_filter_mode=section_filter_mode,
+            section_filter_mode=params.section_filter_mode,
             sections=sections,
-            remove_refs=remove_refs,
+            remove_refs=params.remove_refs,
             paper_output_dir=paper_output_dir,
         )
     except Exception as e:
@@ -347,18 +285,19 @@ async def _ingest_html_archive(
             "authors": [a.name for a in doc.metadata.authors],
             "abstract": doc.metadata.abstract_text,
             "submission_date": query.submission_date,
-            "source": source,
+            "source": params.source,
             "archive_path": str(query.archive_path),
         },
-        linked_citations=linked_citations,
-        remove_inline_citations=remove_inline_citations,
-        structured_output=structured_output,
-        emit_graph_csv=emit_graph_csv,
+        linked_citations=params.linked_citations,
+        remove_inline_citations=params.remove_inline_citations,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
         images_subdir=images_dir_name,
         extra_metadata={
             "submission_date": query.submission_date,
             "archive_path": str(query.archive_path),
         },
+        include_anchors=params.include_anchors,
     )
 
 

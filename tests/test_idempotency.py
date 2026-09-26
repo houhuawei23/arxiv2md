@@ -85,7 +85,7 @@ def test_find_completed_missing_base_dir(tmp_path: Path) -> None:
 async def test_convert_flow_skips_completed(tmp_path: Path) -> None:
     _make_completed(tmp_path)
     ingest = AsyncMock()
-    with patch("arxiv2md_beta.cli.runner.convert._ingest_arxiv_html", ingest):
+    with patch("arxiv2md_beta.ingestion.orchestrator.IngestionOrchestrator.run", ingest):
         out = await run_convert_flow(_params(tmp_path))
     assert out == tmp_path / "202501-Arxiv-Some-Paper"
     ingest.assert_not_awaited()
@@ -98,7 +98,7 @@ async def test_convert_flow_force_reconverts(tmp_path: Path) -> None:
     # fast with a recognizable error to prove it was reached.
     with (
         patch(
-            "arxiv2md_beta.cli.runner.convert._ingest_arxiv_html",
+            "arxiv2md_beta.ingestion.orchestrator.IngestionOrchestrator.run",
             AsyncMock(side_effect=RuntimeError("reached ingestion")),
         ),
         pytest.raises(RuntimeError, match="reached ingestion"),

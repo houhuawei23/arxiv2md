@@ -86,7 +86,6 @@ class IngestionOrchestrator:
         self._selected_sections: list[str] = []
         self._include_abstract: bool = True
 
-        self._submission_date: str | None = None
         self._performance = PerformanceMonitor()
 
     # ── Public entry point ─────────────────────────────────────────────
@@ -156,6 +155,8 @@ class IngestionOrchestrator:
             # implementation instead of a drifted second one. Emission and
             # the structured-export deep copy are CPU/disk-bound: offload the
             # whole tail so concurrent batch papers keep making progress.
+            assert self._doc is not None
+            assert self._paper_output_dir is not None
             result, metadata = await asyncio.to_thread(
                 finalize_ingestion_output,
                 self._doc,
@@ -169,6 +170,7 @@ class IngestionOrchestrator:
                 emit_graph_csv=self.params.emit_graph_csv,
                 images_subdir=self._images_dir_name,
                 extra_metadata={"submission_date": self._submission_date},
+                include_anchors=self.params.include_anchors,
                 include_abstract_in_tree=self._include_abstract and bool(self._parsed.abstract),
             )
         result.performance = self._performance.snapshot()
@@ -268,7 +270,7 @@ class IngestionOrchestrator:
     # ── Step 3: Fetch API metadata ─────────────────────────────────────
 
     async def _fetch_api_metadata(self) -> None:
-        if not self._ingestion_cfg.fetch_arxiv_metadata:
+        if not (self.params.fetch_metadata or self._ingestion_cfg.fetch_arxiv_metadata):
             self._api_metadata = {}
             return
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
@@ -400,6 +402,8 @@ class IngestionOrchestrator:
                     tex,
                     self._paper_output_dir,
                     self._images_dir_name,
+                    disable_tqdm=self.params.no_progress or None,
+                    max_concurrency=self.params.concurrency,
                 )
                 image_map = processed.image_map
                 image_stem_map = processed.stem_to_image_path

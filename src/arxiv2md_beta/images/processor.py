@@ -179,6 +179,7 @@ async def process_images_async(
     output_dir: Path,
     images_dir_name: str = "images",
     max_concurrency: int | None = None,
+    disable_tqdm: bool | None = None,
 ) -> ProcessedImages:
     """Asynchronously process images from TeX source for use in Markdown.
 
@@ -197,6 +198,8 @@ async def process_images_async(
         Name of images subdirectory
     max_concurrency : int | None
         Maximum concurrent image tasks; defaults to ``settings.images.max_concurrency``
+    disable_tqdm : bool | None
+        Force the progress bar off/on; ``None`` uses ``settings.images.disable_tqdm``
 
     Returns:
     -------
@@ -224,7 +227,7 @@ async def process_images_async(
     logger.info(f"Processing {len(image_files)} images...")
 
     img_cfg = get_settings().images
-    disable_tqdm = img_cfg.disable_tqdm
+    disable_tqdm = img_cfg.disable_tqdm if disable_tqdm is None else disable_tqdm
     sem = asyncio.Semaphore(max(1, max_concurrency if max_concurrency is not None else img_cfg.max_concurrency))
     # Shared, lazily-created pool (see _get_process_pool) — reused across a
     # batch instead of fork/teardown per paper.

@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from dataclasses import dataclass
 
 import typer
 
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.settings import apply_cli_overrides, get_settings, set_settings
+from arxiv2md_beta.settings import get_settings
+
+
+@dataclass(frozen=True)
+class ConvertCliSettings:
+    """Resolved CLI flags from :func:`apply_convert_cli_settings`.
+
+    Each flag is already merged against its settings default (CLI flag >
+    config > default); consumers read these instead of re-reading mutated
+    global settings.
+    """
+
+    parser_mode: str
+    source_v: str
+    mode: str
+    so: str
+    include_anchors: bool
+    linked_citations: bool
+    naming_scheme: str
+    fetch_metadata: bool
+    no_progress: bool
+    concurrency: int | None
 
 
 def apply_convert_cli_settings(
@@ -22,10 +43,12 @@ def apply_convert_cli_settings(
     naming_scheme: str | None = None,
     fetch_arxiv_metadata: bool = False,
     concurrency: int | None = None,
-) -> tuple[str, str, str, str]:
-    """Validate parser/section/structured options and update global settings.
+) -> ConvertCliSettings:
+    """Validate parser/section/structured options and resolve CLI flags.
 
-    Returns ``(parser_mode, source_v, section_mode, structured_output_normalized)``.
+    Read-only: never mutates the process-global settings singleton. Returns a
+    :class:`ConvertCliSettings` with every flag resolved against its settings
+    default (CLI flag > config > default).
     """
     s = get_settings()
     d = s.cli_defaults
@@ -56,33 +79,18 @@ def apply_convert_cli_settings(
         )
         raise typer.Exit(code=2)
 
-    merged = apply_cli_overrides(
-        s,
-        SimpleNamespace(
-            parser=parser_mode,
-            source=source_v,
-            section_filter_mode=mode,
-            include_anchors=include_anchors,
-            linked_citations=linked_citations,
-            naming_scheme=naming_scheme,
-        ),
+    return ConvertCliSettings(
+        parser_mode=parser_mode,
+        source_v=source_v,
+        mode=mode,
+        so=so,
+        include_anchors=include_anchors if include_anchors is not None else s.output.include_anchors,
+        linked_citations=linked_citations if linked_citations is not None else s.output.linked_citations,
+        naming_scheme=naming_scheme if naming_scheme is not None else s.output_naming.naming_scheme,
+        fetch_metadata=fetch_arxiv_metadata,
+        no_progress=no_progress,
+        concurrency=concurrency,
     )
-    if fetch_arxiv_metadata:
-        ingestion = merged.ingestion.model_copy(update={"fetch_arxiv_metadata": True})
-        merged = merged.model_copy(update={"ingestion": ingestion})
-    if no_progress:
-        merged = merged.model_copy(
-            update={
-                "images": merged.images.model_copy(update={"disable_tqdm": True}),
-            }
-        )
-    if concurrency is not None:
-        # --concurrency (audit5 S8 F2): per-paper parallelism reachable from
-        # the CLI instead of a config-file edit; batch keeps -j for workers.
-        images = merged.images.model_copy(update={"max_concurrency": max(1, concurrency)})
-        merged = merged.model_copy(update={"images": images})
-    set_settings(merged)
-    return parser_mode, source_v, mode, so
 
 
 def make_convert_params(
@@ -108,6 +116,11 @@ def make_convert_params(
     force: bool = False,
     allow_stub: bool = False,
     dry_run: bool = False,
+    include_anchors: bool | None = None,
+    naming_scheme: str | None = None,
+    fetch_metadata: bool = False,
+    no_progress: bool = False,
+    concurrency: int | None = None,
 ) -> ConvertParams:
     """Build ``ConvertParams`` after :func:`apply_convert_cli_settings`."""
     sec_list = section if section else None
@@ -133,4 +146,9 @@ def make_convert_params(
         force=force,
         allow_stub=allow_stub,
         dry_run=dry_run,
+        include_anchors=include_anchors,
+        naming_scheme=naming_scheme,
+        fetch_metadata=fetch_metadata,
+        no_progress=no_progress,
+        concurrency=concurrency,
     )

@@ -10,6 +10,7 @@ from loguru import logger
 
 from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.ir.document import DocumentIR
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
 
@@ -21,21 +22,13 @@ class LocalHtmlIngestionError(IngestionError):
 
 
 async def ingest_local_html(
+    params: ConvertParams,
     query: LocalHtmlQuery,
+    sections: list[str],
     base_output_dir: Path,
-    source: str = "Local",
-    short: str | None = None,
-    no_images: bool = False,
-    remove_refs: bool = False,
-    remove_inline_citations: bool = False,
-    linked_citations: bool = False,
-    section_filter_mode: str = "exclude",
-    sections: list[str] | None = None,
-    structured_output: str = "none",
-    emit_graph_csv: bool = False,
 ) -> tuple[IngestionResult, dict[str, Any]]:
     """Process a local HTML file and convert to Markdown via the IR pipeline."""
-    sections = sections or []
+    source = params.source or query.source
 
     # Read HTML content and parse off the event loop (BS4 parse is CPU-bound).
     try:
@@ -60,8 +53,8 @@ async def ingest_local_html(
         base_output_dir,
         submission_date,
         title,
-        source=source or query.source,
-        short=short,
+        source=source,
+        short=params.short,
         identity=str(query.html_path.resolve()),
     )
     images_dir_name = get_settings().cli_defaults.images_subdir
@@ -70,7 +63,7 @@ async def ingest_local_html(
 
     # Process associated files (bulk file copies are IO-bound: off the loop,
     # audit5 X9)
-    if not no_images:
+    if not params.no_images:
         await asyncio.to_thread(_copy_associated_files, query.html_path, images_dir)
 
     # Image resolver from copied files (name + stem → relative path).
@@ -92,9 +85,9 @@ async def ingest_local_html(
             arxiv_id=arxiv_id,
             image_stem_map=image_stem_map,
             images_subdir=images_dir_name,
-            section_filter_mode=section_filter_mode,
+            section_filter_mode=params.section_filter_mode,
             sections=sections,
-            remove_refs=remove_refs,
+            remove_refs=params.remove_refs,
             paper_output_dir=paper_output_dir,
         )
 
@@ -116,18 +109,19 @@ async def ingest_local_html(
             "authors": [a.name for a in doc.metadata.authors],
             "abstract": doc.metadata.abstract_text,
             "submission_date": submission_date,
-            "source": source or query.source,
+            "source": source,
             "html_path": str(query.html_path),
         },
-        linked_citations=linked_citations,
-        remove_inline_citations=remove_inline_citations,
-        structured_output=structured_output,
-        emit_graph_csv=emit_graph_csv,
+        linked_citations=params.linked_citations,
+        remove_inline_citations=params.remove_inline_citations,
+        structured_output=params.structured_output,
+        emit_graph_csv=params.emit_graph_csv,
         images_subdir=images_dir_name,
         extra_metadata={
             "submission_date": submission_date,
             "html_path": str(query.html_path),
         },
+        include_anchors=params.include_anchors,
     )
 
 

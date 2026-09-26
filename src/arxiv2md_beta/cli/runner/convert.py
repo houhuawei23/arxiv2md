@@ -46,7 +46,7 @@ class _ModeSpec:
     """Per-input-mode wiring for the shared convert handler."""
 
     parse: Callable[[str], Any]
-    ingest: Callable[..., Awaitable[tuple[IngestionResult, dict]]]
+    ingest: Callable[[ConvertParams, Any, list[str], Path], Awaitable[tuple[IngestionResult, dict]]]
     fallback_stem: Callable[[Any], str]
     pdf_fetch: Callable[[Any], tuple[str, str | None] | None]
     log_local_success: bool
@@ -54,67 +54,10 @@ class _ModeSpec:
     identity: Callable[[Any], str]
 
 
-def _ingest_arxiv_latex(query, params: ConvertParams, sections, base_output_dir: Path):
-    return ingest_paper(
-        arxiv_id=query.arxiv_id,
-        version=query.version,
-        html_url=query.html_url,
-        ar5iv_url=query.ar5iv_url,
-        parser=params.parser,
-        remove_refs=params.remove_refs,
-        remove_inline_citations=params.remove_inline_citations,
-        linked_citations=params.linked_citations,
-        section_filter_mode=params.section_filter_mode,
-        sections=sections,
-        base_output_dir=base_output_dir,
-        no_images=params.no_images,
-        source=params.source,
-        short=params.short,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-        use_cache=not params.no_cache,
-    )
-
-
-def _ingest_arxiv_html(query, params: ConvertParams, sections, base_output_dir: Path):
+def _ingest_arxiv_html(params: ConvertParams, query, sections, base_output_dir: Path):
     from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
 
     return IngestionOrchestrator(params).run()
-
-
-def _ingest_local_html(query, params: ConvertParams, sections, base_output_dir: Path):
-    return ingest_local_html(
-        query=query,
-        base_output_dir=base_output_dir,
-        source=params.source,
-        short=params.short,
-        no_images=params.no_images,
-        remove_refs=params.remove_refs,
-        remove_inline_citations=params.remove_inline_citations,
-        linked_citations=params.linked_citations,
-        section_filter_mode=params.section_filter_mode,
-        sections=sections,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-    )
-
-
-def _ingest_local_archive(query, params: ConvertParams, sections, base_output_dir: Path):
-    return ingest_local_archive(
-        query=query,
-        base_output_dir=base_output_dir,
-        source=params.source,
-        short=params.short,
-        no_images=params.no_images,
-        remove_refs=params.remove_refs,
-        remove_inline_citations=params.remove_inline_citations,
-        linked_citations=params.linked_citations,
-        section_filter_mode=params.section_filter_mode,
-        sections=sections,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-        use_cache=not params.no_cache,
-    )
 
 
 async def _process_with(
@@ -159,7 +102,7 @@ async def _process_with(
         logger.info(f"Skip (already converted): {done}; use --force to re-convert")
         return done
 
-    result, metadata = await spec.ingest(query, params, sections, base_output_dir)
+    result, metadata = await spec.ingest(params, query, sections, base_output_dir)
 
     return await finalize_convert_output(
         result=result,
@@ -193,7 +136,7 @@ def _echo_dry_run_plan(
         typer.echo(
             "[dry-run] verdict: --force bypasses the idempotency check; a completed output would be re-converted"
         )
-    scheme = get_settings().output_naming.naming_scheme
+    scheme = params.naming_scheme or get_settings().output_naming.naming_scheme
     typer.echo(
         f"[dry-run] verdict: would convert into {base_output_dir}/ "
         f"(naming scheme: {scheme}; the final directory name is fixed after metadata fetch)"
@@ -215,7 +158,7 @@ def _stem_of(path_like) -> str:
 _SPECS: dict[str, _ModeSpec] = {
     "arxiv": _ModeSpec(
         parse=parse_arxiv_input,
-        ingest=lambda q, p, s, b: _ingest_arxiv_html(q, p, s, b),
+        ingest=_ingest_arxiv_html,
         fallback_stem=lambda q: strip_version(q.arxiv_id),
         pdf_fetch=_arxiv_pdf_fetch,
         log_local_success=False,
@@ -224,7 +167,7 @@ _SPECS: dict[str, _ModeSpec] = {
     ),
     "arxiv-latex": _ModeSpec(
         parse=parse_arxiv_input,
-        ingest=lambda q, p, s, b: _ingest_arxiv_latex(q, p, s, b),
+        ingest=ingest_paper,
         fallback_stem=lambda q: strip_version(q.arxiv_id),
         pdf_fetch=_arxiv_pdf_fetch,
         log_local_success=False,
@@ -233,7 +176,7 @@ _SPECS: dict[str, _ModeSpec] = {
     ),
     "local-html": _ModeSpec(
         parse=parse_local_html,
-        ingest=_ingest_local_html,
+        ingest=ingest_local_html,
         fallback_stem=_stem_of,
         pdf_fetch=_no_pdf_fetch,
         log_local_success=True,
@@ -242,7 +185,7 @@ _SPECS: dict[str, _ModeSpec] = {
     ),
     "local-archive": _ModeSpec(
         parse=parse_local_archive,
-        ingest=_ingest_local_archive,
+        ingest=ingest_local_archive,
         fallback_stem=_stem_of,
         pdf_fetch=_no_pdf_fetch,
         log_local_success=True,
@@ -303,7 +246,7 @@ async def _pdf_fallback_flow(query, params: ConvertParams, reason: Exception) ->
         markdown_file=None,
         output_text="",
         parser=params.parser,
-        naming_scheme=_get_settings().output_naming.naming_scheme,
+        naming_scheme=params.naming_scheme or _get_settings().output_naming.naming_scheme,
         duration_seconds=None,
         status="pdf_fallback",
     )
