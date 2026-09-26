@@ -280,13 +280,21 @@ def finalize_ingestion_output(
     emit_graph_csv: bool = False,
     images_subdir: str,
     extra_metadata: dict[str, Any] | None = None,
+    include_abstract_in_tree: bool | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Shared ingestion tail: emit Markdown, build result, write paper.yml + structured JSON.
 
-    This is the single implementation of the finalize steps that the LaTeX,
-    local-archive (LaTeX and HTML) and local-HTML ingestion paths share. It
-    replaces four copy-pasted variants that had drifted (e.g. the LaTeX paths
-    forgot to forward ``remove_inline_citations`` / ``linked_citations``).
+    This is the single implementation of the finalize steps shared by every
+    ingestion path (remote HTML orchestrator, LaTeX, local archive, local
+    HTML). It replaces the copy-pasted variants that had drifted (e.g. the
+    LaTeX paths forgot to forward ``remove_inline_citations`` /
+    ``linked_citations``).
+
+    ``include_abstract_in_tree`` controls whether the ``Abstract`` line
+    appears in the sections tree. ``None`` (the default) derives it from
+    ``doc.metadata.abstract_text``; the HTML orchestrator passes the
+    section-filter decision explicitly (an ``Abstract``-filtered conversion
+    must not advertise an abstract it did not emit).
 
     Returns ``(IngestionResult, metadata_dict)``. paper.yml and structured
     export failures are logged and swallowed so they never abort an otherwise
@@ -319,11 +327,17 @@ def finalize_ingestion_output(
     summary_lines.append(f"- ArXiv: {arxiv_id}")
     if version:
         summary_lines.append(f"- Version: {version}")
-    if author_names:
-        summary_lines.append(f"- Authors: {', '.join(author_names)}")
+    if m.authors:
+        # Per-author bullets with affiliations (same shape the HTML
+        # orchestrator always showed — kept when the paths were unified).
+        summary_lines.append("- Authors:")
+        for author in m.authors:
+            affils = ", ".join(author.affiliations) if author.affiliations else ""
+            summary_lines.append(f"  - {author.name} — {affils}" if affils else f"  - {author.name}")
     summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
+    show_abstract = bool(m.abstract_text) if include_abstract_in_tree is None else include_abstract_in_tree
     tree_lines = ["Sections:"]
-    if m.abstract_text:
+    if show_abstract:
         tree_lines.append("Abstract")
     tree_lines.append(create_sections_tree(cast("list[Any]", doc.sections)))
     sections_tree = "\n".join(tree_lines)

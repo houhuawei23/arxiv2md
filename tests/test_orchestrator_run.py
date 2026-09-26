@@ -112,7 +112,9 @@ async def test_run_propagates_save_failure(tmp_path, monkeypatch) -> None:
     def boom(meta, out_dir) -> None:
         raise ValueError("injected: paper.yml assembly bug")
 
-    monkeypatch.setattr(orch_module, "save_paper_metadata", boom)
+    # finalize_ingestion_output resolves save_paper_metadata lazily from the
+    # output.metadata module, so patch it there.
+    monkeypatch.setattr("arxiv2md_beta.output.metadata.save_paper_metadata", boom)
 
     orch = _orch(tmp_path)
     with pytest.raises(ValueError, match="injected"):
@@ -127,7 +129,7 @@ async def test_run_propagates_structured_export_failure(tmp_path, monkeypatch) -
     def boom(*args, **kwargs) -> dict:
         raise ValueError("injected: structured export bug")
 
-    monkeypatch.setattr(orch_module, "run_structured_export", boom)
+    monkeypatch.setattr("arxiv2md_beta.ingestion.ir_finalize.run_structured_export", boom)
     orch = _orch(tmp_path)
     monkeypatch.setattr(orch, "params", orch.params.__class__(**{**orch.params.__dict__, "structured_output": "full"}))
 

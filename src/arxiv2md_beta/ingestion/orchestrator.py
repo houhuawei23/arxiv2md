@@ -12,7 +12,7 @@ import re
 import subprocess
 import unicodedata
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from arxiv2md_beta.exceptions import (
     ImageProcessingError,
@@ -21,7 +21,7 @@ from arxiv2md_beta.exceptions import (
 )
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.images.processor import process_images_async
-from arxiv2md_beta.ingestion.ir_finalize import emit_split_markdown, run_structured_export
+from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
 from arxiv2md_beta.ir import HTMLBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
@@ -39,11 +39,6 @@ from arxiv2md_beta.network.arxiv_api import (
 )
 from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.output.layout import create_paper_output_dir, determine_output_dir
-from arxiv2md_beta.output.markdown_utils import (
-    count_sections,
-    create_sections_tree,
-    format_token_count,
-)
 from arxiv2md_beta.output.metadata import save_paper_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.params import ConvertParams
@@ -91,11 +86,7 @@ class IngestionOrchestrator:
         self._selected_sections: list[str] = []
         self._include_abstract: bool = True
 
-        # Markdown emission results
-        self._content: str = ""
-        self._content_references: str | None = None
-        self._content_appendix: str | None = None
-        self._structured_export_result: dict = {}
+        self._submission_date: str | None = None
         self._performance = PerformanceMonitor()
 
     # ── Public entry point ─────────────────────────────────────────────
@@ -163,24 +154,31 @@ class IngestionOrchestrator:
             await asyncio.to_thread(self._run_transforms)
         with self._performance.stage("normalize_abstract"):
             await asyncio.to_thread(self._normalize_abstract)
-        logger.info(f"[{self._query.arxiv_id}] Emitting markdown...")
+        logger.info(f"[{self._query.arxiv_id}] Emitting markdown and writing outputs...")
         with self._performance.stage("emit_markdown"):
-            await asyncio.to_thread(self._emit_markdown)
-        result = self._build_result()
-        # paper.yml and the structured JSON export are independent — run them
-        # concurrently. return_exceptions=True waits for both, so a failure in
-        # one cannot leak the other as a still-running sibling task (audit4 P2).
-        results = await asyncio.gather(self._save_paper_yml(), self._structured_export_wrap(), return_exceptions=True)
-        for res in results:
-            if isinstance(res, BaseException):
-                raise res
-        metadata = self._build_metadata(self._structured_export_result)
+            # The same shared tail as the LaTeX / local ingestion paths
+            # (ingestion.ir_finalize.finalize_ingestion_output) — one
+            # implementation instead of a drifted second one. Emission and
+            # the structured-export deep copy are CPU/disk-bound: offload the
+            # whole tail so concurrent batch papers keep making progress.
+            result, metadata = await asyncio.to_thread(
+                finalize_ingestion_output,
+                self._doc,
+                arxiv_id=self._query.arxiv_id,
+                paper_output_dir=self._paper_output_dir,
+                paper_yml_data=self._build_paper_yml_data(),
+                version=self._query.version,
+                linked_citations=self.params.linked_citations,
+                remove_inline_citations=self.params.remove_inline_citations,
+                structured_output=self.params.structured_output,
+                emit_graph_csv=self.params.emit_graph_csv,
+                images_subdir=self._images_dir_name,
+                extra_metadata={"submission_date": self._submission_date},
+                include_abstract_in_tree=self._include_abstract and bool(self._parsed.abstract),
+            )
         result.performance = self._performance.snapshot()
         metadata["performance"] = result.performance
         return result, metadata
-
-    async def _structured_export_wrap(self) -> None:
-        self._structured_export_result = await self._structured_export()
 
     # ── Step 0: Parse query ────────────────────────────────────────────
 
@@ -571,73 +569,17 @@ class IngestionOrchestrator:
 
     # ── Step 11: Emit markdown ─────────────────────────────────────────
 
-    def _emit_markdown(self) -> None:
-        assert self._doc is not None
-        self._content, self._content_references, self._content_appendix = emit_split_markdown(
-            self._doc,
-            reference_section_titles=self._ingestion_cfg.reference_section_titles,
-            linked_citations=self.params.linked_citations,
-            remove_inline_citations=self.params.remove_inline_citations,
-        )
+    # ── Step 12: paper.yml payload ─────────────────────────────────────
 
-    # ── Step 12: Build result ──────────────────────────────────────────
+    def _build_paper_yml_data(self) -> dict[str, Any]:
+        """Assemble the paper.yml payload from API + HTML + TeX sources.
 
-    def _build_result(self) -> IngestionResult:
-        assert self._doc is not None
+        No try/except around the write itself: save_paper_metadata is
+        best-effort and already swallows+warns internally
+        (output/metadata.py). Assembly errors are programming bugs and
+        should fail fast.
+        """
         assert self._parsed is not None
-        m = self._doc.metadata
-        title = m.title or self._parsed.title
-
-        # Summary
-        summary_lines = []
-        if title:
-            summary_lines.append(f"# Title: {title}")
-        summary_lines.append(f"- ArXiv: {self._query.arxiv_id}")
-        if self._query.version:
-            summary_lines.append(f"- Version: {self._query.version}")
-        if self._display_author_names:
-            summary_lines.append("- Authors:")
-            for author in self._doc.metadata.authors:
-                name = author.name
-                affils = ", ".join(author.affiliations) if author.affiliations else ""
-                if affils:
-                    summary_lines.append(f"  - {name} — {affils}")
-                else:
-                    summary_lines.append(f"  - {name}")
-        # Single sections tree, derived from the post-transform IR (same
-        # filtering the emitted markdown went through).
-        ir_sections = cast("list[Any]", self._doc.sections)
-        sections_tree_body = create_sections_tree(ir_sections)
-        summary_lines.append(f"- Sections: {count_sections(ir_sections)}")
-        token_body = "\n".join(x for x in (self._content, self._content_references, self._content_appendix or "") if x)
-        token_estimate = format_token_count(sections_tree_body + "\n" + token_body)
-        if token_estimate:
-            summary_lines.append(f"- Estimated tokens: {token_estimate}")
-        summary = "\n".join(summary_lines)
-
-        # Sections tree
-        tree_lines = ["Sections:"]
-        if self._include_abstract and self._parsed.abstract:
-            tree_lines.append("Abstract")
-        tree_lines.append(sections_tree_body)
-        sections_tree = "\n".join(tree_lines)
-
-        return IngestionResult(
-            summary=summary,
-            sections_tree=sections_tree,
-            content=self._content,
-            content_references=self._content_references,
-            content_appendix=self._content_appendix,
-        )
-
-    # ── Step 13: Save paper.yml ────────────────────────────────────────
-
-    async def _save_paper_yml(self) -> None:
-        # No try/except here: save_paper_metadata is best-effort and already
-        # swallows+warns internally (output/metadata.py). Assembly errors are
-        # programming bugs and should fail fast.
-        assert self._parsed is not None
-        assert self._paper_output_dir is not None
         base_id = strip_version(self._query.arxiv_id)
         paper_meta = dict(self._api_metadata)
         if not paper_meta.get("title") and self._parsed.title:
@@ -660,39 +602,7 @@ class IngestionOrchestrator:
                 ]
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
         merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
-        await asyncio.to_thread(save_paper_metadata, paper_meta, self._paper_output_dir)
-
-    # ── Step 14: Structured JSON export ────────────────────────────────
-
-    async def _structured_export(self) -> dict:
-        assert self._doc is not None
-        assert self._paper_output_dir is not None
-        # Deep-copies the whole document + writes JSON files — keep off the
-        # event loop so concurrent batch papers keep making progress.
-        return await asyncio.to_thread(
-            run_structured_export,
-            self._doc,
-            self._paper_output_dir,
-            mode=self.params.structured_output,
-            emit_graph_csv=self.params.emit_graph_csv,
-            images_subdir=self._images_dir_name,
-        )
-
-    # ── Step 15: Build metadata dict ───────────────────────────────────
-
-    def _build_metadata(self, structured_export: dict) -> dict[str, Any]:
-        assert self._doc is not None
-        assert self._parsed is not None
-        title = self._doc.metadata.title or self._parsed.title
-        return {
-            "title": title,
-            "authors": self._display_author_names,
-            "abstract": self._parsed.abstract,
-            "submission_date": self._submission_date,
-            "paper_output_dir": self._paper_output_dir,
-            "arxiv_id": self._query.arxiv_id,
-            "structured_export": structured_export,
-        }
+        return paper_meta
 
 
 # ── Helper functions (moved from convert.py) ─────────────────────────
