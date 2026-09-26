@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -22,6 +23,19 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
 
 _HEADING_RE = re.compile(r"^h[1-6]$")
 _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
+# Boilerplate paragraphs LaTeXML/institutional templates emit when the source
+# TeX violates the class style (e.g. ICML layout check); never paper titles.
+_LAYOUT_WARNING_RE = re.compile(
+    r"has been altered"
+    r"|violates the .{0,40}?style"
+    r"|do not change the (?:page )?layout"
+    r"|not able to reliably undo"
+    r"|offending package",
+    re.I,
+)
+# <title> fallback must not swallow figure/table captions (LaTeXML puts the
+# first caption there when \title is not recognized).
+_CAPTION_RE = re.compile(r"^(?:figure|table|listing)\s+\d+", re.I)
 # Keywords that indicate footnotes or contribution statements (case-insensitive check)
 _SKIP_KEYWORDS = {"footnotemark:", "equal contribution", "work performed", "listing order"}
 # Keywords that strongly suggest an affiliation line
@@ -117,6 +131,10 @@ class ParsedArxivHtml:
 def _extract_front_matter_html(soup: BeautifulSoup, document_root: Tag) -> str | None:
     """Extract HTML between abstract and first section (e.g. title-block figures)."""
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
+    if abstract is None:
+        # Degraded LaTeXML output: title-block figures follow the plain
+        # abstract paragraph instead of an ltx_abstract div.
+        abstract = _find_degraded_abstract_para(document_root)
     first_section = document_root.find("section", class_=re.compile(r"ltx_section"))
     if not abstract or not first_section:
         return None
@@ -168,10 +186,16 @@ def _find_document_root(soup: BeautifulSoup) -> Tag:
     return soup
 
 
-def _extract_title(soup: BeautifulSoup) -> str | None:
+def _extract_title(soup: BeautifulSoup, document_root: Tag | None = None) -> str | None:
     # Try h1.ltx_title first (ar5iv HTML)
     title_tag = soup.find("h1", class_=re.compile(r"ltx_title"))
     if title_tag:
+        # LaTeXML inlines \thanks{...} notes into the title as
+        # <span class="ltx_pubnotes"> (e.g. "Thanks: equal contribution");
+        # drop them from a copy so the soup used for section parsing is intact.
+        title_tag = copy.copy(title_tag)
+        for pubnotes in title_tag.find_all(class_="ltx_pubnotes"):  # type: ignore[union-attr]
+            pubnotes.decompose()
         # Filter out document type markers like [cs/0309048] Contents
         text = title_tag.get_text(" ", strip=True)
         # Remove arXiv ID patterns like [cs/0309048] or [math.AG/0211234]
@@ -189,6 +213,11 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
             text = re.sub(r"\bContents\s*$", "", text).strip()
             if text:
                 return text
+    # Degraded LaTeXML output (style-violating TeX): \title renders as a plain
+    # bold paragraph before the first section instead of h1.ltx_title.
+    degraded = _extract_degraded_title(document_root or _find_document_root(soup))
+    if degraded:
+        return degraded
     # Fallback: try <title> but filter out site names
     if soup.title:
         text = soup.title.get_text(" ", strip=True)
@@ -196,9 +225,114 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
         text = re.sub(r"\s*[\|\-–—]\s*arXiv.*$", "", text, flags=re.I)
         text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text)
         text = re.sub(r"\bContents\s*$", "", text).strip()
+        if _CAPTION_RE.match(text):
+            return None
         if text and text.lower() not in ("arxiv", "", "contents"):
             return text
     return None
+
+
+def _is_bold_only_para(para: Tag, allow_math: bool = False) -> bool:
+    """True if the paragraph's visible text is (almost) entirely bold spans.
+
+    Used to spot degraded-mode titles; by default paragraphs containing
+    MathML are never candidates (author lines carry superscript affiliations
+    as ``<math>``). With ``allow_math`` the math is ignored for the check.
+    """
+    bold_spans = para.find_all(class_=re.compile(r"ltx_font_bold"))
+    if not bold_spans:
+        return False
+    bold_len = sum(len(s.get_text(strip=True)) for s in bold_spans)
+    total_len = len(para.get_text(strip=True))
+    if para.find("math") is not None:
+        if not allow_math:
+            return False
+        math_len = sum(len(m.get_text(strip=True)) for m in para.find_all("math"))
+        total_len -= math_len
+    return total_len > 0 and bold_len >= max(total_len - 4, int(total_len * 0.9))
+
+
+def _find_degraded_title_para(root: Tag) -> Tag | None:
+    """Locate the title paragraph in degraded (non-semantic) LaTeXML output.
+
+    Scans top-level ``ltx_para`` blocks before the first section and returns
+    the first purely-bold, warning-free paragraph of plausible title length.
+    """
+    for child in root.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name == "section":
+            break
+        if child.name != "div" or "ltx_para" not in css_classes(child):
+            continue
+        text = child.get_text(" ", strip=True)
+        if not text or len(text) > 500 or _LAYOUT_WARNING_RE.search(text):
+            continue
+        if _is_bold_only_para(child):
+            return child
+    return None
+
+
+def _extract_degraded_title(root: Tag) -> str | None:
+    para = _find_degraded_title_para(root)
+    if para is None:
+        return None
+    text = re.sub(r"\s+", " ", para.get_text(" ", strip=True)).strip()
+    return text or None
+
+
+def _find_degraded_abstract_para(root: Tag) -> Tag | None:
+    """Locate the abstract paragraph in degraded LaTeXML output.
+
+    The abstract is the last long top-level paragraph before the first
+    section (short author/affiliation/thanks paragraphs don't qualify).
+    """
+    last_long: Tag | None = None
+    for child in root.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name == "section":
+            break
+        if child.name != "div" or "ltx_para" not in css_classes(child):
+            continue
+        if len(child.get_text(" ", strip=True)) >= 300:
+            last_long = child
+    return last_long
+
+
+def _extract_degraded_authors(root: Tag) -> list[ParsedAuthor]:
+    """Extract author names from degraded LaTeXML output.
+
+    The author list is the paragraph right after the degraded title: bold
+    names separated by commas, with affiliation superscripts as ``<math>``
+    (removed before splitting).
+    """
+    title_para = _find_degraded_title_para(root)
+    if title_para is None:
+        return []
+    sibling = title_para.find_next_sibling()
+    if not isinstance(sibling, Tag) or "ltx_para" not in css_classes(sibling):
+        return []
+    if not _is_bold_only_para(sibling, allow_math=True):
+        return []
+    working = copy.copy(sibling)
+    for math in working.find_all("math"):
+        math.decompose()
+    text = working.get_text(" ", strip=True)
+    authors: list[ParsedAuthor] = []
+    for token in text.split(","):
+        name = token.strip().strip(" .;*†‡§")
+        # Drop a trailing conjunction before the last name ("and Gao Huang").
+        name = re.sub(r"^(?:and|&)\s+", "", name, flags=re.I)
+        # Keep plausible personal names; drop affiliations, notes, numbers.
+        if not re.fullmatch(r"[A-Za-zÀ-ɏ\-'’\. ]{2,60}", name):
+            continue
+        if not (1 <= len(name.split()) <= 4):
+            continue
+        if _AFFILIATION_KEYWORDS & {w.strip(".,") for w in name.lower().split()}:
+            continue
+        authors.append(ParsedAuthor(name=name))
+    return authors
 
 
 def _extract_authors(soup: BeautifulSoup) -> list[str]:
@@ -223,7 +357,9 @@ def _extract_authors_with_affiliations(soup: BeautifulSoup) -> list[ParsedAuthor
         document_root = _find_document_root(soup)
         authors_container = document_root.find("div", class_="ltx_authors")
     if not authors_container:
-        return []
+        # Degraded LaTeXML output has no ltx_authors container; fall back to
+        # the bold author-list paragraph following the degraded title.
+        return _extract_degraded_authors(_find_document_root(soup))
 
     # --- Strategy 1: structured author blocks ---
     structured = _parse_structured_author_blocks(authors_container)  # type: ignore
@@ -740,6 +876,12 @@ def _clean_author_text(node: Tag) -> list[str]:
 def _extract_abstract(soup: BeautifulSoup) -> str | None:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
+        # Degraded LaTeXML output: the abstract is a plain long paragraph
+        # before the first section.
+        degraded = _find_degraded_abstract_para(_find_document_root(soup))
+        if degraded is not None:
+            text = re.sub(r"\s+", " ", degraded.get_text(" ", strip=True)).strip()
+            return re.sub(r"^abstract\b[\s:.-]*", "", text, count=1, flags=re.I) or None
         return None
     text = abstract.get_text(" ", strip=True)
     # Drop the "Abstract" heading the div carries — the stored metadata and
@@ -755,7 +897,11 @@ def _extract_abstract_html(soup: BeautifulSoup) -> str | None:
     """
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
-        return None
+        degraded = _find_degraded_abstract_para(_find_document_root(soup))
+        if degraded is None:
+            return None
+        inner = "".join(str(c) for c in degraded.children)  # type: ignore
+        return inner.strip() if inner.strip() else None
     inner = "".join(str(c) for c in abstract.children)  # type: ignore
     return inner.strip() if inner.strip() else None
 

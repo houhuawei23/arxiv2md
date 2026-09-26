@@ -127,6 +127,16 @@ class HTMLBuilder(IRBuilder):
 
         # Convert abstract HTML fragment to IR blocks
         abstract_blocks = self._html_to_blocks(parsed.abstract_html, section_id="abstract")
+        # Degraded LaTeXML output may render the whole abstract as an SVG
+        # picture (no convertible blocks); fall back to the plain text.
+        if not abstract_blocks and parsed.abstract:
+            abstract_blocks = [
+                ParagraphIR(
+                    section_id="abstract",
+                    order_index=0,
+                    inlines=[TextIR(text=parsed.abstract)],
+                )
+            ]
 
         # Convert front matter HTML fragment to IR blocks
         front_matter_blocks = self._html_to_blocks(parsed.front_matter_html, section_id="front_matter")
