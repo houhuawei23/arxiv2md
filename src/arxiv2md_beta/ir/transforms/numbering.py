@@ -119,6 +119,24 @@ class NumberingPass(IRPass):
     )
 
     def run(self, doc: DocumentIR) -> DocumentIR:
+        # Single pass over the section tree would not preserve the invariants
+        # below, so the rounds stay separate (reviewed in the builder/transforms
+        # dedup — merging was evaluated and rejected):
+        #
+        # Round 1 (_collect_claimed): claim every caption-derived id BEFORE any
+        #   auto number is assigned. A caption id appearing later in the
+        #   document ("Figure 1" in an appendix) must make the earlier auto
+        #   counter skip that number; a single in-order pass would hand out
+        #   "figure-1" before seeing the claim and collide.
+        # Round 2 (_number_blocks/_number_section): assign ids + anchors while
+        #   registering each into _claimed/_used_anchors via _claim_and_anchor.
+        # Prescan (_prescan_anchors): existing anchors (builder-set, section
+        #   anchors) anywhere in the document must be registered before the
+        #   first unique_slug() is minted; otherwise an auto anchor could steal
+        #   a slug a later pre-existing anchor uses.
+        # Rounds 3-4 (_repoint_fragment_links / _repoint_section_fragments):
+        #   link rewriting needs the final, complete anchor sets, so it runs
+        #   after all anchors exist.
         ctx = {"figure": 0, "table": 0, "equation": 0, "algorithm": 0}
         self._claimed: set[str] = set()
         self._used_anchors: set[str] = set()

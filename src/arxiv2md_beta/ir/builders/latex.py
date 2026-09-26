@@ -30,7 +30,10 @@ from arxiv2md_beta.ir.builders._math_norm import (
     NOLINEBREAK_RE,
     PERP_IN_MATH_RE,
     PERP_REPLACEMENT,
+    TEXT_WITH_MACRO_MATH_RE,
+    split_macro_math_in_text,
 )
+from arxiv2md_beta.ir.builders._shared import BIB_REF_RE, REF_FRAGMENT_RE
 from arxiv2md_beta.ir.builders._table_spans import (
     MAX_COLSPAN,
     MAX_ROWSPAN,
@@ -51,6 +54,7 @@ from arxiv2md_beta.ir.inlines import (
     SubscriptIR,
     SuperscriptIR,
     TextIR,
+    inlines_to_plain_text,
 )
 from arxiv2md_beta.ir.resolvers import ImageResolver
 
@@ -112,33 +116,9 @@ _LABEL_IN_MATH_RE = re.compile(r"\\label\{[^}]*\}")
 # ``\text{... math ...}`` after \mbox→\text translation may still contain math
 # macros (\alpha etc.) when the source was ``\mbox{... at level $\alpha$}`` and
 # Pandoc dropped the inner ``$``. KaTeX rejects math macros inside \text{}.
-# Split the former ``$...$`` sub-expression back into math mode — mirrors the
-# HTML builder's ``_split_math_from_text``.
-_SPLIT_MATH_FROM_TEXT_RE = re.compile(r"\\text\{([^{}]*\\[a-zA-Z]+[^{}]*)\}")
-
-
-def _split_math_from_text(m: re.Match[str]) -> str:
-    r"""Re-split escaped ``$...$`` math out of ``\text{...}``.
-
-    Only moves tokens that are math-mode macros (backslash commands) outside the
-    ``\text{}`` run; plain words stay inside.
-    """
-    inner = m.group(1)
-    # Partition on math macros: keep text runs in \text{}, macros outside.
-    parts = re.split(r"(\\[a-zA-Z]+)", inner)
-    out: list[str] = []
-    buf: list[str] = []
-    for p in parts:
-        if p.startswith("\\") and len(p) > 1 and p[1].isalpha():
-            if buf:
-                out.append("\\text{" + "".join(buf) + "}")
-                buf = []
-            out.append(p)
-        else:
-            buf.append(p)
-    if buf:
-        out.append("\\text{" + "".join(buf) + "}")
-    return "".join(out)
+# Split the former ``$...$`` sub-expression back into math mode — the
+# macro-flavored sibling of the HTML builder's dollar-based splitter (see
+# ``_math_norm`` for why the two are distinct implementations).
 
 
 # TeX glue primitives Pandoc's LaTeX reader aborts on (e.g. the end-part of a
@@ -149,13 +129,6 @@ def _split_math_from_text(m: re.Match[str]) -> str:
 # lossless. A bare trailing length/control-sequence (``\baselineskip``) is fine:
 # Pandoc ignores unknown control sequences.
 _GLUE_STRIP_RE = re.compile(r"\\(?:v|h|m)skip(?:\s*\{[^{}]*\})?")
-
-# Citation anchor conventions (same shapes the HTML builder matches): a
-# bibliography anchor is ``#bib.bibN`` (ar5iv) and the sidecar/reference
-# anchors emitted downstream are ``#ref-N``. Anything else starting with
-# ``#`` is an ordinary internal link (audit5 G1-4).
-_BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
-_REF_FRAGMENT_RE = re.compile(r"#ref-\d+")
 
 
 def _ref_entry_placeholder() -> ParagraphIR:
@@ -1068,7 +1041,7 @@ class LaTeXBuilder(IRBuilder):
             # KaTeX rejects math macros directly inside \text{...} (e.g.
             # \mbox{... at level $\alpha$} expanded by Pandoc loses the inner
             # $...$). Split the math back out (same as the HTML builder).
-            latex = _SPLIT_MATH_FROM_TEXT_RE.sub(_split_math_from_text, latex)
+            latex = TEXT_WITH_MACRO_MATH_RE.sub(split_macro_math_in_text, latex)
             # TeX line-break hints unsupported by some renderers (same as the
             # HTML builder's normalization).
             latex = NOLINEBREAK_RE.sub("", latex)
@@ -1103,7 +1076,7 @@ class LaTeXBuilder(IRBuilder):
                 # ('ref' in url) classified #preface / #careful-look as
                 # citations and the emitter then dropped the target
                 # (audit5 G1-4).
-                if _BIB_REF_RE.search(url) or _REF_FRAGMENT_RE.match(url):
+                if BIB_REF_RE.search(url) or REF_FRAGMENT_RE.match(url):
                     kind = "citation"
                 # IR convention (shared with the HTML builder): an internal
                 # link carries the TARGET fragment in target_id and no url.
@@ -1395,20 +1368,14 @@ class LaTeXBuilder(IRBuilder):
     @staticmethod
     def _inlines_to_plain_text(inlines: list[InlineUnion]) -> str:
         """Extract plain text from a list of InlineIR nodes."""
-        parts: list[str] = []
-        for il in inlines:
-            if isinstance(il, TextIR):
-                parts.append(il.text)
-            elif isinstance(il, MathIR):
-                parts.append(f"${il.latex}$" if not il.display else f"$${il.latex}$$")
-            elif isinstance(il, EmphasisIR | LinkIR | SuperscriptIR | SubscriptIR):
-                inner = LaTeXBuilder._inlines_to_plain_text(il.inlines)
-                parts.append(inner)
-            elif isinstance(il, ImageRefIR):
-                parts.append(il.alt or "[image]")
-            elif isinstance(il, BreakIR | RawInlineIR):
-                pass  # skip breaks and raw
-        return "".join(parts)
+        return inlines_to_plain_text(
+            inlines,
+            math="dollar",
+            image="fallback",
+            raw="skip",
+            include_link_url=False,
+            joiner="",
+        )
 
     @staticmethod
     def _blocks_to_plain_text(blocks: list[dict]) -> str:

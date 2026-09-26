@@ -37,3 +37,61 @@ MULTI_SPACE_RE = re.compile(r" {2,}")
 # (audit5 G1-2): html.py's equation-table path strips it at build time and
 # the emitter strips defensively before adding its own.
 TAG_RE = re.compile(r"\\tag\{[^{}]*\}\s*")
+
+# ── Math leaked into \text{...} ────────────────────────────────────────
+# Both builders must rescue math that ended up inside a text-mode
+# \text{} run (KaTeX rejects math macros inside \text{}), but the two
+# inputs differ, so there are two distinct matcher/replacer pairs here —
+# they are intentionally NOT one implementation:
+#
+# - HTML (ar5iv annotations): the inner ``$...$`` delimiters survived, so
+#   the trigger is a ``\text{}`` group containing a literal ``$`` and the
+#   splitter cuts on ``$...$`` pairs, moving the inner math outside.
+# - LaTeX (Pandoc \mbox→\text translation): Pandoc DROPPED the inner
+#   ``$`` (``\mbox{... $\alpha$ ...}`` → ``\text{... \alpha ...}``), so
+#   the trigger is a ``\text{}`` group containing a backslash macro and
+#   the splitter partitions on math macros, keeping plain words inside.
+
+# HTML path: \text{ can be rejected at level $\alpha$}
+#   → \text{ can be rejected at level } \alpha
+TEXT_WITH_DOLLAR_MATH_RE = re.compile(r"\\text\{([^{}]*\$[^{}]*)\}")
+
+
+def split_dollar_math_in_text(m: re.Match) -> str:
+    r"""Re-split literal ``$...$`` math out of a ``\text{...}`` group."""
+    parts = re.split(r"\$([^$]*)\$", m.group(1))
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            if part:
+                out.append(f"\\text{{{part}}}")
+        else:
+            out.append(part)
+    return "".join(out)
+
+
+# LaTeX path: \text{ at level \alpha with } → \text{ at level } \alpha \text{ with }
+TEXT_WITH_MACRO_MATH_RE = re.compile(r"\\text\{([^{}]*\\[a-zA-Z]+[^{}]*)\}")
+
+
+def split_macro_math_in_text(m: re.Match[str]) -> str:
+    r"""Partition ``\text{}`` content on math macros.
+
+    Only moves tokens that are math-mode macros (backslash commands) outside
+    the ``\text{}`` run; plain words stay inside.
+    """
+    inner = m.group(1)
+    parts = re.split(r"(\\[a-zA-Z]+)", inner)
+    out: list[str] = []
+    buf: list[str] = []
+    for p in parts:
+        if p.startswith("\\") and len(p) > 1 and p[1].isalpha():
+            if buf:
+                out.append("\\text{" + "".join(buf) + "}")
+                buf = []
+            out.append(p)
+        else:
+            buf.append(p)
+    if buf:
+        out.append("\\text{" + "".join(buf) + "}")
+    return "".join(out)

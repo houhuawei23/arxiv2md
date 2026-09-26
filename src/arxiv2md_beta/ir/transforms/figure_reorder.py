@@ -11,13 +11,10 @@ import re
 from arxiv2md_beta.ir.document import DocumentIR, SectionIR
 from arxiv2md_beta.ir.inlines import (
     EmphasisIR,
-    ImageRefIR,
     LinkIR,
-    MathIR,
-    RawInlineIR,
     SubscriptIR,
     SuperscriptIR,
-    TextIR,
+    inlines_to_plain_text,
 )
 from arxiv2md_beta.ir.transforms.base import IRPass
 
@@ -135,26 +132,18 @@ def _link_target_ids(inlines: list) -> list[str]:
 def _inlines_to_text(inlines: list) -> str:
     """Extract plain text from a list of inline nodes for pattern matching.
 
-    Covers every concrete :data:`InlineUnion` member so citations embedded in
-    math, image alt-text, link labels, or raw inline content are visible to
-    figure-citation matching. Previously used ``hasattr`` and only saw
-    ``TextIR.text`` + nested ``inlines``, missing math/alt/url/raw content.
+    Thin wrapper over the shared :func:`inlines_to_plain_text` with the
+    figure-citation knobs: bare math latex, image alt, raw inline content,
+    and link URLs are all visible (they previously were in the hand-written
+    walk after it was fixed to cover every InlineUnion member — the original
+    ``hasattr`` version only saw ``TextIR.text`` + nested ``inlines`` and
+    missed math/alt/url/raw, audit history in ``inlines_to_plain_text``).
     """
-    parts: list[str] = []
-    for il in inlines:
-        if isinstance(il, TextIR):
-            parts.append(il.text)
-        elif isinstance(il, MathIR):
-            parts.append(il.latex)
-        elif isinstance(il, ImageRefIR):
-            parts.append(il.alt)
-        elif isinstance(il, RawInlineIR):
-            parts.append(il.content)
-        elif isinstance(il, LinkIR):
-            if il.url:
-                parts.append(il.url)
-            parts.append(_inlines_to_text(il.inlines))
-        elif isinstance(il, EmphasisIR | SuperscriptIR | SubscriptIR):
-            parts.append(_inlines_to_text(il.inlines))
-        # BreakIR has no text content; skip.
-    return " ".join(parts)
+    return inlines_to_plain_text(
+        inlines,
+        math="raw",
+        image="alt",
+        raw="content",
+        include_link_url=True,
+        joiner=" ",
+    )

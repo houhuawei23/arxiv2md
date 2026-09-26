@@ -37,7 +37,10 @@ from arxiv2md_beta.ir.builders._math_norm import (
     PERP_IN_MATH_RE,
     PERP_REPLACEMENT,
     TAG_RE,
+    TEXT_WITH_DOLLAR_MATH_RE,
+    split_dollar_math_in_text,
 )
+from arxiv2md_beta.ir.builders._shared import BIB_REF_RE
 from arxiv2md_beta.ir.builders._table_spans import (
     MAX_COLSPAN,
     MAX_ROWSPAN,
@@ -1106,7 +1109,6 @@ class HTMLBuilder(IRBuilder):
 # ── Constants ──────────────────────────────────────────────────────────
 
 _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table|ltx_equation")
-_BIB_REF_RE = re.compile(r"#bib\.bib(\d+)")
 _FIGURE_CAPTION_RE = re.compile(r"Figure\s+(\d+)", re.I)
 _TABLE_CAPTION_RE = re.compile(r"Table\s+(\d+)", re.I)
 _ALGORITHM_CAPTION_RE = re.compile(r"Algorithm\s+(\d+)", re.I)
@@ -1349,18 +1351,9 @@ def _normalize_math_latex(latex: str) -> str:
     # after the above rule and the later '$'-stripping). Split any '$...$'
     # sub-expressions in text groups back into math mode:
     #   \text{ can be rejected at level $\alpha$}  ->  \text{ can be rejected at level } \alpha
-    def _split_math_from_text(m: re.Match) -> str:
-        parts = re.split(r"\$([^$]*)\$", m.group(1))
-        out: list[str] = []
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                if part:
-                    out.append(f"\\text{{{part}}}")
-            else:
-                out.append(part)
-        return "".join(out)
-
-    latex = re.sub(r"\\text\{([^{}]*\$[^{}]*)\}", _split_math_from_text, latex)
+    # (Distinct from the LaTeX builder's macro-based splitter — see
+    # ``_math_norm`` for why the two implementations differ.)
+    latex = TEXT_WITH_DOLLAR_MATH_RE.sub(split_dollar_math_in_text, latex)
     # TeX line-break hints (\nolinebreak) are unsupported by some renderers
     # and visually no-ops in display math; drop them.
     latex = NOLINEBREAK_RE.sub("", latex)
@@ -1524,11 +1517,11 @@ def _clean_image_alt(alt: str) -> str:
 def _is_citation_link(href: str) -> bool:
     if not href:
         return False
-    return bool(_BIB_REF_RE.search(href))
+    return bool(BIB_REF_RE.search(href))
 
 
 def _extract_citation_ref(href: str) -> str | None:
-    m = _BIB_REF_RE.search(href)
+    m = BIB_REF_RE.search(href)
     if m:
         return f"ref-{m.group(1)}"
     return None
