@@ -92,7 +92,22 @@ class IngestionOrchestrator:
     # ── Public entry point ─────────────────────────────────────────────
 
     async def run(self) -> tuple[IngestionResult, dict[str, Any]]:
-        """Execute the full pipeline and return (result, metadata)."""
+        """Execute the full pipeline and return (result, metadata).
+
+        Three stages:
+        1. **acquire** — parse the query, speculatively start the TeX
+           download, fetch HTML + API metadata in parallel (PDF-only
+           fallback when no HTML rendering exists);
+        2. **build** — filter sections, create the output directory, await
+           the TeX download + image processing, then build/transform the IR
+           (CPU-bound steps offloaded);
+        3. **finalize** — the shared emission tail
+           (:func:`finalize_ingestion_output`).
+
+        Any failure in stages 1–2 reaps the in-flight TeX download via
+        :meth:`_reap_tex_task` before propagating.
+        """
+        # ── Stage 1: acquire source + metadata ────────────────────────────
         with self._performance.stage("parse_query"):
             self._parse_query()
         # The TeX download depends only on the arXiv id — start it now so it
@@ -102,45 +117,23 @@ class IngestionOrchestrator:
         try:
             await self._fetch_html_and_metadata()
         except BaseException:
-            # Any failure here (cache OSError, ParseError, cancellation, ...)
-            # must reap the in-flight TeX download: a leaked task keeps its
-            # full retry cycle running (occupying rate-limit slots in batch
-            # mode) and later surfaces as "Task exception was never retrieved"
-            # (audit4 A1).
-            if tex_task is not None and not tex_task.done():
-                tex_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await tex_task
+            await self._reap_tex_task(tex_task)
             raise
         if self._parsed is None:
             # PDF-only paper (no HTML rendering anywhere): still produce the
             # output directory, paper.yml, a stub paper.md, and let finalize
             # download the PDF — a minimal record beats aborting with nothing.
             # The in-flight TeX download is irrelevant here.
-            if tex_task is not None:
-                tex_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await tex_task
+            await self._reap_tex_task(tex_task)
             return self._run_pdf_only_fallback()
+
+        # ── Stage 2: build the IR ─────────────────────────────────────────
         try:
             self._filter_sections()
             self._setup_output_dir()
             await self._fetch_tex_and_images(tex_task)
-        except asyncio.CancelledError:
-            # Await the child like the BaseException branch below, or Python
-            # logs "Task was destroyed but it is pending" noise (audit5 G3-7).
-            if tex_task is not None and not tex_task.done():
-                tex_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await tex_task
-            raise
         except BaseException:
-            # A failure before the TeX task was awaited (e.g. mkdir in
-            # _setup_output_dir) must not leak a pending task into the loop.
-            if tex_task is not None and not tex_task.done():
-                tex_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await tex_task
+            await self._reap_tex_task(tex_task)
             raise
         # CPU-bound steps (BS4 parse, IR build, transform pipeline, emission) are
         # offloaded so the event loop can advance other papers in batch mode.
@@ -154,6 +147,8 @@ class IngestionOrchestrator:
             await asyncio.to_thread(self._run_transforms)
         with self._performance.stage("normalize_abstract"):
             await asyncio.to_thread(self._normalize_abstract)
+
+        # ── Stage 3: finalize (shared emission tail) ──────────────────────
         logger.info(f"[{self._query.arxiv_id}] Emitting markdown and writing outputs...")
         with self._performance.stage("emit_markdown"):
             # The same shared tail as the LaTeX / local ingestion paths
@@ -603,6 +598,21 @@ class IngestionOrchestrator:
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
         merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
         return paper_meta
+
+    async def _reap_tex_task(self, tex_task: asyncio.Task | None) -> None:
+        """Cancel and await an in-flight TeX download.
+
+        A leaked task keeps its full retry cycle running (occupying rate-limit
+        slots in batch mode) and later surfaces as "Task exception was never
+        retrieved" (audit4 A1). Reaping on every exception path — including
+        cancellation — also avoids "Task was destroyed but it is pending"
+        noise (audit5 G3-7).
+        """
+        if tex_task is None or tex_task.done():
+            return
+        tex_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await tex_task
 
 
 # ── Helper functions (moved from convert.py) ─────────────────────────
