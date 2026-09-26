@@ -959,7 +959,7 @@ class TestVerbatimCodeRoundTrip:
     def test_verbatim_text_preserved(self):
         tex = (
             "\\documentclass{article}\n\\begin{document}\n\\begin{verbatim}\n"
-            "def hello():\n    print(\"world\")\n\\end{verbatim}\n\\end{document}"
+            'def hello():\n    print("world")\n\\end{verbatim}\n\\end{document}'
         )
         doc = LaTeXBuilder().build(tex, arxiv_id="test")
         codes: list = []
@@ -980,10 +980,7 @@ class TestVerbatimCodeRoundTrip:
     def test_verbatim_markdown_output_fenced_correctly(self):
         from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
 
-        tex = (
-            "\\documentclass{article}\n\\begin{document}\n\\begin{verbatim}\n"
-            "x = 1\n\\end{verbatim}\n\\end{document}"
-        )
+        tex = "\\documentclass{article}\n\\begin{document}\n\\begin{verbatim}\nx = 1\n\\end{verbatim}\n\\end{document}"
         doc = LaTeXBuilder().build(tex, arxiv_id="test")
         md = MarkdownEmitter().emit(doc)
         assert "```x = 1" not in md  # content glued onto the opening fence

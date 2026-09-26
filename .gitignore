@@ -3,6 +3,7 @@
 # Keep GitHub Actions workflows and git hooks under version control
 !/.github/
 !/.githooks/
+!/.pre-commit-config.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

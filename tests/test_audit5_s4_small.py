@@ -181,11 +181,7 @@ def test_orphan_fix_never_comments_end_document(tmp_path: Path) -> None:
     killing the whole pandoc parse with "expecting \\end{document}".
     """
     main = tmp_path / "main.tex"
-    tex = (
-        "\\begin{document}\n"
-        "\\if0\n\\begin{enumerate}\n\\else\nreal\n\\fi\n"
-        "\\end{document}\n"
-    )
+    tex = "\\begin{document}\n\\if0\n\\begin{enumerate}\n\\else\nreal\n\\fi\n\\end{document}\n"
     main.write_text(tex, encoding="utf-8")
     out = resolve_latex_includes(main, tmp_path)
     assert any(line.strip() == r"\end{document}" for line in out.splitlines()), out

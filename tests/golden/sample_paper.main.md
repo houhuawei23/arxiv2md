@@ -7,15 +7,12 @@ This is a sample abstract for testing the arxiv2md-beta converter.
 This is the introduction section, building on prior work (2). We present our main equation:
 
 $$
-\begin{equation}
- E = mc^2
-
-\end{equation} \tag{1}
+E = mc^2 \tag{1}
 $$
 
 ## 2 Methods
 
-We describe our methodology in this section. See Figure [1](#fig:setup).
+We describe our methodology in this section. See Figure 1.
 
 ![](figure1.png)
 
@@ -23,7 +20,7 @@ We describe our methodology in this section. See Figure [1](#fig:setup).
 
 ## 3 Results
 
-Our results are summarized in Table [1](#tab:comparison).
+Our results are summarized in Table 1.
 
 | Method | Accuracy |
 | --- | --- |
