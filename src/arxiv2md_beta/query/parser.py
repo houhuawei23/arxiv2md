@@ -258,11 +258,14 @@ def _looks_like_url(value: str) -> bool:
 
 
 def _extract_from_url(url: str) -> tuple[str, str | None]:
-    # Handle path-style inputs like "html/2501.11120v1" or "abs/2501.11120v1"
+    # Handle path-style inputs like "html/2501.11120v1" or "abs/2501.11120v1".
+    # Normalize onto the CONFIGURED host: hardcoding arxiv.org here while the
+    # strict check below compares against urls.arxiv_host (mirror setups)
+    # rejected valid path-style input with "Unsupported host".
     if not url.startswith(("http://", "https://", "arxiv.org/")):
         first_part = url.split("/")[0]
         if first_part in _ARXIV_PATH_KINDS:
-            url = f"https://arxiv.org/{url}"
+            url = f"https://{get_settings().urls.arxiv_host}/{url}"
 
     if url.startswith("arxiv.org/"):
         url = f"https://{url}"

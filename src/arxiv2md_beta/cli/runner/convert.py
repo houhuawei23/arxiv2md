@@ -128,7 +128,7 @@ async def _process_with(
     logger.info(f"Processing {label}")
 
     sections = collect_sections(params.sections, params.section)
-    base_output_dir = determine_output_dir(params.output)
+    base_output_dir = determine_output_dir(params.output, params.settings)
 
     # Idempotency / resume: skip re-ingestion when this identity already has a
     # completed output (matching .arxiv2md-paper marker + non-empty Markdown).
@@ -338,7 +338,11 @@ def find_completed_for_input(input_text: str, params: ConvertParams) -> Path | N
             return params.completed_index.lookup(spec.identity(query))
         base_output_dir = determine_output_dir(params.output, params.settings)
         return find_completed_output_dir(base_output_dir, spec.identity(query))
-    except Exception:
+    except Exception as e:
+        # Best-effort pre-check by design — but a permission/disk error must
+        # not vanish: log it, then fall through to the real conversion path
+        # which surfaces proper errors.
+        logger.warning(f"Idempotency pre-check failed (converting anyway): {e}")
         return None
 
 

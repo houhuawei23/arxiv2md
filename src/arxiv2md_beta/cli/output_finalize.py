@@ -225,9 +225,9 @@ async def finalize_convert_output(
 
     if metadata.get("pdf_only"):
         # pdf_only products are just the PDF + paper.yml; the JSON line
-        # contract stays "emitted once the record exists".
-        emit_result_json_line(paper_output_dir, params=params, structured=structured)
-        return await _finalize_pdf_only_output(
+        # contract stays "emitted once the record exists" — i.e. after the
+        # PDF download and manifest have landed on disk, same as below.
+        await _finalize_pdf_only_output(
             paper_output_dir=paper_output_dir,
             metadata=metadata,
             params=params,
@@ -235,6 +235,8 @@ async def finalize_convert_output(
             fallback_md_stem=fallback_md_stem,
             pdf_fetch=pdf_fetch,
         )
+        emit_result_json_line(paper_output_dir, params=params, structured=structured)
+        return paper_output_dir
 
     output_text = format_output(
         result.summary,
@@ -305,7 +307,14 @@ async def finalize_convert_output(
         # The task must always be reaped, even when a disk write raises —
         # an unretrieved task otherwise leaks its exception into the loop.
         if pdf_task is not None:
-            pdf_downloaded = await pdf_task
+            try:
+                pdf_downloaded = await pdf_task
+            except asyncio.CancelledError:
+                # Flow cancelled while the download was in flight: reap the
+                # task without letting CancelledError shadow the original
+                # exception from the write path above.
+                pdf_task.cancel()
+                pdf_downloaded = False
 
     # Self-describing artifact: id/title/size/timing for downstream consistency
     # checks (batch manifests aggregate these).

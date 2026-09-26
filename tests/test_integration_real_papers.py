@@ -22,7 +22,15 @@ from arxiv2md_beta.html.parser import (
 )
 from arxiv2md_beta.ir.builders.html import HTMLBuilder
 
-pypandoc = pytest.importorskip("pypandoc", reason="pypandoc not installed")
+# Optional LaTeX-pipeline dependency: only TestLaTeXPipeline needs it. The
+# old module-level importorskip silently skipped the pure-HTML real-paper
+# regression suites on machines without pypandoc.
+try:
+    import pypandoc  # noqa: F401
+
+    _HAS_PYPANDOC = True
+except ImportError:
+    _HAS_PYPANDOC = False
 
 # ── skip decorator ─────────────────────────────────────────────────────────
 # Run only when explicitly requested: pytest -m real_paper
@@ -259,6 +267,10 @@ def _get_tex_source_sync(arxiv_id: str):
 @pytest.mark.skipif(
     not _ARXIV_UP,
     reason="arxiv.org unreachable from this machine",
+)
+@pytest.mark.skipif(
+    not _HAS_PYPANDOC,
+    reason="pypandoc not installed",
 )
 class TestLaTeXPipeline:
     r"""End-to-end LaTeX pipeline tests using real arXiv papers.
