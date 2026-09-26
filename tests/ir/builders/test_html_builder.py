@@ -774,6 +774,7 @@ class TestSvgFigures:
         assert fig.images[0].src == "imgs/figure-1.svg"
 
     def test_persist_inline_svgs_rasterizes_to_png(self, tmp_path) -> None:
+        pytest.importorskip("cairosvg")
         from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
 
         doc = HTMLBuilder(images_subdir="images").build(self.SVG_HTML, arxiv_id="1234.5678")
