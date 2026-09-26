@@ -438,3 +438,31 @@ class TestAppendixSectionFragments:
         from arxiv2md_beta.ir.transforms.numbering import _SECTION_FRAGMENT_RE
 
         assert not _SECTION_FRAGMENT_RE.match(frag), frag
+
+
+class TestDeepSectionFragments:
+    """Depth-4 sections use SSSS fragment keys, not a capped "SSS".
+
+    LaTeXML adds one more "S" per level (S → SS → SSS → SSSS); the old
+    positional-key generator capped at "SSS", so depth-4 sections produced
+    keys that could never match a real fragment and links to them stayed
+    dead.
+    """
+
+    def test_four_s_fragment_form_accepted(self):
+        from arxiv2md_beta.ir.transforms.numbering import _SECTION_FRAGMENT_RE
+
+        assert _SECTION_FRAGMENT_RE.match("S1.SS1.SSS2.SSSS1")
+        assert _SECTION_FRAGMENT_RE.match("A1.SS1.SSS1.SSSS1")
+
+    def test_depth4_positional_fragment_repointed(self) -> None:
+        from arxiv2md_beta.ir import ParagraphIR, TextIR
+
+        d4 = SectionIR(title="Deep", level=4, anchor="deep-target")
+        d3 = SectionIR(title="SubSub", level=3, children=[d4])
+        d2 = SectionIR(title="Sub", level=2, children=[d3])
+        link = LinkIR(kind="internal", target_id="S1.SS1.SSS1.SSSS1", inlines=[TextIR(text="go")])
+        d1 = SectionIR(title="Top", level=1, blocks=[ParagraphIR(inlines=[link])], children=[d2])
+        doc = DocumentIR(metadata=PaperMetadata(arxiv_id="t", parser="html"), sections=[d1])
+        NumberingPass().run(doc)
+        assert link.target_id == "deep-target"

@@ -74,9 +74,14 @@ class PDFConversionError(ImageProcessingError):
 
 
 class StorageError(Arxiv2mdError):
-    """Local file or cache operation failures (exit code 6)."""
+    """Local file or cache operation failures (exit code 8).
 
-    exit_code = 6
+    Deliberately distinct from ``ImageProcessingError`` (6): external
+    scripts must be able to tell an image-download/pipeline failure from a
+    local disk failure without parsing stderr.
+    """
+
+    exit_code = 8
 
 
 class ParseError(Arxiv2mdError):

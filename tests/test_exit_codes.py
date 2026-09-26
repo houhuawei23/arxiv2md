@@ -2,7 +2,7 @@
 
 Reference table (docs/playbook improvement #3):
 0 success | 1 unclassified | 2 user input | 3 network/404 | 4 parse/convert
-5 empty/stub | 6 storage/images | 7 PDF fallback | 130 KeyboardInterrupt
+5 empty/stub | 6 images | 7 PDF fallback | 8 storage | 130 KeyboardInterrupt
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from arxiv2md_beta.exceptions import (
         (BuilderError, 4),
         (EmitterError, 4),
         (EmptyContentError, 5),
-        (StorageError, 6),
+        (StorageError, 8),
         (ImageProcessingError, 6),
         (PDFConversionError, 6),
         (PdfFallbackCompleted, 7),

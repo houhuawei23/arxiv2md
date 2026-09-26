@@ -20,6 +20,26 @@ def _title_without_number(title: str) -> str:
     return _NUMBER_PREFIX_RE.sub("", title.strip()).strip()
 
 
+def _section_title_without_number(sec: SectionIR) -> str:
+    """Return *sec*'s title with its numbering prefix stripped.
+
+    Prefers the prefix :class:`~arxiv2md_beta.ir.transforms.numbering.SectionNumberingPass`
+    recorded in ``number_prefix`` (exact strip — audit5 G1-1: a regex guess
+    ate real digit-led titles like ``"2000 Swarms: A Survey"``); falls back
+    to the regex only for HTML documents, where ar5iv bakes the number into
+    the title text and no record exists.
+    """
+    title = (sec.title or "").strip()
+    prefix = sec.number_prefix
+    if prefix:
+        if title.startswith(prefix + " "):
+            return title[len(prefix) + 1 :].strip()
+        if title == prefix:
+            return ""
+        return title
+    return _title_without_number(title)
+
+
 def split_ir_sections(
     sections: list[SectionIR],
     reference_titles: list[str],
@@ -40,7 +60,7 @@ def split_ir_sections(
     first_ref_idx: int | None = None
     first_app_idx: int | None = None
     for i, sec in enumerate(sections):
-        n = _title_without_number(sec.title or "").lower()
+        n = _section_title_without_number(sec).lower()
         if first_ref_idx is None and n in ref_set:
             first_ref_idx = i
         if first_app_idx is None and n.startswith("appendix"):

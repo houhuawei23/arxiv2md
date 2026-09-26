@@ -121,3 +121,53 @@ class TestAppendixPrefixForms:
         assert normalize_section_title("A Overview") == "overview"
         assert normalize_section_title("B.2 Proofs") == "proofs"
         assert normalize_section_title("4.2 Results") == "results"
+
+
+class TestRecordedPrefixStripping:
+    """``split_ir_sections`` prefers the recorded ``number_prefix``.
+
+    audit5 G1-1 follow-up: the split helper still regex-guessed prefixes,
+    unlike the numbering pass which strips exactly what it wrote.
+    """
+
+    def _title(self, title: str, prefix: str | None) -> str:
+        from arxiv2md_beta.ir.transforms.section_filter import _section_title_without_number
+
+        return _section_title_without_number(SectionIR(title=title, level=1, number_prefix=prefix))
+
+    def test_recorded_prefix_strips_exactly(self):
+        assert self._title("1 2000 Swarms", "1") == "2000 Swarms"
+
+    def test_recorded_prefix_title_is_only_prefix(self):
+        assert self._title("2", "2") == ""
+
+    def test_recorded_prefix_never_eats_leading_digits(self):
+        # prefix "1" must not strip inside "12 …" — exact boundary check
+        assert self._title("12 Monkeys", "1") == "12 Monkeys"
+
+    def test_unrecorded_prefix_falls_back_to_regex(self):
+        # HTML docs: ar5iv bakes the number in and no prefix is recorded
+        assert self._title("4.2 Results", None) == "Results"
+
+    def test_digit_led_boundary_not_misdected(self):
+        """A year-led numbered section must not become the appendix boundary.
+
+        A section really titled "2000 Appendix" (numbered "1") must not lose
+        its year and be misdetected as the appendix boundary.
+        """
+        from arxiv2md_beta.ir import ParagraphIR, TextIR
+        from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
+
+        def sec(title, prefix):
+            return SectionIR(
+                title=title,
+                level=1,
+                number_prefix=prefix,
+                blocks=[ParagraphIR(inlines=[TextIR(text="x")])],
+            )
+
+        sections = [sec("1 2000 Appendix", "1"), sec("2 References", "2")]
+        main, refs, app = split_ir_sections(sections, ["references"])
+        assert [s.title for s in main] == ["1 2000 Appendix"]
+        assert [s.title for s in refs] == ["2 References"]
+        assert app == []

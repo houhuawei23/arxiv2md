@@ -135,7 +135,7 @@ arxiv2md-beta images 2501.11120 -o ./img_test
 
 **TeX 失败 PDF 兜底**（`--parser latex`）：TeX 源损坏/缺失时自动下载 arXiv PDF 到输出目录并提示 mineru-parse 命令，退出码 7（`PdfFallbackCompleted`）；不写 Markdown。
 
-**退出码**：`0` 成功 | `1` 未分类失败 | `2` 输入错误 | `3` 下载失败 / ID 不存在 | `4` 解析转换失败 | `5` 空内容（stub）被拒 | `6` 存储/图片失败 | `7` PDF 兜底完成（无 Markdown） | `130` 用户中断。
+**退出码**：`0` 成功 | `1` 未分类失败 | `2` 输入错误 | `3` 下载失败 / ID 不存在 | `4` 解析转换失败 | `5` 空内容（stub）被拒 | `6` 图片处理失败 | `7` PDF 兜底完成（无 Markdown） | `8` 本地存储/缓存失败 | `130` 用户中断。
 
 ### 命令行参数（`batch`）
 

@@ -10,10 +10,11 @@ from arxiv2md_beta.ir.transforms.base import IRPass
 from arxiv2md_beta.ir.visitor import child_block_lists, iter_block_descendants, iter_inline_lists
 
 # arXiv section fragments ("S4", "S4.SS1", deeper "S4.SS1.SSS2"; appendix
-# sections use the "A" form: "A1", "A1.SS1", …). The HTML builder leaves
-# these raw in link target_ids because real section anchors are title slugs
-# that only exist after this pass.
-_SECTION_FRAGMENT_RE = re.compile(r"^[SA]\d+(?:\.S{2,3}\d+)*$")
+# sections use the "A" form: "A1", "A1.SS1", …). LaTeXML adds one more "S"
+# per level, so allow any depth. The HTML builder leaves these raw in link
+# target_ids because real section anchors are title slugs that only exist
+# after this pass.
+_SECTION_FRAGMENT_RE = re.compile(r"^[SA]\d+(?:\.S{2,}\d+)*$")
 
 
 class SectionNumberingPass(IRPass):
@@ -271,7 +272,11 @@ class NumberingPass(IRPass):
         positional: dict[str, str] = {}
 
         def index_section(section: SectionIR, path: list[int]) -> None:
-            key = ".".join(("S" if i == 0 else "SS" if i == 1 else "SSS") + str(n) for i, n in enumerate(path))
+            # LaTeXML fragment prefixes deepen as S → SS → SSS → SSSS (one
+            # more "S" per level). The old code capped at "SSS", so depth-4
+            # sections produced positional keys that could never match a
+            # real fragment.
+            key = ".".join("S" * (i + 1) + str(n) for i, n in enumerate(path))
             if section.anchor:
                 if _SECTION_FRAGMENT_RE.match(section.anchor):
                     fragment_map[section.anchor] = section.anchor
