@@ -9,7 +9,7 @@ from loguru import logger
 
 from arxiv2md_beta.latex import tex_source as tex_source_mod
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
-from arxiv2md_beta.network.author_enrichment import _dedupe_affiliation_strings, _names_match
+from arxiv2md_beta.network.author_enrichment import _names_match, dedupe_affiliation_strings
 
 
 def parse_author_affiliations_from_tex(tex: str) -> list[dict[str, Any]]:
@@ -89,7 +89,7 @@ def merge_tex_affiliations_into_metadata(
                 existing = [str(x) for x in au["affiliations"] if x]
             elif au.get("affiliation"):
                 existing = [str(au["affiliation"]).strip()]
-            merged = _dedupe_affiliation_strings(existing + [str(x).strip() for x in taffs if x])
+            merged = dedupe_affiliation_strings(existing + [str(x).strip() for x in taffs if x])
             if merged:
                 au["affiliations"] = merged
                 au.pop("affiliation", None)
@@ -251,7 +251,7 @@ def _parse_icml(region: str) -> list[dict[str, Any]]:
         for key in keys:
             if key in aff_map:
                 affils.append(aff_map[key])
-        affils = _dedupe_affiliation_strings(affils)
+        affils = dedupe_affiliation_strings(affils)
         name = _clean_latex_author_name(name_raw)
         if name:
             authors.append({"name": name, "affiliations": affils})
@@ -321,7 +321,7 @@ def _parse_iclr_neurips_superscript_author(region: str) -> list[dict[str, Any]]:
             for mk in _affiliation_markers_from_superscript(sup, aff_map):
                 if mk in aff_map:
                     affils.append(aff_map[mk])
-        affils = _dedupe_affiliation_strings(affils)
+        affils = dedupe_affiliation_strings(affils)
         cn = _clean_latex_author_name(name)
         if cn:
             results.append({"name": cn, "affiliations": affils})
@@ -453,7 +453,7 @@ def _collect_affiliation_commands(tail: str) -> list[str]:
                 flat = _flatten_affil_inner(inner)
                 if flat:
                     out.append(flat)
-    return _dedupe_affiliation_strings(out)
+    return dedupe_affiliation_strings(out)
 
 
 def _flatten_affil_inner(inner: str) -> str:
@@ -549,7 +549,7 @@ def _split_address_lines(s: str) -> list[str]:
         if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", line):
             continue
         out.append(line)
-    return _dedupe_affiliation_strings(out)
+    return dedupe_affiliation_strings(out)
 
 
 def _clean_affil_line(s: str) -> str:

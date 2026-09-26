@@ -8,14 +8,14 @@ import pytest
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
 from arxiv2md_beta.network.author_enrichment import (
-    _dedupe_affiliation_strings,
     _merge_openalex_into_authors,
+    dedupe_affiliation_strings,
 )
 from arxiv2md_beta.output.metadata import _metadata_to_paper_yml
 
 
 def test_dedupe_affiliation_strings_drops_substrings() -> None:
-    got = _dedupe_affiliation_strings(
+    got = dedupe_affiliation_strings(
         [
             "Google (United States)",
             "Google Brain",

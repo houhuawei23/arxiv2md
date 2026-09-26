@@ -151,6 +151,30 @@ def format_bibtex_database(entries: list[CitationEntry]) -> str:
     return "\n".join(parts)
 
 
+def extract_citation_surname(author: str) -> str:
+    """Extract the surname from ``"First Last"`` or ``"Last, First"``.
+
+    Shared by :func:`generate_citation_key` and the Atom-feed BibTeX
+    generator in ``network/arxiv_api.py`` so the two cannot drift. Returns
+    ``""`` (never raises) when nothing usable is present.
+    """
+    if "," in author:
+        return author.split(",")[0].strip()
+    parts = author.split()
+    return parts[-1] if parts else ""
+
+
+def clean_citation_key_token(token: str) -> str:
+    r"""Unicode-aware BibTeX key token cleanup (``re.sub(r"[^\w]", "", …)``).
+
+    Deliberately ``[^\w]``, not the old ``[^a-zA-Z]``: the ASCII-only
+    pattern stripped "Müller" to ``""`` and collapsed keys to
+    ``{year}{yymm}``, which collides across papers (audit5 G4-5), and it
+    also broke CJK names (audit5 R-14).
+    """
+    return re.sub(r"[^\w]", "", token)
+
+
 def generate_citation_key(
     authors: list[str],
     year: str | None,
@@ -179,11 +203,7 @@ def generate_citation_key(
 
     # Add first author's last name
     if authors:
-        first_author = authors[0]
-        # Extract surname (assume "First Last" or "Last, First" format)
-        surname = first_author.split(",")[0].strip() if "," in first_author else first_author.split()[-1]
-        # Remove non-alphanumeric
-        surname = re.sub(r"[^\w]", "", surname)
+        surname = clean_citation_key_token(extract_citation_surname(authors[0]))
         parts.append(surname)
 
     # Add year
@@ -193,7 +213,7 @@ def generate_citation_key(
     # Add first word of title if needed for uniqueness
     if title and not authors:
         first_word = title.split()[0] if title.split() else "ref"
-        first_word = re.sub(r"[^\w]", "", first_word)
+        first_word = clean_citation_key_token(first_word)
         parts.append(first_word)
 
     key = "".join(parts) if parts else f"ref{index}"

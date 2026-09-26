@@ -51,8 +51,16 @@ def _orcid_id(url_or_id: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-def _dedupe_affiliation_strings(parts: list[str]) -> list[str]:
-    """Remove case-insensitive duplicates and shorter strings contained in a longer one."""
+def dedupe_affiliation_strings(parts: list[str]) -> list[str]:
+    """Remove case-insensitive duplicates and shorter strings contained in a longer one.
+
+    Public API (also used by ``latex/author_affiliations.py``). Deliberately
+    different from ``html/parser._dedupe_strings``: that one only drops
+    exact case-insensitive duplicates and keeps every surviving string
+    verbatim, while this one additionally strips/empties entries and
+    suppresses strings subsumed by a longer affiliation ("MIT" vs
+    "Massachusetts Institute of Technology, Cambridge, MA").
+    """
     if not parts:
         return []
     seen: set[str] = set()
@@ -112,7 +120,7 @@ def _merge_openalex_into_authors(
             for x in list(inst_names) + [r for r in raw if r]:
                 if x:
                     aff_parts.append(str(x).strip())
-            aff_parts = _dedupe_affiliation_strings(aff_parts)
+            aff_parts = dedupe_affiliation_strings(aff_parts)
             aff_joined = "; ".join(aff_parts[:5])
             if aff_parts and (not au.get("affiliation") or len(aff_joined) > len(str(au.get("affiliation", "")))):
                 au["affiliation"] = aff_joined

@@ -16,7 +16,7 @@ from loguru import logger
 from arxiv2md_beta.exceptions import NetworkError, NonRetryableNetworkError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
-from arxiv2md_beta.network.retry import compute_backoff
+from arxiv2md_beta.network.retry import network_error_exhausted, strict_http_retry_loop
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.atomic_io import atomic_write_text
@@ -83,56 +83,49 @@ async def fetch_arxiv_html(
 
 
 async def _fetch_with_retries(url: str) -> str:
+    """Fetch *url*, retrying retryable failures; raises typed NetworkErrors."""
     s = get_settings()
     h = s.http
     non_retryable = set(h.non_retryable_status_codes)
-    last_exc: Exception | None = None
-
     client = get_http_client()
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            await acquire_rate_slot()
-            async with http_request_slot():
-                response = await client.get(url)
 
-            if response.status_code == 404:
-                # Deterministic: a second request will also 404. The mirror
-                # and ar5iv fallbacks in fetch_arxiv_html rely on catching this.
-                raise NonRetryableNetworkError(
-                    "This paper does not have an HTML version available on arXiv. "
-                    "arxiv2md-beta requires papers to be available in HTML format. "
-                    "Older papers may only be available as PDF.",
-                    status_code=404,
-                )
+    async def attempt(_n: int) -> str:
+        await acquire_rate_slot()
+        async with http_request_slot():
+            response = await client.get(url)
 
-            if response.status_code in non_retryable:
-                # 403/410/451 are permanent: retrying cannot help and a 403
-                # only deepens the ban (audit4 A2 — these used to burn the
-                # full backoff budget, and the bare HTTPStatusError hid the
-                # status from the mirror/fallback classification).
-                raise NonRetryableNetworkError(
-                    f"HTTP {response.status_code} from arXiv", status_code=response.status_code
-                )
+        if response.status_code == 404:
+            # Deterministic: a second request will also 404. The mirror
+            # and ar5iv fallbacks in fetch_arxiv_html rely on catching this.
+            raise NonRetryableNetworkError(
+                "This paper does not have an HTML version available on arXiv. "
+                "arxiv2md-beta requires papers to be available in HTML format. "
+                "Older papers may only be available as PDF.",
+                status_code=404,
+            )
 
-            if response.status_code >= 400:
-                # Typed error instead of raise_for_status: the status code
-                # must survive on the exception for mirror/fallback logic.
-                # retry_status_codes carries no branch here — everything
-                # short of the permanent set gets the backoff budget.
-                last_exc = NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
-            else:
-                _ensure_html_response(response)
-                return response.text
-        except NonRetryableNetworkError:
-            raise
-        except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
-            last_exc = exc
+        if response.status_code in non_retryable:
+            # 403/410/451 are permanent: retrying cannot help and a 403
+            # only deepens the ban (audit4 A2 — these used to burn the
+            # full backoff budget, and the bare HTTPStatusError hid the
+            # status from the mirror/fallback classification).
+            raise NonRetryableNetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
 
-        if attempt < h.fetch_max_retries:
-            await asyncio.sleep(compute_backoff(h.fetch_backoff_s, attempt))
+        if response.status_code >= 400:
+            # Typed error instead of raise_for_status: the status code
+            # must survive on the exception for mirror/fallback logic.
+            # retry_status_codes carries no branch here — everything
+            # short of the permanent set gets the backoff budget.
+            raise NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
 
-    status = getattr(last_exc, "status_code", None)
-    raise NetworkError(f"Failed to fetch HTML from {url}: {last_exc}", status_code=status)
+        _ensure_html_response(response)
+        return response.text
+
+    return await strict_http_retry_loop(
+        attempt,
+        label=f"fetch HTML {url}",
+        exhausted=network_error_exhausted(f"Failed to fetch HTML from {url}"),
+    )
 
 
 def _ensure_html_response(response: httpx.Response) -> None:
@@ -227,69 +220,63 @@ async def _download_pdf_from(pdf_url: str, *, cache_path: Path, output_path: Pat
     h = s.http
     non_retryable = set(h.non_retryable_status_codes)
     pdf_timeout = h.fetch_timeout_s * h.large_transfer_timeout_multiplier
-    last_exc: Exception | None = None
 
     client = get_http_client()
-    non_retryable = set(h.non_retryable_status_codes)
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            await acquire_rate_slot()
-            async with http_request_slot(), client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
-                if response.status_code == 404:
-                    # Deterministic on this host: the mirror fallback in
-                    # fetch_arxiv_pdf relies on catching this.
-                    raise NonRetryableNetworkError(f"PDF not found at {pdf_url}", status_code=404)
 
-                if response.status_code in non_retryable:
-                    raise NonRetryableNetworkError(
-                        f"HTTP {response.status_code} from arXiv", status_code=response.status_code
-                    )
+    async def attempt(_n: int) -> Path:
+        await acquire_rate_slot()
+        async with http_request_slot(), client.stream("GET", pdf_url, timeout=pdf_timeout) as response:
+            if response.status_code == 404:
+                # Deterministic on this host: the mirror fallback in
+                # fetch_arxiv_pdf relies on catching this.
+                raise NonRetryableNetworkError(f"PDF not found at {pdf_url}", status_code=404)
 
-                if response.status_code >= 400:
-                    # Retryable set or not: record and back off (the retryable
-                    # check only matters for the 404/non-retryable branches above).
-                    last_exc = NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
-                else:
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+            if response.status_code in non_retryable:
+                raise NonRetryableNetworkError(
+                    f"HTTP {response.status_code} from arXiv", status_code=response.status_code
+                )
 
-                    disable_tqdm = s.images.disable_tqdm
+            if response.status_code >= 400:
+                # Retryable set or not: record and back off (the retryable
+                # check only matters for the 404/non-retryable branches above).
+                raise NetworkError(f"HTTP {response.status_code} from arXiv", status_code=response.status_code)
 
-                    # Malformed header (proxy noise, truncation) must not kill
-                    # the download — fall back to the indeterminate progress bar.
-                    try:
-                        total_size = int(response.headers.get("content-length", 0))
-                    except (TypeError, ValueError):
-                        total_size = 0
-                    total_size = max(0, total_size)
-                    # Write to a temp sibling then rename so a concurrent
-                    # conversion never sees (or overwrites) a half-written cache.
-                    tmp_path = cache_path.with_name(f"{cache_path.name}.{uuid.uuid4().hex}.part")
-                    try:
-                        async with (
-                            async_byte_download_progress(
-                                "Downloading PDF",
-                                total_size if total_size > 0 else None,
-                                disable=disable_tqdm,
-                            ) as advance,
-                            aio_open(tmp_path, "wb") as f,
-                        ):
-                            async for chunk in response.aiter_bytes():
-                                await f.write(chunk)
-                                advance(len(chunk))
-                        tmp_path.replace(cache_path)
-                    finally:
-                        tmp_path.unlink(missing_ok=True)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    await asyncio.to_thread(shutil.copy2, cache_path, output_path)
-                    return output_path
-        except NonRetryableNetworkError:
-            raise
-        except (httpx.RequestError, httpx.HTTPStatusError, NetworkError) as exc:
-            last_exc = exc
+            disable_tqdm = s.images.disable_tqdm
 
-        if attempt < h.fetch_max_retries:
-            await asyncio.sleep(compute_backoff(h.fetch_backoff_s, attempt))
+            # Malformed header (proxy noise, truncation) must not kill
+            # the download — fall back to the indeterminate progress bar.
+            try:
+                total_size = int(response.headers.get("content-length", 0))
+            except (TypeError, ValueError):
+                total_size = 0
+            total_size = max(0, total_size)
+            # Write to a temp sibling then rename so a concurrent
+            # conversion never sees (or overwrites) a half-written cache.
+            tmp_path = cache_path.with_name(f"{cache_path.name}.{uuid.uuid4().hex}.part")
+            try:
+                async with (
+                    async_byte_download_progress(
+                        "Downloading PDF",
+                        total_size if total_size > 0 else None,
+                        disable=disable_tqdm,
+                    ) as advance,
+                    aio_open(tmp_path, "wb") as f,
+                ):
+                    async for chunk in response.aiter_bytes():
+                        await f.write(chunk)
+                        advance(len(chunk))
+                tmp_path.replace(cache_path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
 
-    status = getattr(last_exc, "status_code", None)
-    raise NetworkError(f"Failed to download PDF from {pdf_url}: {last_exc}", status_code=status)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(shutil.copy2, cache_path, output_path)
+            return output_path
+
+    return await strict_http_retry_loop(
+        attempt,
+        label=f"download PDF {pdf_url}",
+        exhausted=network_error_exhausted(f"Failed to download PDF from {pdf_url}"),
+    )

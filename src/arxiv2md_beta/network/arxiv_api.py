@@ -10,6 +10,7 @@ from typing import Any, cast
 import httpx
 from loguru import logger
 
+from arxiv2md_beta.citations.formatter import clean_citation_key_token, extract_citation_surname
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -533,18 +534,13 @@ def _generate_bibtex(
     # carry ``{"name": None}`` — skip None names instead of TypeError-ing the
     # whole entry into the silent-fallback bucket.
     first_author = next((a.get("name") for a in authors if a.get("name")), "author")
-    # Extract last name (assume format "First Last" or "Last, First")
-    if "," in first_author:
-        last_name = first_author.split(",")[0].strip()
-    else:
-        parts = first_author.split()
-        last_name = parts[-1] if parts else "author"
 
-    # Clean last name for citation key. Unicode-aware ([^\w], matching
-    # generate_citation_key in citations/formatter.py): the old [^a-zA-Z]
-    # stripped "Müller" to "" and collapsed the key to {year}{yymm}, which
-    # collides across papers (audit5 G4-5).
-    last_name_clean = re.sub(r"[^\w]", "", last_name).lower()
+    # Clean last name for citation key. Shares the surname extraction and the
+    # Unicode-aware ([^\w]) cleanup with generate_citation_key in
+    # citations/formatter.py: the old [^a-zA-Z] stripped "Müller" to "" and
+    # collapsed the key to {year}{yymm}, which collides across papers
+    # (audit5 G4-5); it also broke CJK names (audit5 R-14).
+    last_name_clean = clean_citation_key_token(extract_citation_surname(first_author)).lower()
     if not last_name_clean:
         # Surname reduced to nothing usable (symbols only): a placeholder in
         # the surname slot keeps keys from degenerating to a bare year.

@@ -22,7 +22,7 @@ from loguru import logger
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, NonRetryableNetworkError, StorageError
 from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
 from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
-from arxiv2md_beta.network.retry import compute_backoff
+from arxiv2md_beta.network.retry import strict_http_retry_loop
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.progress import async_byte_download_progress
 
@@ -414,94 +414,95 @@ async def _download_tex_source(url: str, output_path: Path) -> None:
     s = get_settings()
     h = s.http
     timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
-    last_exc: Exception | None = None
     last_status: int | None = None
 
     client = get_http_client()
     non_retryable = set(h.non_retryable_status_codes)
-    for attempt in range(h.fetch_max_retries + 1):
-        try:
-            await acquire_rate_slot()
-            async with http_request_slot(), client.stream("GET", url, timeout=timeout) as response:
-                if response.status_code == 404:
+
+    async def attempt(_n: int) -> None:
+        nonlocal last_status
+        await acquire_rate_slot()
+        async with http_request_slot(), client.stream("GET", url, timeout=timeout) as response:
+            if response.status_code == 404:
+                raise TexSourceNotFoundError(
+                    f"TeX source not found at {url}. This paper may not have TeX source available.",
+                    status_code=404,
+                )
+
+            if response.status_code in non_retryable:
+                # Permanent (403 ban, 410 withdrawn...): give up at once.
+                # NetworkError subtype → orchestrator degrades to a
+                # no-images conversion instead of failing the paper.
+                raise NonRetryableNetworkError(
+                    f"HTTP {response.status_code} from arXiv", status_code=response.status_code
+                )
+
+            if response.status_code >= 400:
+                last_status = response.status_code
+                raise RuntimeError(f"HTTP {response.status_code} from arXiv")
+
+            # Some papers have no TeX source (PDF-only submission); arXiv
+            # then serves the rendered PDF from /src/ with HTTP 200, not
+            # 404. Detect it so callers take the no-TeX fallback path
+            # instead of failing tar extraction later.
+            content_type = response.headers.get("content-type", "").lower()
+            if "pdf" in content_type:
+                raise TexSourceNotFoundError(
+                    f"TeX source not available for this paper (arXiv served a PDF from {url}); "
+                    "the paper was likely submitted as PDF-only."
+                )
+
+            # Get content length for progress bar; malformed headers
+            # (proxy noise) degrade to an indeterminate bar.
+            try:
+                total_size = int(response.headers.get("content-length", 0))
+            except (TypeError, ValueError):
+                total_size = 0
+            total_size = max(0, total_size)
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            disable_tqdm = s.images.disable_tqdm
+
+            # Write to a temp sibling then rename so a concurrent
+            # conversion never sees (or overwrites) a half-written cache.
+            tmp_path = output_path.with_name(f"{output_path.name}.{uuid.uuid4().hex}.part")
+            try:
+                # The download itself stays inside the try: a
+                # mid-stream RequestError used to leave the orphan
+                # .part behind (audit5 R-1).
+                async with (
+                    async_byte_download_progress(
+                        "Downloading TeX source",
+                        total_size if total_size > 0 else None,
+                        disable=disable_tqdm,
+                    ) as advance,
+                    aiofiles.open(tmp_path, "wb") as f,
+                ):
+                    async for chunk in response.aiter_bytes():
+                        await f.write(chunk)
+                        advance(len(chunk))
+
+                # Belt-and-suspenders: header-based check above can miss
+                # PDF-only papers when content-type is generic. Sniff magic
+                # bytes so the bogus file never lands in the cache.
+                if await asyncio.to_thread(_file_is_pdf, tmp_path):
                     raise TexSourceNotFoundError(
-                        f"TeX source not found at {url}. This paper may not have TeX source available.",
-                        status_code=404,
+                        f"TeX source not available for this paper "
+                        f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
                     )
+                tmp_path.replace(output_path)
+                return
+            finally:
+                tmp_path.unlink(missing_ok=True)
 
-                if response.status_code in non_retryable:
-                    # Permanent (403 ban, 410 withdrawn...): give up at once.
-                    # NetworkError subtype → orchestrator degrades to a
-                    # no-images conversion instead of failing the paper.
-                    raise NonRetryableNetworkError(
-                        f"HTTP {response.status_code} from arXiv", status_code=response.status_code
-                    )
-
-                if response.status_code >= 400:
-                    last_status = response.status_code
-                    last_exc = RuntimeError(f"HTTP {response.status_code} from arXiv")
-                else:
-                    # Some papers have no TeX source (PDF-only submission); arXiv
-                    # then serves the rendered PDF from /src/ with HTTP 200, not
-                    # 404. Detect it so callers take the no-TeX fallback path
-                    # instead of failing tar extraction later.
-                    content_type = response.headers.get("content-type", "").lower()
-                    if "pdf" in content_type:
-                        raise TexSourceNotFoundError(
-                            f"TeX source not available for this paper (arXiv served a PDF from {url}); "
-                            "the paper was likely submitted as PDF-only."
-                        )
-
-                    # Get content length for progress bar; malformed headers
-                    # (proxy noise) degrade to an indeterminate bar.
-                    try:
-                        total_size = int(response.headers.get("content-length", 0))
-                    except (TypeError, ValueError):
-                        total_size = 0
-                    total_size = max(0, total_size)
-
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    disable_tqdm = s.images.disable_tqdm
-
-                    # Write to a temp sibling then rename so a concurrent
-                    # conversion never sees (or overwrites) a half-written cache.
-                    tmp_path = output_path.with_name(f"{output_path.name}.{uuid.uuid4().hex}.part")
-                    try:
-                        # The download itself stays inside the try: a
-                        # mid-stream RequestError used to leave the orphan
-                        # .part behind (audit5 R-1).
-                        async with (
-                            async_byte_download_progress(
-                                "Downloading TeX source",
-                                total_size if total_size > 0 else None,
-                                disable=disable_tqdm,
-                            ) as advance,
-                            aiofiles.open(tmp_path, "wb") as f,
-                        ):
-                            async for chunk in response.aiter_bytes():
-                                await f.write(chunk)
-                                advance(len(chunk))
-
-                        # Belt-and-suspenders: header-based check above can miss
-                        # PDF-only papers when content-type is generic. Sniff magic
-                        # bytes so the bogus file never lands in the cache.
-                        if await asyncio.to_thread(_file_is_pdf, tmp_path):
-                            raise TexSourceNotFoundError(
-                                f"TeX source not available for this paper "
-                                f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
-                            )
-                        tmp_path.replace(output_path)
-                        return
-                    finally:
-                        tmp_path.unlink(missing_ok=True)
-        except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError) as exc:
-            last_exc = exc
-
-        if attempt < h.fetch_max_retries:
-            backoff = compute_backoff(h.fetch_backoff_s, attempt)
-            await asyncio.sleep(backoff)
-
-    raise TexSourceNotFoundError(f"Failed to download TeX source from {url}: {last_exc}", status_code=last_status)
+    return await strict_http_retry_loop(
+        attempt,
+        label=f"download TeX source {url}",
+        retryable=(httpx.RequestError, httpx.HTTPStatusError, RuntimeError),
+        exhausted=lambda last_exc: TexSourceNotFoundError(
+            f"Failed to download TeX source from {url}: {last_exc}", status_code=last_status
+        ),
+    )
 
 
 def _extract_archive(archive_path: Path, output_dir: Path) -> None:
