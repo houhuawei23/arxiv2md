@@ -7,7 +7,7 @@ from arxiv2md_beta.ir.emitters.json_emitter import JsonEmitter, _assign_struct_i
 
 
 def _doc() -> DocumentIR:
-    fig = FigureIR(figure_id="figure-1", anchor="figure-1", images=[], order_index=7)
+    fig = FigureIR(figure_id="figure-1", anchor="figure-1", images=[])
     sec = SectionIR(title="1 Intro", level=1, struct_id="sec_1", blocks=[fig])
     child = SectionIR(title="1.1 Sub", level=2, struct_id="sec_1_1", blocks=[])
     sec.children = [child]
@@ -39,4 +39,4 @@ def test_write_bundle_does_not_mutate_doc() -> None:
     assert before == after, "write path mutated the input doc"
     sec = data["sections"][0]
     assert sec["struct_id"] == "sec_1"
-    assert sec["blocks"][0]["order_index"] == 7, "builder order_index was overwritten"
+    assert sec["blocks"][0]["id"] == "sec_1:b0:figure", "synthetic block id kept stable"

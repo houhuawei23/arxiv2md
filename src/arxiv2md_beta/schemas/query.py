@@ -17,10 +17,6 @@ class ArxivQuery(BaseModel):
     version: str | None = None
     html_url: str
     ar5iv_url: str
-    remove_refs: bool = False
-    remove_inline_citations: bool = False
-    section_filter_mode: Literal["include", "exclude"] = "exclude"
-    sections: list[str] = Field(default_factory=list)
 
 
 class LocalArchiveQuery(BaseModel):
@@ -35,10 +31,6 @@ class LocalArchiveQuery(BaseModel):
     title: str | None = None
     authors: list[str] = Field(default_factory=list)
     submission_date: str | None = None
-    remove_refs: bool = False
-    remove_inline_citations: bool = False
-    section_filter_mode: Literal["include", "exclude"] = "exclude"
-    sections: list[str] = Field(default_factory=list)
 
 
 class LocalHtmlQuery(BaseModel):
@@ -53,7 +45,3 @@ class LocalHtmlQuery(BaseModel):
     authors: list[str] = Field(default_factory=list)
     submission_date: str | None = None
     source: str = "Local"  # Source identifier (e.g., "ScienceRobotics", "Local")
-    remove_refs: bool = False
-    remove_inline_citations: bool = False
-    section_filter_mode: Literal["include", "exclude"] = "exclude"
-    sections: list[str] = Field(default_factory=list)

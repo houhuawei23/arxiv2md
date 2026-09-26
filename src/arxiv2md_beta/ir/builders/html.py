@@ -126,20 +126,18 @@ class HTMLBuilder(IRBuilder):
         authors = [AuthorIR(name=a.name, affiliations=a.affiliations) for a in parsed.authors]
 
         # Convert abstract HTML fragment to IR blocks
-        abstract_blocks = self._html_to_blocks(parsed.abstract_html, section_id="abstract")
+        abstract_blocks = self._html_to_blocks(parsed.abstract_html)
         # Degraded LaTeXML output may render the whole abstract as an SVG
         # picture (no convertible blocks); fall back to the plain text.
         if not abstract_blocks and parsed.abstract:
             abstract_blocks = [
                 ParagraphIR(
-                    section_id="abstract",
-                    order_index=0,
                     inlines=[TextIR(text=parsed.abstract)],
                 )
             ]
 
         # Convert front matter HTML fragment to IR blocks
-        front_matter_blocks = self._html_to_blocks(parsed.front_matter_html, section_id="front_matter")
+        front_matter_blocks = self._html_to_blocks(parsed.front_matter_html)
 
         # Convert section tree and drop leaf sections that have no content
         sections = [self._build_section(section_node) for section_node in parsed.sections]
@@ -172,7 +170,7 @@ class HTMLBuilder(IRBuilder):
     def _build_section(self, section_node: Any) -> SectionIR:
         """Convert a ``SectionNode`` into a :class:`SectionIR`."""
         # section_node is from html.parser._extract_sections
-        blocks = self._html_to_blocks(section_node.html, section_id=section_node.struct_id or "")
+        blocks = self._html_to_blocks(section_node.html)
         return SectionIR(
             title=section_node.title,
             level=min(6, max(1, section_node.level)),
@@ -202,25 +200,19 @@ class HTMLBuilder(IRBuilder):
 
     # ── HTML fragment → IR blocks ──────────────────────────────────────
 
-    def _html_to_blocks(self, html_fragment: str | None, section_id: str = "") -> list[BlockUnion]:
+    def _html_to_blocks(self, html_fragment: str | None) -> list[BlockUnion]:
         """Convert an HTML fragment string to a list of block IR nodes."""
         if not html_fragment:
             return []
         soup = BeautifulSoup(html_fragment, "html.parser")
         self._text_cache.clear()
-        blocks, idx = self._children_to_blocks(soup.children, section_id, 0)
+        blocks, _ = self._children_to_blocks(soup.children, 0)
         # Flush remaining footnotes at end of fragment
         while self._pending_footnotes:
-            footnote = self._pending_footnotes.popleft()
-            footnote.section_id = section_id
-            footnote.order_index = idx
-            blocks.append(footnote)
-            idx += 1
+            blocks.append(self._pending_footnotes.popleft())
         return blocks
 
-    def _children_to_blocks(
-        self, children: Iterable[Any], section_id: str, start_idx: int
-    ) -> tuple[list[BlockUnion], int]:
+    def _children_to_blocks(self, children: Iterable[Any], start_idx: int) -> tuple[list[BlockUnion], int]:
         """Process an iterable of BeautifulSoup nodes into IR blocks.
 
         Returns the list of blocks and the next available index.  Pending
@@ -235,8 +227,6 @@ class HTMLBuilder(IRBuilder):
                 if text:
                     blocks.append(
                         ParagraphIR(
-                            section_id=section_id,
-                            order_index=idx,
                             inlines=[TextIR(text=text)],
                         )
                     )
@@ -244,7 +234,7 @@ class HTMLBuilder(IRBuilder):
                 continue
             if not isinstance(child, Tag):
                 continue
-            result = self._tag_to_blocks(child, section_id, idx)
+            result = self._tag_to_blocks(child, idx)
             if isinstance(result, list):
                 blocks.extend(result)
                 idx += len(result)
@@ -253,20 +243,16 @@ class HTMLBuilder(IRBuilder):
                 idx += 1
             # Insert any pending footnotes after the current block
             while self._pending_footnotes:
-                footnote = self._pending_footnotes.popleft()
-                footnote.section_id = section_id
-                footnote.order_index = idx
-                blocks.append(footnote)
-                idx += 1
+                blocks.append(self._pending_footnotes.popleft())
         return blocks, idx
 
-    def _tag_to_blocks(self, tag: Tag, section_id: str, base_idx: int) -> list[BlockUnion] | BlockUnion | None:
+    def _tag_to_blocks(self, tag: Tag, base_idx: int) -> list[BlockUnion] | BlockUnion | None:
         """Convert a BeautifulSoup tag to one or more block IR nodes."""
         tag_name = tag.name
 
         # arXiv / ar5iv code listings (must come before generic div recursion)
         if tag_name == "div" and _is_ltx_listing_container(tag):
-            code = self._build_listing(tag, section_id, base_idx)
+            code = self._build_listing(tag)
             return code if code is not None else []
 
         classes = set(css_classes(tag))
@@ -286,7 +272,7 @@ class HTMLBuilder(IRBuilder):
             # If the paragraph contains display math, lift those equations out as
             # block-level elements so the Markdown emitter can render them with
             # proper $$ delimiters instead of inline math breaking list layout.
-            split_blocks = self._split_paragraph_inlines(inlines, section_id=section_id, base_idx=base_idx)
+            split_blocks = self._split_paragraph_inlines(inlines)
             if len(split_blocks) == 1:
                 return split_blocks[0]
             return split_blocks
@@ -306,8 +292,6 @@ class HTMLBuilder(IRBuilder):
                 if parsed_start != 1:
                     start = parsed_start
             return ListIR(
-                section_id=section_id,
-                order_index=base_idx,
                 ordered=(tag_name == "ol" or _is_ar5iv_ordered_list(classes)),
                 start=start,
                 items=items,
@@ -319,15 +303,13 @@ class HTMLBuilder(IRBuilder):
             if not latex:
                 return None
             return EquationIR(
-                section_id=section_id,
-                order_index=base_idx,
                 latex=latex,
                 equation_number=_extract_equation_number(tag),
             )
 
         # Container elements — recurse directly without re-parsing
         if tag_name in ("section", "article", "div", "span"):
-            blocks, _ = self._children_to_blocks(tag.children, section_id, base_idx)
+            blocks, _ = self._children_to_blocks(tag.children, base_idx)
             return blocks
 
         # Headings
@@ -341,8 +323,6 @@ class HTMLBuilder(IRBuilder):
             if not inlines:
                 return None
             return HeadingIR(
-                section_id=section_id,
-                order_index=base_idx,
                 level=level,
                 anchor=anchor,
                 inlines=inlines,
@@ -350,20 +330,18 @@ class HTMLBuilder(IRBuilder):
 
         # Figures
         if tag_name == "figure":
-            return self._build_figure(tag, section_id, base_idx)
+            return self._build_figure(tag)
 
         # Tables
         if tag_name == "table":
-            return self._build_table(tag, section_id, base_idx)
+            return self._build_table(tag)
 
         # Blockquote
         if tag_name == "blockquote":
-            inner_blocks, _ = self._children_to_blocks(tag.children, section_id, base_idx)
+            inner_blocks, _ = self._children_to_blocks(tag.children, base_idx)
             if not inner_blocks:
                 return None
             return BlockQuoteIR(
-                section_id=section_id,
-                order_index=base_idx,
                 blocks=inner_blocks,
             )
 
@@ -381,22 +359,18 @@ class HTMLBuilder(IRBuilder):
             else:
                 text = tag.get_text()
             return CodeIR(
-                section_id=section_id,
-                order_index=base_idx,
                 language=lang or None,
                 text=text,
             )
 
         if tag_name == "code":
             return CodeIR(
-                section_id=section_id,
-                order_index=base_idx,
                 text=tag.get_text(),
             )
 
         # Horizontal rule
         if tag_name == "hr":
-            return RuleIR(section_id=section_id, order_index=base_idx)
+            return RuleIR()
 
         # Skip SVG elements (usually decorative/typographic renderings)
         if tag_name == "svg":
@@ -413,20 +387,14 @@ class HTMLBuilder(IRBuilder):
                 return None
             if tag.get("display") == "block":
                 return EquationIR(
-                    section_id=section_id,
-                    order_index=base_idx,
                     latex=latex,
                 )
             return ParagraphIR(
-                section_id=section_id,
-                order_index=base_idx,
                 inlines=[MathIR(latex=latex, display=False)],
             )
 
         # Raw fallback
         return RawBlockIR(
-            section_id=section_id,
-            order_index=base_idx,
             format="html",
             content=str(tag),
         )
@@ -436,9 +404,6 @@ class HTMLBuilder(IRBuilder):
     def _split_paragraph_inlines(
         self,
         inlines: list[InlineUnion],
-        *,
-        section_id: str,
-        base_idx: int,
     ) -> list[BlockUnion]:
         """Split paragraph inlines into paragraph/equation blocks.
 
@@ -455,8 +420,6 @@ class HTMLBuilder(IRBuilder):
             if any(not (il.type == "text" and not il.text.strip()) for il in current):
                 blocks.append(
                     ParagraphIR(
-                        section_id=section_id,
-                        order_index=base_idx + len(blocks),
                         inlines=list(current),
                     )
                 )
@@ -467,8 +430,6 @@ class HTMLBuilder(IRBuilder):
                 _flush_current()
                 blocks.append(
                     EquationIR(
-                        section_id=section_id,
-                        order_index=base_idx + len(blocks),
                         latex=il.latex or "",
                     )
                 )
@@ -737,7 +698,7 @@ class HTMLBuilder(IRBuilder):
 
     # ── Complex block builders ─────────────────────────────────────────
 
-    def _build_figure(self, tag: Tag, section_id: str, base_idx: int) -> BlockUnion | None:
+    def _build_figure(self, tag: Tag) -> BlockUnion | None:
         """Build a FigureIR or AlgorithmIR from a <figure> tag."""
         tag_classes = " ".join(css_classes(tag))
 
@@ -765,8 +726,6 @@ class HTMLBuilder(IRBuilder):
         if "ltx_float_algorithm" in tag_classes or "ltx_algorithm" in tag_classes:
             alg_num = _extract_algorithm_number(caption_text)
             return AlgorithmIR(
-                section_id=section_id,
-                order_index=base_idx,
                 anchor=fig_id,
                 label=tag_id,
                 caption=caption,
@@ -774,8 +733,6 @@ class HTMLBuilder(IRBuilder):
                 steps=self._algorithm_steps(
                     tag,
                     caption_tag if isinstance(caption_tag, Tag) else None,
-                    section_id,
-                    base_idx,
                 ),
             )
 
@@ -785,8 +742,6 @@ class HTMLBuilder(IRBuilder):
             if isinstance(inner_table, Tag):
                 return self._build_table(
                     inner_table,
-                    section_id,
-                    base_idx,
                     figure_caption=caption,
                     figure_caption_text=caption_text,
                     figure_label=tag_id,
@@ -861,8 +816,6 @@ class HTMLBuilder(IRBuilder):
 
         self._figure_counter += 1
         return FigureIR(
-            section_id=section_id,
-            order_index=base_idx,
             figure_id=fig_id,
             anchor=fig_id,
             label=tag_id,
@@ -882,8 +835,6 @@ class HTMLBuilder(IRBuilder):
     def _build_table(
         self,
         tag: Tag,
-        section_id: str,
-        base_idx: int,
         *,
         figure_caption: list | None = None,
         figure_caption_text: str = "",
@@ -905,8 +856,6 @@ class HTMLBuilder(IRBuilder):
             if not latex:
                 return None
             return EquationIR(
-                section_id=section_id,
-                order_index=base_idx,
                 latex=latex,
                 equation_number=_extract_equation_number(tag),
             )
@@ -930,8 +879,6 @@ class HTMLBuilder(IRBuilder):
         table_id = _extract_table_id(caption_text)
 
         return TableIR(
-            section_id=section_id,
-            order_index=base_idx,
             table_id=table_id,
             headers=headers,
             rows=rows,
@@ -951,7 +898,7 @@ class HTMLBuilder(IRBuilder):
         self._svg_assets.append(SvgAsset(path=svg_src, content=str(svg)))
         return svg_src
 
-    def _build_listing(self, tag: Tag, section_id: str, base_idx: int) -> CodeIR | None:
+    def _build_listing(self, tag: Tag) -> CodeIR | None:
         """Build a CodeIR from an arXiv ``div.ltx_listing``.
 
         Prefer the base64 payload embedded in ``ltx_listing_data``; otherwise
@@ -967,8 +914,6 @@ class HTMLBuilder(IRBuilder):
                     lang = _extract_listing_language(cls)
                     lang = _normalize_listing_language(lang, decoded)
                     return CodeIR(
-                        section_id=section_id,
-                        order_index=base_idx,
                         language=lang,
                         text=decoded.rstrip(),
                     )
@@ -986,14 +931,12 @@ class HTMLBuilder(IRBuilder):
             lang = _extract_listing_language(cls)
             lang = _normalize_listing_language(lang, body)
             return CodeIR(
-                section_id=section_id,
-                order_index=base_idx,
                 language=lang,
                 text=body,
             )
         return None
 
-    def _algorithm_steps(self, tag: Tag, caption_tag: Tag | None, section_id: str, base_idx: int) -> list[BlockUnion]:
+    def _algorithm_steps(self, tag: Tag, caption_tag: Tag | None) -> list[BlockUnion]:
         """Collect the pseudocode body of an algorithm float (audit5 C2).
 
         ar5iv wraps algorithm bodies either in ``div.ltx_listing`` containers
@@ -1013,8 +956,7 @@ class HTMLBuilder(IRBuilder):
             return _nest_algorithm_steps(steps)
         body, _ = self._children_to_blocks(
             [c for c in tag.children if c is not caption_tag],
-            section_id,
-            base_idx,
+            0,
         )
         return body
 
@@ -1099,7 +1041,7 @@ class HTMLBuilder(IRBuilder):
                         # Recurse generically so that block-level siblings (e.g.
                         # nested ar5iv lists inside <div class="ltx_para">) are
                         # preserved instead of flattened to raw inline HTML.
-                        blocks, _ = self._children_to_blocks(child.children, "", len(item_blocks))
+                        blocks, _ = self._children_to_blocks(child.children, len(item_blocks))
                         item_blocks.extend(blocks)
                     else:
                         inlines = self._tag_to_inlines(child)
@@ -1146,10 +1088,10 @@ class HTMLBuilder(IRBuilder):
                             )
                     elif child.name in ("section", "article", "div", "span"):
                         # Recurse generically but keep inline math intact
-                        blocks, _ = self._children_to_blocks(child.children, "", len(item_blocks))
+                        blocks, _ = self._children_to_blocks(child.children, len(item_blocks))
                         item_blocks.extend(blocks)
                     else:
-                        result = self._tag_to_blocks(child, "", len(item_blocks))
+                        result = self._tag_to_blocks(child, len(item_blocks))
                         if isinstance(result, list):
                             item_blocks.extend(result)
                         elif result is not None:

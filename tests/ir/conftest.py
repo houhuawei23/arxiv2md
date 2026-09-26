@@ -57,7 +57,6 @@ def complex_doc() -> DocumentIR:
     return DocumentIR(
         metadata=PaperMetadata(
             arxiv_id="2501.12345",
-            arxiv_version="v2",
             title="A Comprehensive Study of IR Systems",
             authors=[AuthorIR(name="Alice Foo"), AuthorIR(name="Bob Bar")],
             submission_date="20250115",
@@ -65,8 +64,6 @@ def complex_doc() -> DocumentIR:
         ),
         abstract=[
             ParagraphIR(
-                section_id="abstract",
-                order_index=0,
                 inlines=[
                     TextIR(text="We present a novel "),
                     EmphasisIR(style="bold", inlines=[TextIR(text="IR system")]),
@@ -81,9 +78,6 @@ def complex_doc() -> DocumentIR:
                 struct_id="sec_0",
                 blocks=[
                     ParagraphIR(
-                        id="sec_0:b0:paragraph",
-                        section_id="sec_0",
-                        order_index=0,
                         inlines=[
                             TextIR(text="This is the first paragraph with "),
                             LinkIR(
@@ -97,22 +91,13 @@ def complex_doc() -> DocumentIR:
                         ],
                     ),
                     HeadingIR(
-                        id="sec_0:b1:heading",
-                        section_id="sec_0",
-                        order_index=1,
                         level=2,
                         inlines=[TextIR(text="Motivation")],
                     ),
                     ParagraphIR(
-                        id="sec_0:b2:paragraph",
-                        section_id="sec_0",
-                        order_index=2,
                         inlines=[TextIR(text="Our motivation is clear.")],
                     ),
                     FigureIR(
-                        id="sec_0:b3:figure",
-                        section_id="sec_0",
-                        order_index=3,
                         figure_id="figure-1",
                         anchor="figure-1",
                         label="fig:overview",
@@ -125,9 +110,6 @@ def complex_doc() -> DocumentIR:
                         ],
                     ),
                     CodeIR(
-                        id="sec_0:b4:code",
-                        section_id="sec_0",
-                        order_index=4,
                         language="python",
                         text="print('Hello, world!')\n",
                     ),
@@ -139,9 +121,6 @@ def complex_doc() -> DocumentIR:
                         struct_id="sec_0_0",
                         blocks=[
                             ParagraphIR(
-                                id="sec_0_0:b0:paragraph",
-                                section_id="sec_0_0",
-                                order_index=0,
                                 inlines=[
                                     TextIR(text="Rich text with "),
                                     EmphasisIR(
@@ -163,9 +142,6 @@ def complex_doc() -> DocumentIR:
                                 ],
                             ),
                             BlockQuoteIR(
-                                id="sec_0_0:b1:blockquote",
-                                section_id="sec_0_0",
-                                order_index=1,
                                 blocks=[
                                     ParagraphIR(inlines=[TextIR(text="This is a blockquote.")]),
                                 ],
@@ -180,9 +156,6 @@ def complex_doc() -> DocumentIR:
                 struct_id="sec_1",
                 blocks=[
                     TableIR(
-                        id="sec_1:b0:table",
-                        section_id="sec_1",
-                        order_index=0,
                         table_id="table-1",
                         label="tab:results",
                         headers=[
@@ -199,18 +172,12 @@ def complex_doc() -> DocumentIR:
                         ],
                     ),
                     EquationIR(
-                        id="sec_1:b1:equation",
-                        section_id="sec_1",
-                        order_index=1,
                         latex="\\mathcal{L} = -\\sum_{i} y_i \\log(\\hat{y}_i)",
                         equation_number="(1)",
                         label="eq:loss",
                         anchor="eq:loss",
                     ),
                     ListIR(
-                        id="sec_1:b2:list",
-                        section_id="sec_1",
-                        order_index=2,
                         ordered=False,
                         items=[
                             [ParagraphIR(inlines=[TextIR(text="First key finding")])],
@@ -227,15 +194,8 @@ def complex_doc() -> DocumentIR:
                             ],
                         ],
                     ),
-                    RuleIR(
-                        id="sec_1:b3:rule",
-                        section_id="sec_1",
-                        order_index=3,
-                    ),
+                    RuleIR(),
                     ParagraphIR(
-                        id="sec_1:b4:paragraph",
-                        section_id="sec_1",
-                        order_index=4,
                         inlines=[TextIR(text="After the horizontal rule.")],
                     ),
                 ],

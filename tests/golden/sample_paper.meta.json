@@ -1,31 +1,21 @@
 {
   "abstract_text": "This is a sample abstract for testing the arxiv2md-beta converter.",
   "arxiv_id": "sample",
-  "arxiv_version": null,
   "authors": [
     {
       "affiliations": [],
-      "id": "",
       "name": "John DoeInstitution One",
-      "order_index": 0,
-      "section_id": "",
       "type": "author"
     },
     {
       "affiliations": [],
-      "id": "",
       "name": "Jane SmithInstitution Two",
-      "order_index": 0,
-      "section_id": "",
       "type": "author"
     }
   ],
   "content_sha256": "14307a49998ea9352cc4754f07707602755135d6a5c43e8b9c561643fc146db6",
   "parser": "latex",
   "schema_version": "2.0",
-  "source_url": null,
   "submission_date": null,
-  "title": "A Sample Paper for Testing",
-  "tool_name": "arxiv2md-beta",
-  "tool_version": "0.15.1"
+  "title": "A Sample Paper for Testing"
 }

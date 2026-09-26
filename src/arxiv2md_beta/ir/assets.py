@@ -30,15 +30,7 @@ class SvgAsset(AssetIR):
     content: str | None = None  # inline SVG source (optional)
 
 
-class OtherAsset(AssetIR):
-    """Any other asset type (PDF, ZIP, etc.)."""
-
-    type: Literal["other_asset"] = "other_asset"
-    path: str
-    kind: str = "other"  # e.g. "pdf", "zip"
-
-
 AssetUnion = Annotated[
-    ImageAsset | SvgAsset | OtherAsset,
+    ImageAsset | SvgAsset,
     Field(discriminator="type"),
 ]

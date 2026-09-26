@@ -32,7 +32,6 @@ Quick start::
 from arxiv2md_beta.ir.assets import (  # noqa: F401
     AssetUnion,
     ImageAsset,
-    OtherAsset,
     SvgAsset,
 )
 from arxiv2md_beta.ir.blocks import (  # noqa: F401
@@ -55,7 +54,6 @@ from arxiv2md_beta.ir.core import (  # noqa: F401
     BlockIR,
     InlineIR,
     IRNode,
-    SourceLoc,
 )
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR, PaperMetadata, SectionIR  # noqa: F401
 from arxiv2md_beta.ir.emitters import (  # noqa: F401
@@ -97,7 +95,6 @@ __all__ = [
     "InlineIR",
     "BlockIR",
     "AssetIR",
-    "SourceLoc",
     # Inlines
     "TextIR",
     "MathIR",
@@ -130,7 +127,6 @@ __all__ = [
     # Assets
     "ImageAsset",
     "SvgAsset",
-    "OtherAsset",
     "AssetUnion",
     # Builders
     "IRBuilder",

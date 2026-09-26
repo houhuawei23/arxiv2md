@@ -362,8 +362,7 @@ class MarkdownEmitter(IREmitter):
                 # would display literal backslashes (audit5 I-1)
                 alt = escape_html_attr(img.alt or "Figure panel")
                 src = escape_html_attr(escape_url(img.src or ""))
-                w = escape_html_attr(str(img.width)) if img.width else width
-                w_attr = f' width="{w}"'
+                w_attr = f' width="{width}"'
                 lines.append(f'  <img src="{src}"{w_attr} alt="{alt}" />')
             lines.append("</div>")
 

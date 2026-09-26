@@ -527,17 +527,6 @@ class TestHtmlAttrEscaping:
         out = MarkdownEmitter()._emit_block(fig)
         assert 'alt="path\\to\\thing"' in out, "backslashes must display once, not \\\\"
 
-    def test_multipanel_width_escaped(self):
-        fig = FigureIR(
-            images=[
-                ImageRefIR(src="./a.png", alt="a", width='45"'),
-                ImageRefIR(src="./b.png", alt="b"),
-            ],
-            caption=[],
-        )
-        out = MarkdownEmitter()._emit_block(fig)
-        assert 'width="45&quot;"' in out
-
     def test_grid_cell_markup_escaped(self):
         fig = FigureIR(
             images=[ImageRefIR(src="./a.png")],

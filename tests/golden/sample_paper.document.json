@@ -1,39 +1,26 @@
 {
   "abstract": [
     {
-      "id": "",
       "inlines": [
         {
-          "id": "",
-          "order_index": 0,
-          "section_id": "",
           "text": "This is a sample abstract for testing the arxiv2md-beta converter.",
           "type": "text"
         }
       ],
-      "order_index": 0,
-      "section_id": "",
       "type": "paragraph"
     }
   ],
   "abstract_text": "This is a sample abstract for testing the arxiv2md-beta converter.",
   "arxiv_id": "sample",
-  "arxiv_version": null,
   "authors": [
     {
       "affiliations": [],
-      "id": "",
       "name": "John DoeInstitution One",
-      "order_index": 0,
-      "section_id": "",
       "type": "author"
     },
     {
       "affiliations": [],
-      "id": "",
       "name": "Jane SmithInstitution Two",
-      "order_index": 0,
-      "section_id": "",
       "type": "author"
     }
   ],
@@ -49,231 +36,133 @@
           "id": "sec_1:b0:paragraph",
           "inlines": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "This",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "is",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "the",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "introduction",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "section,",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "building",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "on",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "prior",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "work\u00a0",
               "type": "text"
             },
             {
-              "id": "",
               "inlines": [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "2",
                   "type": "text"
                 }
               ],
               "kind": "citation",
-              "order_index": 0,
-              "section_id": "",
               "target_id": "2",
               "type": "link"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": ".",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "We",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "present",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "our",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "main",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "equation:",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             }
           ],
-          "order_index": 0,
-          "section_id": "sec_1",
-          "source": {
-            "parser": "latex"
-          },
           "type": "paragraph"
         },
         {
@@ -281,11 +170,6 @@
           "equation_number": "(1)",
           "id": "sec_1:b1:equation",
           "latex": "\\begin{equation}\n E = mc^2\n \n\\end{equation}",
-          "order_index": 1,
-          "section_id": "sec_1",
-          "source": {
-            "parser": "latex"
-          },
           "type": "equation"
         }
       ],
@@ -301,219 +185,127 @@
           "id": "sec_2:b0:paragraph",
           "inlines": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "We",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "describe",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "our",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "methodology",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "in",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "this",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "section.",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "See",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "Figure\u00a0",
               "type": "text"
             },
             {
-              "id": "",
               "inlines": [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "1",
                   "type": "text"
                 }
               ],
               "kind": "internal",
-              "order_index": 0,
-              "section_id": "",
               "target_id": "fig:setup",
               "type": "link"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": ".",
               "type": "text"
             }
           ],
-          "order_index": 0,
-          "section_id": "sec_2",
-          "source": {
-            "parser": "latex"
-          },
           "type": "paragraph"
         },
         {
           "anchor": "fig:setup",
           "caption": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "Sample",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "figure",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "showing",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "experimental",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "setup.",
               "type": "text"
             }
@@ -523,20 +315,12 @@
           "images": [
             {
               "alt": "",
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "src": "figure1.png",
               "type": "image_ref"
             }
           ],
           "kind": "image",
           "label": "fig:setup",
-          "order_index": 1,
-          "section_id": "sec_2",
-          "source": {
-            "parser": "latex"
-          },
           "type": "figure"
         }
       ],
@@ -552,149 +336,87 @@
           "id": "sec_3:b0:paragraph",
           "inlines": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "Our",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "results",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "are",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "summarized",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "in",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "Table\u00a0",
               "type": "text"
             },
             {
-              "id": "",
               "inlines": [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "1",
                   "type": "text"
                 }
               ],
               "kind": "internal",
-              "order_index": 0,
-              "section_id": "",
               "target_id": "tab:comparison",
               "type": "link"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": ".",
               "type": "text"
             }
           ],
-          "order_index": 0,
-          "section_id": "sec_3",
-          "source": {
-            "parser": "latex"
-          },
           "type": "paragraph"
         },
         {
           "anchor": "tab:comparison",
           "caption": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "Comparison",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "of",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "methods.",
               "type": "text"
             }
@@ -702,18 +424,12 @@
           "headers": [
             [
               {
-                "id": "",
-                "order_index": 0,
-                "section_id": "",
                 "text": "Method",
                 "type": "text"
               }
             ],
             [
               {
-                "id": "",
-                "order_index": 0,
-                "section_id": "",
                 "text": "Accuracy",
                 "type": "text"
               }
@@ -721,23 +437,16 @@
           ],
           "id": "sec_3:b1:table",
           "label": "tab:comparison",
-          "order_index": 1,
           "rows": [
             [
               [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "A",
                   "type": "text"
                 }
               ],
               [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "0.95",
                   "type": "text"
                 }
@@ -746,28 +455,18 @@
             [
               [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "B",
                   "type": "text"
                 }
               ],
               [
                 {
-                  "id": "",
-                  "order_index": 0,
-                  "section_id": "",
                   "text": "0.92",
                   "type": "text"
                 }
               ]
             ]
           ],
-          "section_id": "sec_3",
-          "source": {
-            "parser": "latex"
-          },
           "table_id": "tab:comparison",
           "type": "table"
         }
@@ -784,88 +483,50 @@
           "id": "sec_4:b0:paragraph",
           "inlines": [
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "We",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "conclude",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "with",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "some",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "final",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": " ",
               "type": "text"
             },
             {
-              "id": "",
-              "order_index": 0,
-              "section_id": "",
               "text": "thoughts.",
               "type": "text"
             }
           ],
-          "order_index": 0,
-          "section_id": "sec_4",
-          "source": {
-            "parser": "latex"
-          },
           "type": "paragraph"
         }
       ],
@@ -882,387 +543,220 @@
           "items": [
             [
               {
-                "id": "",
                 "inlines": [
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "J.\u00a0Doe",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "and",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "J.\u00a0Smith,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "\u201c",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "A",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "sample",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "paper",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "for",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "testing,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "\u201d",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "Journal",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "of",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "Testing,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "vol.\u00a01,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "2024.",
                     "type": "text"
                   }
                 ],
-                "order_index": 0,
-                "section_id": "",
-                "source": {
-                  "parser": "latex"
-                },
                 "type": "paragraph"
               }
             ],
             [
               {
-                "id": "",
                 "inlines": [
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "A.\u00a0Vaswani",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "et",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "al.,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "\u201c",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "Attention",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "is",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "all",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "you",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "need,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "\u201d",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "in",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "NeurIPS,",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": " ",
                     "type": "text"
                   },
                   {
-                    "id": "",
-                    "order_index": 0,
-                    "section_id": "",
                     "text": "2017.",
                     "type": "text"
                   }
                 ],
-                "order_index": 0,
-                "section_id": "",
-                "source": {
-                  "parser": "latex"
-                },
                 "type": "paragraph"
               }
             ]
           ],
-          "order_index": 0,
           "ordered": false,
-          "section_id": "sec_4-2",
-          "source": {
-            "parser": "latex"
-          },
           "type": "list"
         }
       ],
@@ -1272,9 +766,6 @@
       "title": "References"
     }
   ],
-  "source_url": null,
   "submission_date": null,
-  "title": "A Sample Paper for Testing",
-  "tool_name": "arxiv2md-beta",
-  "tool_version": "0.15.1"
+  "title": "A Sample Paper for Testing"
 }

@@ -49,15 +49,11 @@ class PaperMetadata(IRNode):
 
     type: Literal["metadata"] = "metadata"
     arxiv_id: str
-    arxiv_version: str | None = None
     title: str | None = None
     authors: list[AuthorIR] = Field(default_factory=list)
     submission_date: str | None = None
     abstract_text: str | None = None
-    source_url: str | None = None
     parser: Literal["html", "latex", "local"] = "html"
-    tool_name: str = "arxiv2md-beta"
-    tool_version: str = "0.0.0"
 
     @property
     def author_names(self) -> list[str]:
@@ -73,7 +69,6 @@ class DocumentIR(IRNode):
     """
 
     type: Literal["document"] = "document"
-    schema_version: str = "2.0"
     metadata: PaperMetadata = Field(default_factory=lambda: PaperMetadata(arxiv_id="unknown"))
     abstract: list[BlockUnion] = Field(default_factory=list)
     front_matter: list[BlockUnion] = Field(default_factory=list)

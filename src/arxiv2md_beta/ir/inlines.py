@@ -49,8 +49,6 @@ class ImageRefIR(InlineIR):
     type: Literal["image_ref"] = "image_ref"
     src: str
     alt: str = ""
-    width: str | None = None
-    height: str | None = None
 
 
 class BreakIR(InlineIR):

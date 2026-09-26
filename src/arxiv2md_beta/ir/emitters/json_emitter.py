@@ -21,26 +21,6 @@ from arxiv2md_beta.utils.logging_config import get_logger
 logger = get_logger()
 
 
-def _package_version() -> str:
-    # The package's own __version__ is the single runtime source. Dist
-    # metadata (importlib.metadata) is only a fallback and can be stale —
-    # an editable install upgraded in place keeps its July-era egg-info
-    # forever, which used to emit tool_version 0.13.1 from a 0.15.1 tree.
-    try:
-        from arxiv2md_beta import __version__
-
-        if __version__ and __version__ != "0.0.0":
-            return __version__
-    except ImportError:  # pragma: no cover
-        pass
-    try:
-        from importlib.metadata import version
-
-        return version("arxiv2md-beta")
-    except Exception:
-        return "0.0.0"
-
-
 def _sha256_parts(parts: list[str]) -> str:
     h = hashlib.sha256()
     for p in parts:
@@ -108,10 +88,6 @@ def _section_to_dict(sec: SectionIR) -> dict[str, Any]:
     for i, b in enumerate(sec.blocks):
         d = b.model_dump(exclude_none=True)
         d["id"] = f"{sid}:b{i}:{b.type}"
-        d["section_id"] = sid
-        # Keep the builder's document-wide order_index; fill only if missing.
-        if d.get("order_index") is None:
-            d["order_index"] = i
         blocks.append(d)
     return {
         "title": sec.title,
@@ -380,15 +356,11 @@ class JsonEmitter(IREmitter):
         return {
             "schema_version": SCHEMA_VERSION,
             "arxiv_id": m.arxiv_id,
-            "arxiv_version": m.arxiv_version,
             "title": m.title,
             "authors": [a.model_dump(exclude_none=True) for a in m.authors],
             "submission_date": m.submission_date,
             "abstract_text": m.abstract_text,
-            "source_url": m.source_url,
             "parser": m.parser,
-            "tool_name": m.tool_name,
-            "tool_version": _package_version() if m.tool_version == "0.0.0" else m.tool_version,
             "content_sha256": _content_fingerprint(doc),
         }
 

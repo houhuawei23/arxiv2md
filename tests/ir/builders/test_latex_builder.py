@@ -327,7 +327,7 @@ class TestLaTeXBuilderRegressions:
         Not ``json.dumps(blk)`` which leaked raw JSON into the Markdown.
         """
         builder = LaTeXBuilder()
-        raw = builder._block_from_pandoc({"t": "TotallyUnknownBlock"}, "sec", 0)
+        raw = builder._block_from_pandoc({"t": "TotallyUnknownBlock"})
         assert raw is not None
         assert raw.type == "raw_block"
         assert raw.format == "markdown"

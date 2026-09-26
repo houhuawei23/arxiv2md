@@ -174,9 +174,7 @@ async def fetch_and_extract_tex_source(
                 logger.info(f"Using cached TeX source for {arxiv_id}")
                 _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
                 return info
-            logger.warning(
-                f"Cached TeX extract for {arxiv_id} changed mid-read (concurrent conversion); re-extracting"
-            )
+            logger.warning(f"Cached TeX extract for {arxiv_id} changed mid-read (concurrent conversion); re-extracting")
         except OSError:
             logger.warning(f"Cached TeX extract for {arxiv_id} vanished mid-read; re-extracting")
 

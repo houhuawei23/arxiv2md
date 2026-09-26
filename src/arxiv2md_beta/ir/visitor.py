@@ -53,7 +53,6 @@ _CHILD_SPECS: dict[str, list[tuple[str, str]]] = {
     "figure": [("caption", "inline"), ("images", "inline"), ("grid", "inline_list_list")],
     "table": [("headers", "inline_list"), ("rows", "inline_list_list"), ("caption", "inline")],
     "algorithm": [("steps", "block"), ("caption", "inline")],
-    "code": [("caption", "inline")],
     # Document level
     "section": [("blocks", "block"), ("children", "section")],
     "metadata": [("authors", "author")],

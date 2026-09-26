@@ -141,7 +141,7 @@ async def test_run_propagates_structured_export_failure(tmp_path, monkeypatch) -
 def _doc_with_authors(names: list[str]) -> DocumentIR:
     doc = DocumentIR(metadata=PaperMetadata(arxiv_id="2501.11120", title="T"))
     doc.metadata.authors = [AuthorIR(name=n) for n in names]
-    doc.sections = [SectionIR(id="s1", title="Intro", level=1, blocks=[])]
+    doc.sections = [SectionIR(title="Intro", level=1, blocks=[])]
     return doc
 
 

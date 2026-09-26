@@ -160,23 +160,10 @@ class TestBlockConstruction:
 class TestStructuralIdentifiers:
     def test_block_has_base_fields(self):
         b = ParagraphIR(
-            id="sec_0:b0:paragraph",
-            section_id="sec_0",
-            order_index=0,
             label="lbl:test",
             inlines=[TextIR(text="text")],
         )
-        assert b.id == "sec_0:b0:paragraph"
-        assert b.section_id == "sec_0"
-        assert b.order_index == 0
         assert b.label == "lbl:test"
-
-    def test_source_loc(self):
-        from arxiv2md_beta.ir import SourceLoc
-
-        loc = SourceLoc(file="test.html", line_start=42, parser="html")
-        assert loc.file == "test.html"
-        assert loc.parser == "html"
 
 
 # ── Discriminated union serialization ──────────────────────────────────
@@ -271,7 +258,6 @@ class TestDocumentIRRoundtrip:
         js = complex_doc.model_dump_json(indent=2)
         doc2 = DocumentIR.model_validate_json(js)
 
-        assert doc2.schema_version == "2.0"
         assert doc2.metadata.arxiv_id == "2501.12345"
         assert doc2.metadata.title == "A Comprehensive Study of IR Systems"
         assert doc2.metadata.author_names == ["Alice Foo", "Bob Bar"]

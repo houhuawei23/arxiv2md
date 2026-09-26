@@ -12,23 +12,13 @@ All IR nodes inherit from ``IRNode``. The hierarchy is:
 
 from __future__ import annotations
 
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class SourceLoc(BaseModel):
-    """Source location for debugging and provenance tracking."""
-
-    file: str | None = None
-    line_start: int | None = None
-    parser: Literal["html", "latex"] = "html"
+from pydantic import BaseModel, ConfigDict
 
 
 class IRNode(BaseModel):
     """Base class for all IR nodes.
 
-    Every node carries optional structural identifiers filled in by builders
+    Every node carries an optional ``label`` filled in by builders
     and used by transforms for numbering, cross-reference resolution, etc.
     """
 
@@ -37,12 +27,8 @@ class IRNode(BaseModel):
     # -- node type discriminator (overridden by concrete subclasses) --
     type: str = ""
 
-    # -- structural identifiers (set by builder, used by transforms) --
-    id: str = ""
-    section_id: str = ""
-    order_index: int = 0
+    # -- structural identifier (set by builder, used by transforms) --
     label: str | None = None  # e.g. \label{fig:overview} or HTML @id
-    source: SourceLoc | None = Field(default=None, description="Debug provenance")
 
 
 class InlineIR(IRNode):
