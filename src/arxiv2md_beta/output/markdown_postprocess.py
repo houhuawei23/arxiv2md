@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from arxiv2md_beta.schemas import IngestionResult
 
 from arxiv2md_beta.output.markdown_utils import protect_fenced_code, restore_protected_code
 from arxiv2md_beta.settings import get_settings

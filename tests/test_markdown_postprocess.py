@@ -7,7 +7,6 @@ from arxiv2md_beta.output.markdown_postprocess import (
     _strip_anchor_tags,
     clean_markdown_output,
 )
-from arxiv2md_beta.schemas import IngestionResult
 
 
 class TestRemoveAnchors:

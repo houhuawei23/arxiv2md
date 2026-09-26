@@ -11,9 +11,9 @@ from loguru import logger
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
 from arxiv2md_beta.network.openalex_api import fetch_openalex_work_for_arxiv
-from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 
 
 def _norm_name(s: str) -> str:
