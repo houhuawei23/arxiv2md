@@ -51,15 +51,18 @@ arxiv2md-beta/
 │   │   │   ├── options.py       # convert/batch 共享的 Typer 选项注解
 │   │   └── params.py       # ImagesParams / PaperYmlParams（ConvertParams 在包根 params.py）
 │   │   ├── runner/             # 各命令的 asyncio 业务流
-│   │   ├── output_finalize.py  # 输出收尾与侧车 JSON
-│   │   └── helpers.py          # collect_sections 等
+│   │   └── output_finalize.py  # 输出收尾 CLI 层：结果 JSON 行 + 摘要打印
 │   ├── ir/                     # 中间表示（IR）三层架构
 │   │   ├── core.py             # IRNode / InlineIR / BlockIR 基类
 │   │   ├── document.py         # DocumentIR / SectionIR / PaperMetadata
 │   │   ├── blocks.py           # BlockUnion 类型
-│   │   ├── inlines.py          # InlineUnion 类型
+│   │   ├── inlines.py          # InlineUnion 类型 + inlines_to_plain_text
 │   │   ├── assets.py           # 图片 / SVG 资源
 │   │   ├── builders/           # HTML / LaTeX Builder
+│   │   │   ├── _algorithm.py   # HTMLBuilder 纯函数算法层
+│   │   │   ├── _math_norm.py   # display-math 拆分/规范化（双语义命名区分）
+│   │   │   ├── _shared.py      # builder 间共享正则/常量（bib-ref 等）
+│   │   │   └── _table_spans.py # 表格 span 处理
 │   │   ├── emitters/           # Markdown / JSON Emitter
 │   │   ├── transforms/         # Numbering / SectionFilter / FigureReorder Pass
 │   │   ├── resolvers/          # ImageResolver
@@ -68,29 +71,29 @@ arxiv2md-beta/
 │   │   └── parser.py           # BeautifulSoup 解析器（→ ParsedArxivHtml）
 │   ├── latex/                  # LaTeX 解析
 │   │   ├── includes.py         # \input/\include 递归展开
-│   │   ├── tex_source.py       # TeX 源下载 / 缓存 / 归档解压
+│   │   ├── tex_source.py       # TeX 源下载 / 缓存 / 归档解压（staging swap）
 │   │   └── author_affiliations.py  # TeX 作者-单位解析
-│   ├── ingestion/              # 入口编排
-│   │   ├── __init__.py         # 导出 ingest_paper
-│   │   ├── pipeline.py         # 公共 API（LaTeX 入口；HTML 拒绝并指引 orchestrator）
-│   │   ├── orchestrator.py     # IR 管道编排器（远程 HTML 路径）
+│   ├── ingestion/              # 入口编排（四路输入统一 (params, query, sections, dir) 签名）
+│   │   ├── __init__.py         # 导出 ingest_paper（= LaTeX 入口）
+│   │   ├── orchestrator.py     # IR 管道编排器（远程 HTML 路径，三阶段 run()）
 │   │   ├── _builders.py        # build_html_document / build_latex_document（共享构建）
 │   │   ├── ir_finalize.py      # 共享尾部：emit_split_markdown / finalize_ingestion_output
+│   │   ├── persist.py          # 结果落盘业务层：质量门/命名/写盘/PDF/manifest
 │   │   ├── latex.py            # 远程 LaTeX 流程（走 IR）
 │   │   ├── local.py            # 本地 TeX/HTML 归档（走 IR）
 │   │   └── local_html.py       # 本地 HTML 文件（走 IR）
 │   ├── citations/              # 引用解析（bibtex 子命令专用旁路，不接入 convert 主流程）
 │   │   ├── models.py
 │   │   ├── resolver.py
-│   │   ├── formatter.py
+│   │   ├── formatter.py        # generate_citation_key 及共享 key 清洗函数
 │   │   └── html_parser.py
 │   ├── images/                 # 图片处理
 │   │   ├── processor.py        # process_images_async：下载 / PDF→PNG / TikZ / EPS
 │   │   └── extract.py          # 仅提取图片的 CLI/API 入口
 │   ├── network/                # HTTP 客户端、arXiv API、Crossref、OpenAlex
-│   │   └── retry.py            # 共享 best-effort 重试循环（指数退避）
+│   │   └── retry.py            # 共享重试循环（strict_http_retry_loop，指数退避）
 │   ├── output/                 # 输出格式化、目录布局、metadata、结构化导出
-│   ├── query/                  # 查询解析
+│   ├── query/                  # 查询解析（parser.py、sections.py）
 │   ├── schemas/                # Pydantic 数据模型
 │   ├── settings/               # 配置加载与 schema
 │   └── utils/                  # 日志、进度、文件兼容、辅助函数
