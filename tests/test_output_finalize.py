@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from arxiv2md_beta.cli.output_finalize import (
-    emit_result_json_line,
+from arxiv2md_beta.cli.output_finalize import emit_result_json_line
+from arxiv2md_beta.cli.params import ConvertParams
+from arxiv2md_beta.ingestion.persist import (
     format_output,
     resolve_paper_output_dir,
     write_split_markdown_sidecars,
 )
-from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.output.layout import build_output_basename
 from arxiv2md_beta.schemas import IngestionResult
 
@@ -138,7 +138,7 @@ async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
         emit_graph_csv=False,
     )
     with patch(
-        "arxiv2md_beta.cli.output_finalize.fetch_arxiv_pdf",
+        "arxiv2md_beta.ingestion.persist.fetch_arxiv_pdf",
         new=AsyncMock(return_value=None),
     ):
         out = await finalize_convert_output(
@@ -231,7 +231,7 @@ async def test_pdf_only_bypasses_stub_gate_and_downloads_pdf(tmp_path: Path) -> 
         return output_path
 
     with patch(
-        "arxiv2md_beta.cli.output_finalize.fetch_arxiv_pdf",
+        "arxiv2md_beta.ingestion.persist.fetch_arxiv_pdf",
         new=AsyncMock(side_effect=fake_pdf),
     ):
         out = await finalize_convert_output(
@@ -280,7 +280,7 @@ async def test_pdf_only_records_no_pdf_path_when_download_fails(tmp_path: Path) 
         emit_graph_csv=False,
     )
     with patch(
-        "arxiv2md_beta.cli.output_finalize.fetch_arxiv_pdf",
+        "arxiv2md_beta.ingestion.persist.fetch_arxiv_pdf",
         new=AsyncMock(side_effect=NetworkError("network down", status_code=503)),
     ):
         out = await finalize_convert_output(

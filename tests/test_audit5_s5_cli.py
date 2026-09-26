@@ -121,25 +121,25 @@ class TestManifestStubStatus:
         return s.model_copy(update={"output": s.output.model_copy(update={"allow_stub": allow_stub})})
 
     def test_settings_level_allow_stub_marks_allowed_stub(self) -> None:
-        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+        from arxiv2md_beta.ingestion.persist import _manifest_stub_status
 
         status = _manifest_stub_status("too short", cli_allow_stub=False, settings=self._settings(True))
         assert status == "allowed_stub"
 
     def test_cli_flag_still_marks_allowed_stub(self) -> None:
-        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+        from arxiv2md_beta.ingestion.persist import _manifest_stub_status
 
         status = _manifest_stub_status("too short", cli_allow_stub=True, settings=self._settings(False))
         assert status == "allowed_stub"
 
     def test_stub_disallowed_marks_ok(self) -> None:
-        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+        from arxiv2md_beta.ingestion.persist import _manifest_stub_status
 
         status = _manifest_stub_status("too short", cli_allow_stub=False, settings=self._settings(False))
         assert status == "ok"
 
     def test_real_output_marks_ok_even_when_allowed(self) -> None:
-        from arxiv2md_beta.cli.output_finalize import _manifest_stub_status
+        from arxiv2md_beta.ingestion.persist import _manifest_stub_status
 
         status = _manifest_stub_status("x" * 20000, cli_allow_stub=True, settings=self._settings(True))
         assert status == "ok"
