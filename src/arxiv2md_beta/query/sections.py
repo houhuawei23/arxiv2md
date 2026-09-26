@@ -1,4 +1,4 @@
-"""Small CLI helpers shared by Typer commands."""
+"""Section-filter input collection (CLI string / repeated flag → list)."""
 
 from __future__ import annotations
 

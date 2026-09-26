@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arxiv2md_beta.cli.helpers import collect_sections
 from arxiv2md_beta.cli.output_finalize import finalize_convert_output
 from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.ingestion import ingest_paper
@@ -33,6 +32,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_archive,
     parse_local_html,
 )
+from arxiv2md_beta.query.sections import collect_sections
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger

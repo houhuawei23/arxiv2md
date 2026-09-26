@@ -47,6 +47,8 @@ from arxiv2md_beta.output.markdown_utils import (
 from arxiv2md_beta.output.metadata import save_paper_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.params import ConvertParams
+from arxiv2md_beta.query.parser import parse_arxiv_input
+from arxiv2md_beta.query.sections import collect_sections
 from arxiv2md_beta.schemas import IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
@@ -252,8 +254,6 @@ class IngestionOrchestrator:
         return result, metadata
 
     def _parse_query(self) -> None:
-        from arxiv2md_beta.query.parser import parse_arxiv_input
-
         self._query = parse_arxiv_input(self.params.input_text.strip())
 
     # ── Step 1: Fetch HTML ─────────────────────────────────────────────
@@ -327,8 +327,6 @@ class IngestionOrchestrator:
     # ── Step 4: Filter sections ────────────────────────────────────────
 
     def _filter_sections(self) -> None:
-        from arxiv2md_beta.cli.helpers import collect_sections
-
         self._selected_sections = collect_sections(self.params.sections, self.params.section)
 
         # Determine whether abstract should be included
