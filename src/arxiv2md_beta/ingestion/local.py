@@ -314,31 +314,23 @@ async def _ingest_html_archive(
 
     arxiv_id = query.archive_path.stem
 
-    # Build IR via HTMLBuilder (consumes the same ParsedArxivHtml as the remote
-    # HTML orchestrator).
-    def _build_ir() -> DocumentIR:
-        from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
-        from arxiv2md_beta.ir import HTMLBuilder
-        from arxiv2md_beta.ir.resolvers import ImageResolver
-        from arxiv2md_beta.ir.transforms import build_default_pipeline
-        from arxiv2md_beta.settings import get_settings
-
-        doc = HTMLBuilder(image_resolver=ImageResolver(stem_map=image_stem_map), images_subdir=images_dir_name).build(
-            parsed, arxiv_id=arxiv_id
-        )
-        pipeline = build_default_pipeline(
-            parser="html",
-            section_filter_mode=section_filter_mode,
-            selected_sections=sections,
-            remove_refs=remove_refs,
-            reference_section_titles=get_settings().ingestion.reference_section_titles,
-        )
-        pipeline.run(doc)
-        persist_inline_svgs(doc, paper_output_dir)
-        return doc
+    # Build IR via the shared HTML build step (consumes the same
+    # ParsedArxivHtml as the remote HTML orchestrator).
 
     try:
-        doc = await asyncio.to_thread(_build_ir)
+        from arxiv2md_beta.ingestion._builders import build_html_document
+
+        doc = await asyncio.to_thread(
+            build_html_document,
+            parsed,
+            arxiv_id=arxiv_id,
+            image_stem_map=image_stem_map,
+            images_subdir=images_dir_name,
+            section_filter_mode=section_filter_mode,
+            sections=sections,
+            remove_refs=remove_refs,
+            paper_output_dir=paper_output_dir,
+        )
     except Exception as e:
         raise LocalIngestionError(f"Failed to build IR: {e}") from e
 

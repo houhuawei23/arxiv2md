@@ -16,9 +16,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arxiv2md_beta.ir.assets import SvgAsset
+from arxiv2md_beta.ir.blocks import FigureIR
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.ir.emitters.markdown import MarkdownEmitter
+from arxiv2md_beta.ir.inlines import ImageRefIR
 from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
+from arxiv2md_beta.ir.visitor import iter_block_descendants, iter_inline_lists
+from arxiv2md_beta.output.markdown_postprocess import finalize_markdown
+from arxiv2md_beta.settings import get_settings
 
 # Top-level bullet ("- " / "* " at column 0) marks a reference entry start.
 # Continuation / wrapped lines never begin with a bullet at column 0, so this
@@ -77,11 +83,6 @@ def emit_split_markdown(
     returned strings are the final Markdown -- no further postprocessing is
     needed at the CLI layer.
     """
-    # Lazy imports: markdown_postprocess pulls in settings, which would create
-    # an import cycle if loaded at module init (ingestion package -> cli).
-    from arxiv2md_beta.output.markdown_postprocess import finalize_markdown
-    from arxiv2md_beta.settings import get_settings
-
     if include_anchors is None:
         include_anchors = get_settings().output.include_anchors
     emitter = MarkdownEmitter(
@@ -124,8 +125,6 @@ def persist_inline_svgs(doc: DocumentIR, output_dir: Path) -> int:
     ``.svg`` files. Falls back to writing the raw ``.svg`` when conversion is
     unavailable. Returns the number of assets persisted (PNG or SVG).
     """
-    from arxiv2md_beta.ir.assets import SvgAsset
-
     written = 0
     for asset in doc.assets:
         if not isinstance(asset, SvgAsset) or not asset.content:
@@ -248,9 +247,6 @@ def _rasterize_svg_cairo(svg_content: str, png_path: Path, scale: float) -> bool
 
 def _repoint_svg_srcs(doc: DocumentIR, old_src: str, new_src: str) -> None:
     """Rewrite every ``ImageRefIR`` pointing at *old_src* to *new_src*."""
-    from arxiv2md_beta.ir.blocks import FigureIR
-    from arxiv2md_beta.ir.inlines import ImageRefIR
-    from arxiv2md_beta.ir.visitor import iter_block_descendants, iter_inline_lists
 
     def walk_sections(sections):
         for sec in sections:

@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
+from arxiv2md_beta.ir import HTMLBuilder, LaTeXBuilder
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
 from arxiv2md_beta.ir.transforms import build_default_pipeline
@@ -44,9 +46,6 @@ def build_html_document(
     paper_output_dir: Path,
 ) -> DocumentIR:
     """Parse already-extracted arXiv HTML into a transformed ``DocumentIR``."""
-    from arxiv2md_beta.ingestion.ir_finalize import persist_inline_svgs
-    from arxiv2md_beta.ir import HTMLBuilder
-
     doc = HTMLBuilder(
         image_resolver=ImageResolver(stem_map=image_stem_map),
         images_subdir=images_subdir,
@@ -71,8 +70,6 @@ def build_latex_document(
     remove_refs: bool,
 ) -> DocumentIR:
     """Parse resolved LaTeX source into a transformed ``DocumentIR``."""
-    from arxiv2md_beta.ir import LaTeXBuilder
-
     doc = LaTeXBuilder(image_resolver=ImageResolver(path_map=image_path_map)).build(
         tex_content,
         arxiv_id=arxiv_id,
