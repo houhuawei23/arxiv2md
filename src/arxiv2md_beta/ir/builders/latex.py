@@ -746,13 +746,6 @@ class LaTeXBuilder(IRBuilder):
         return False
 
     @staticmethod
-    def _is_reference_title(title: str) -> bool:
-        """Return True if *title* looks like a References / Bibliography heading."""
-        normalized = title.strip().lower().rstrip(".")
-        ref_titles = {"references", "bibliography", "reference", "works cited", "literature"}
-        return normalized in ref_titles
-
-    @staticmethod
     def _is_raw_cite_command(content: str) -> bool:
         """Return True if *content* is a raw LaTeX cite-like command."""
         return bool(
@@ -1260,7 +1253,6 @@ class LaTeXBuilder(IRBuilder):
             attrs = c_list[0] if len(c_list) > 0 else ["", [], []]
             inner = self._inlines_from_pandoc(c_list[1] if len(c_list) > 1 else [])
             anchor = _pandoc_attrs_id(attrs)
-            _pandoc_attrs_classes(attrs)
             if anchor:
                 inner.insert(0, RawInlineIR(format="html", content=f'<a id="{anchor}"></a>'))
             return inner

@@ -9,12 +9,6 @@ from loguru import logger
 
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.arxiv_ids import strip_version
-
-
-def arxiv_base_id(arxiv_id: str) -> str:
-    """Strip version suffix from arXiv id."""
-    return strip_version(arxiv_id)
 
 
 def openalex_work_url_for_arxiv(base_id: str) -> str:

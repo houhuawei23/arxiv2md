@@ -65,25 +65,6 @@ class TestCleanMarkdownOutput:
         assert "    $$\n    x\n    $$" in result
 
 
-def test_apply_markdown_postprocessing() -> None:
-    from arxiv2md_beta.output.markdown_postprocess import apply_markdown_postprocessing
-
-    result = IngestionResult(
-        summary="summary",
-        sections_tree="tree",
-        content='<a id="S1"></a>\n$x\\,$',
-        content_references='<a id="ref-1"></a>',
-        content_appendix=None,
-    )
-    cleaned = apply_markdown_postprocessing(result, include_anchors=False)
-    assert "<a id=" not in cleaned.content
-    # Output is POSIX newline-terminated.
-    assert cleaned.content == "$x$\n"
-    # Output is POSIX newline-terminated.
-    assert cleaned.content_references == "\n"
-    assert cleaned.content_appendix is None
-
-
 class TestCleanMathAndSpacingEdges:
     """Locked-in behavior of _clean_math_and_spacing on delimiter edge cases."""
 

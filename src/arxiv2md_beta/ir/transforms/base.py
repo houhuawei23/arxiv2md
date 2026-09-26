@@ -34,7 +34,6 @@ class PassPipeline:
 
         pp = PassPipeline()
         pp.add(NumberingPass())
-        pp.add(AnchorPass())
         doc = pp.run(doc)
     """
 

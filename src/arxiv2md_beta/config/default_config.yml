@@ -88,12 +88,6 @@ images:
   # PDF→PNG process-pool workers, shared across a batch (0 = auto: min(4, cpus/2)).
   pdf_workers: 0
 
-markdown_svg:
-  foreignobject_default_width: 100.0
-  foreignobject_default_height: 14.0
-  font_size_min: 4.0
-  font_size_max_ratio: 0.65
-
 logging:
   console_format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
   file_format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"

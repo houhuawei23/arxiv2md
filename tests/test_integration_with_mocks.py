@@ -140,7 +140,6 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     from pathlib import Path
 
     from arxiv2md_beta.ir import (
-        AnchorPass,
         FigureReorderPass,
         LaTeXBuilder,
         MarkdownEmitter,
@@ -167,7 +166,6 @@ async def test_latex_ir_migration_flow_on_fixture(tmp_path):
     pp.add(SectionFilterPass(mode="exclude", selected=[]))
     pp.add(NumberingPass())
     pp.add(FigureReorderPass())
-    pp.add(AnchorPass())
     pp.run(doc)
 
     emitter = MarkdownEmitter()

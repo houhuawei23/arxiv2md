@@ -23,7 +23,6 @@ from arxiv2md_beta.exceptions import (
     PDFConversionError,
     PdfFallbackCompleted,
     StorageError,
-    TransformError,
     UserInputError,
 )
 
@@ -39,7 +38,6 @@ from arxiv2md_beta.exceptions import (
         (ParserNotAvailableError, 4),
         (IngestionError, 4),
         (BuilderError, 4),
-        (TransformError, 4),
         (EmitterError, 4),
         (EmptyContentError, 5),
         (StorageError, 6),

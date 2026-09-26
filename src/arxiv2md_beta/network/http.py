@@ -157,24 +157,3 @@ def run_async(coro: Awaitable[T]) -> T:
             shutdown_process_pool()
         except ImportError:  # pragma: no cover - optional images extras
             pass
-
-
-@asynccontextmanager
-async def async_http_client(
-    *,
-    timeout_s: float | None = None,
-) -> AsyncIterator[httpx.AsyncClient]:
-    """One AsyncClient per ``async with`` block; retries reuse the same pool.
-
-    If no custom timeout is requested, yields the shared module-level client.
-    Otherwise creates a dedicated client with the requested timeout.
-    """
-    if timeout_s is None:
-        yield get_http_client()
-        return
-
-    client = _build_client(timeout_s)
-    try:
-        yield client
-    finally:
-        await client.aclose()

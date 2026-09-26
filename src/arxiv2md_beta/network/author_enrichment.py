@@ -10,7 +10,8 @@ import httpx
 from loguru import logger
 
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
-from arxiv2md_beta.network.openalex_api import arxiv_base_id, fetch_openalex_work_for_arxiv
+from arxiv2md_beta.network.openalex_api import fetch_openalex_work_for_arxiv
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 
@@ -173,7 +174,7 @@ async def enrich_authors_with_abs_html_and_openalex(
 
     Safe no-op if requests fail or no extra data is found.
     """
-    base_id = arxiv_base_id(arxiv_id)
+    base_id = strip_version(arxiv_id)
     authors = metadata.get("authors")
     if not isinstance(authors, list) or not authors:
         return metadata

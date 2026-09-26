@@ -120,7 +120,6 @@ class TestNumberingPass:
 
 class TestPassPipeline:
     def test_pipeline(self):
-        from arxiv2md_beta.ir.transforms.anchor import AnchorPass
         from arxiv2md_beta.ir.transforms.base import PassPipeline
 
         doc = DocumentIR(
@@ -136,7 +135,6 @@ class TestPassPipeline:
 
         pp = PassPipeline()
         pp.add(NumberingPass())
-        pp.add(AnchorPass())
         doc = pp.run(doc)
 
         fig = doc.sections[0].blocks[0]

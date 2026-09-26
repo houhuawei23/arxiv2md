@@ -76,7 +76,6 @@ from arxiv2md_beta.ir.inlines import (  # noqa: F401
     TextIR,
 )
 from arxiv2md_beta.ir.transforms import (  # noqa: F401
-    AnchorPass,
     FigureReorderPass,
     IRPass,
     NumberingPass,
@@ -145,7 +144,6 @@ __all__ = [
     "IRPass",
     "PassPipeline",
     "NumberingPass",
-    "AnchorPass",
     "SectionFilterPass",
     "FigureReorderPass",
     "SectionNumberingPass",

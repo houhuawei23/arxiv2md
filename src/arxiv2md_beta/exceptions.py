@@ -106,12 +106,6 @@ class BuilderError(Arxiv2mdError):
     exit_code = 4
 
 
-class TransformError(Arxiv2mdError):
-    """IR transform pass failure (exit code 4)."""
-
-    exit_code = 4
-
-
 class EmitterError(Arxiv2mdError):
     """Markdown or JSON emitter failure (exit code 4)."""
 

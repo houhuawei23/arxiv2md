@@ -101,9 +101,8 @@ class SectionFilterPass(IRPass):
 
         if mode == "include":
             # Keep a non-matching parent when any of its (already filtered)
-            # children matched — same semantics as html/sections.filter_sections,
-            # so "Introduction / Introduction > Datasets" keeps the parent
-            # containing only the matched child.
+            # children matched, so "Introduction / Introduction > Datasets"
+            # keeps the parent containing only the matched child.
             return matches or bool(section.children)
         else:  # exclude
             return not matches

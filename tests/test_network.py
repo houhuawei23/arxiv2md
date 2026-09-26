@@ -8,7 +8,7 @@ from httpx import Response
 
 from arxiv2md_beta.exceptions import NetworkError, UserInputError
 from arxiv2md_beta.network.fetch import _cache_dir_for, _is_cache_fresh, fetch_arxiv_html
-from arxiv2md_beta.network.http import _build_client, async_http_client, get_http_client
+from arxiv2md_beta.network.http import _build_client, get_http_client
 from arxiv2md_beta.query.parser import parse_arxiv_input
 
 
@@ -28,10 +28,10 @@ class TestHttpClient:
         assert client.timeout.read == 60.0
 
     @pytest.mark.asyncio
-    async def test_async_http_client_context_manager(self):
-        """Test async context manager for HTTP client."""
-        async with async_http_client() as client:
-            assert client is not None
+    async def test_shared_client_available(self):
+        """The module-level shared client is constructed on demand."""
+        client = get_http_client()
+        assert client is not None
 
 
 class TestFetchArxivHtml:

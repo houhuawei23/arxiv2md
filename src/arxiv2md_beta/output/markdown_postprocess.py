@@ -296,35 +296,6 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
     return text.strip() + "\n"
 
 
-def apply_markdown_postprocessing(
-    result: IngestionResult,
-    *,
-    include_anchors: bool | None = None,
-) -> IngestionResult:
-    """Return a new :class:`IngestionResult` with final Markdown cleanup applied.
-
-    Deprecated: ``finalize_markdown`` now runs the full cleanup (format +
-    clean) at emission time (``emit_split_markdown``), so result fields are
-    already finalized when they reach the CLI layer. Retained for callers
-    that emit markdown outside the shared helper.
-    """
-    return result.model_copy(
-        update={
-            "content": clean_markdown_output(result.content, include_anchors=include_anchors),
-            "content_references": (
-                clean_markdown_output(result.content_references, include_anchors=include_anchors)
-                if result.content_references is not None
-                else None
-            ),
-            "content_appendix": (
-                clean_markdown_output(result.content_appendix, include_anchors=include_anchors)
-                if result.content_appendix is not None
-                else None
-            ),
-        }
-    )
-
-
 def finalize_markdown(text: str, *, include_anchors: bool | None = None) -> str:
     """Single-pass Markdown finalization: format then clean.
 

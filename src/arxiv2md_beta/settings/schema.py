@@ -179,13 +179,6 @@ class ImagesSection(BaseModel):
     )
 
 
-class MarkdownSvgSection(BaseModel):
-    foreignobject_default_width: float = Field(gt=0)
-    foreignobject_default_height: float = Field(gt=0)
-    font_size_min: float = Field(gt=0)
-    font_size_max_ratio: float = Field(gt=0, le=1)
-
-
 class LoggingSection(BaseModel):
     console_format: str
     file_format: str
@@ -242,7 +235,6 @@ class AppSettings(BaseModel):
     ingestion: IngestionSection
     parsing: ParsingSection
     images: ImagesSection
-    markdown_svg: MarkdownSvgSection
     logging: LoggingSection
     features: FeaturesSection
     output: OutputSection
