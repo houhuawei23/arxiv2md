@@ -58,35 +58,34 @@ arxiv2md-beta/
 │   │   ├── document.py         # DocumentIR / SectionIR / PaperMetadata
 │   │   ├── blocks.py           # BlockUnion 类型
 │   │   ├── inlines.py          # InlineUnion 类型
-│   │   ├── assets.py           # 图片 / SVG / 其他资源
+│   │   ├── assets.py           # 图片 / SVG 资源
 │   │   ├── builders/           # HTML / LaTeX Builder
-│   │   ├── emitters/           # Markdown / JSON / PlainText Emitter
-│   │   ├── transforms/         # Numbering / Anchor / SectionFilter / FigureReorder Pass
+│   │   ├── emitters/           # Markdown / JSON Emitter
+│   │   ├── transforms/         # Numbering / SectionFilter / FigureReorder Pass
 │   │   ├── resolvers/          # ImageResolver
-│   │   └── visitor.py          # IR 树 Visitor
-│   ├── html/                   # HTML 解析与 Markdown 转换（legacy 路径 + parser）
-│   │   ├── parser.py           # BeautifulSoup 解析器
-│   │   ├── markdown.py         # 旧版 HTML→Markdown 转换器（legacy，仅本地 HTML 用）
-│   │   └── sections.py         # section 过滤工具
+│   │   └── visitor.py          # IR 树遍历工具（child specs / collectors）
+│   ├── html/                   # arXiv HTML 解析
+│   │   └── parser.py           # BeautifulSoup 解析器（→ ParsedArxivHtml）
 │   ├── latex/                  # LaTeX 解析
-│   │   ├── parser.py           # Pandoc 包装与 Markdown 后处理
-│   │   ├── tex_source.py       # TeX 源下载与解压
-│   │   ├── author_affiliations.py
-│   │   └── structured.py       # LaTeX 结构化导出
+│   │   ├── includes.py         # \input/\include 递归展开
+│   │   ├── tex_source.py       # TeX 源下载 / 缓存 / 归档解压
+│   │   └── author_affiliations.py  # TeX 作者-单位解析
 │   ├── ingestion/              # 入口编排
 │   │   ├── __init__.py         # 导出 ingest_paper
-│   │   ├── pipeline.py         # 公共 API（HTML 委托 IR Orchestrator，LaTeX 委托 ingest_paper_latex）
-│   │   ├── orchestrator.py     # IR 管道编排器（HTML 默认路径）
-│   │   ├── latex.py            # LaTeX 流程（legacy）
-│   │   ├── local.py            # 本地 LaTeX 归档（legacy）
-│   │   └── local_html.py       # 本地 HTML 文件（legacy）
-│   ├── citations/              # 引用解析（实验性，未完全接入主流程）
+│   │   ├── pipeline.py         # 公共 API（LaTeX 入口；HTML 拒绝并指引 orchestrator）
+│   │   ├── orchestrator.py     # IR 管道编排器（远程 HTML 路径）
+│   │   ├── _builders.py        # build_html_document / build_latex_document（共享构建）
+│   │   ├── ir_finalize.py      # 共享尾部：emit_split_markdown / finalize_ingestion_output
+│   │   ├── latex.py            # 远程 LaTeX 流程（走 IR）
+│   │   ├── local.py            # 本地 TeX/HTML 归档（走 IR）
+│   │   └── local_html.py       # 本地 HTML 文件（走 IR）
+│   ├── citations/              # 引用解析（bibtex 子命令专用旁路，不接入 convert 主流程）
 │   │   ├── models.py
 │   │   ├── resolver.py
 │   │   ├── formatter.py
 │   │   └── html_parser.py
 │   ├── images/                 # 图片处理
-│   │   ├── resolver.py         # process_images / process_images_async
+│   │   ├── processor.py        # process_images_async：下载 / PDF→PNG / TikZ / EPS
 │   │   └── extract.py          # 仅提取图片的 CLI/API 入口
 │   ├── network/                # HTTP 客户端、arXiv API、Crossref、OpenAlex
 │   │   └── retry.py            # 共享 best-effort 重试循环（指数退避）
@@ -127,12 +126,19 @@ MarkdownEmitter / JsonEmitter → Markdown / JSON
 写入 Markdown 文件 + paper.yml + 结构化导出
 ```
 
-### 旧路径
+### 输入路径（四路，全部走 IR 管线）
 
-- `ingestion/latex.py`、`ingestion/local.py`、`ingestion/local_html.py`、`html/markdown.py`、`output/formatter.py`、`output/structured_export.py`、`ir/_legacy_blocks.py` 为旧版实现（LaTeX 与本地模式仍使用）。
-- 公共 API `ingest_paper()` 让 HTML 模式委托给 `IngestionOrchestrator`，LaTeX 委托给 `ingest_paper_latex`。
-- 已删除：`ingestion/html.py`、`ingestion/ir_pipeline.py`、`html/serializers/`、`--legacy` CLI flag。
-- 长期目标：LaTeX/本地迁移到 IR 后删除剩余旧路径代码。详见 `docs/architecture.md`「已知技术债」。
+四种输入（远程 HTML / 远程 LaTeX / 本地归档 / 本地 HTML）共享同一套
+`Builder → PassPipeline → Emitter`，构建入口统一在 `ingestion/_builders.py`
+与 `ingestion/orchestrator.py`，收尾统一在 `ingestion/ir_finalize.py`。
+`ingest_paper()` 现仅是 LaTeX 入口（HTML 需用 `IngestionOrchestrator`）。
+
+- 已删除的旧实现：`ingestion/html.py`、`ingestion/ir_pipeline.py`、
+  `html/markdown.py`、`html/sections.py`、`html/serializers/`、
+  `output/formatter.py`、`output/structured_export.py`、
+  `latex/parser.py`、`latex/structured.py`、`ir/_legacy_blocks.py`、
+  `ir/transforms/anchor.py`、`--legacy` CLI flag。
+- 剩余技术债见 `docs/architecture.md`「已知技术债」。
 
 ## 构建和安装
 
