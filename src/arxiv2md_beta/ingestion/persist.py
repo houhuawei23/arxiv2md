@@ -17,7 +17,12 @@ import httpx
 
 from arxiv2md_beta.exceptions import NetworkError
 from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
-from arxiv2md_beta.output.layout import FIXED_INTERNAL_SCHEMES, build_output_basename, create_paper_output_dir
+from arxiv2md_beta.output.layout import (
+    FIXED_INTERNAL_SCHEMES,
+    build_output_basename,
+    create_paper_output_dir,
+    determine_output_dir,
+)
 from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
 from arxiv2md_beta.output.markdown_utils import count_tokens
 from arxiv2md_beta.output.quality_gate import ensure_not_stub, is_stub
@@ -153,6 +158,53 @@ async def _download_pdf_to(pdf_path: Path, arxiv_id: str, version: str | None, p
     except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
         logger.warning(f"Failed to download PDF: {e}")
         return False
+
+
+async def pdf_fallback_output(
+    *,
+    query,
+    params: ConvertParams,
+) -> Path:
+    """TeX pipeline failed: create the output dir and download the arXiv PDF.
+
+    No Markdown is written (so the idempotency check will not treat this as a
+    completed conversion). Business twin of :func:`_finalize_pdf_only_output`
+    (that one handles papers with no HTML at all; this one handles a TeX
+    conversion failure) — both live here so the "PDF-only output dir" shape
+    stays in one module.
+    """
+    from arxiv2md_beta.network.arxiv_api import submission_date_from_new_style_arxiv_id
+    from arxiv2md_beta.output.layout import create_paper_output_dir
+
+    base_output_dir = determine_output_dir(params.output)
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    submission_date = submission_date_from_new_style_arxiv_id(query.arxiv_id)
+    paper_output_dir = create_paper_output_dir(
+        base_output_dir,
+        submission_date,
+        None,  # title unknown without a metadata round-trip; keep fast-fail
+        source=params.source,
+        short=params.short,
+        identity=query.arxiv_id,
+    )
+    pdf_path = paper_output_dir / f"{paper_output_dir.name}.pdf"
+    await fetch_arxiv_pdf(query.arxiv_id, pdf_path, query.version, use_cache=not params.no_cache)
+
+    manifest = build_paper_manifest(
+        arxiv_id=query.arxiv_id,
+        title=None,
+        submission_date=submission_date,
+        source_url=f"https://arxiv.org/abs/{query.arxiv_id}",
+        pdf_path=str(pdf_path),
+        markdown_file=None,
+        output_text="",
+        parser=params.parser,
+        naming_scheme=params.naming_scheme or get_settings().output_naming.naming_scheme,
+        duration_seconds=None,
+        status="pdf_fallback",
+    )
+    write_paper_manifest(paper_output_dir, manifest)
+    return paper_output_dir
 
 
 async def _finalize_pdf_only_output(

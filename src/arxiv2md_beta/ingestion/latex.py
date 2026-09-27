@@ -122,7 +122,7 @@ async def ingest_paper(
             raise ParseError(f"Failed to parse LaTeX: {e}") from e
 
         # Shared finalize tail: split Markdown emission + paper.yml + structured export.
-        from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
+        from arxiv2md_beta.ingestion.ir_finalize import FinalizeContext, finalize_ingestion_output
 
         merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
         # Same off-loop treatment as the local-archive paths (markdown emission,
@@ -130,16 +130,14 @@ async def ingest_paper(
         result, metadata = await asyncio.to_thread(
             finalize_ingestion_output,
             doc,
-            arxiv_id=arxiv_id,
-            version=version,
-            paper_output_dir=paper_output_dir,
-            paper_yml_data=dict(api_metadata),
-            linked_citations=params.linked_citations,
-            remove_inline_citations=params.remove_inline_citations,
-            structured_output=params.structured_output,
-            emit_graph_csv=params.emit_graph_csv,
-            images_subdir=images_dir_name,
-            extra_metadata={"submission_date": submission_date},
-            include_anchors=params.include_anchors,
+            FinalizeContext(
+                params=params,
+                arxiv_id=arxiv_id,
+                paper_output_dir=paper_output_dir,
+                paper_yml_data=dict(api_metadata),
+                images_subdir=images_dir_name,
+                version=version,
+                extra_metadata={"submission_date": submission_date},
+            ),
         )
         return result, metadata

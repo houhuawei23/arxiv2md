@@ -21,7 +21,7 @@ from arxiv2md_beta.exceptions import (
 )
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
 from arxiv2md_beta.images.processor import process_images_async
-from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
+from arxiv2md_beta.ingestion.ir_finalize import FinalizeContext, finalize_ingestion_output
 from arxiv2md_beta.ir import HTMLBuilder
 from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
@@ -160,18 +160,16 @@ class IngestionOrchestrator:
             result, metadata = await asyncio.to_thread(
                 finalize_ingestion_output,
                 self._doc,
-                arxiv_id=self._query.arxiv_id,
-                paper_output_dir=self._paper_output_dir,
-                paper_yml_data=self._build_paper_yml_data(),
-                version=self._query.version,
-                linked_citations=self.params.linked_citations,
-                remove_inline_citations=self.params.remove_inline_citations,
-                structured_output=self.params.structured_output,
-                emit_graph_csv=self.params.emit_graph_csv,
-                images_subdir=self._images_dir_name,
-                extra_metadata={"submission_date": self._submission_date},
-                include_anchors=self.params.include_anchors,
-                include_abstract_in_tree=self._include_abstract and bool(self._parsed.abstract),
+                FinalizeContext(
+                    params=self.params,
+                    arxiv_id=self._query.arxiv_id,
+                    paper_output_dir=self._paper_output_dir,
+                    paper_yml_data=self._build_paper_yml_data(),
+                    images_subdir=self._images_dir_name,
+                    version=self._query.version,
+                    extra_metadata={"submission_date": self._submission_date},
+                    include_abstract_in_tree=self._include_abstract and bool(self._parsed.abstract),
+                ),
             )
         result.performance = self._performance.snapshot()
         metadata["performance"] = result.performance

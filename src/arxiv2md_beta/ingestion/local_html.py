@@ -97,31 +97,29 @@ async def ingest_local_html(
         raise LocalHtmlIngestionError(f"Failed to build IR: {e}") from e
 
     # Shared finalize tail: split Markdown emission + paper.yml + structured export.
-    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
+    from arxiv2md_beta.ingestion.ir_finalize import FinalizeContext, finalize_ingestion_output
 
     return await asyncio.to_thread(
         finalize_ingestion_output,
         doc,
-        arxiv_id=arxiv_id,
-        paper_output_dir=paper_output_dir,
-        paper_yml_data={
-            "title": doc.metadata.title or title,
-            "authors": [a.name for a in doc.metadata.authors],
-            "abstract": doc.metadata.abstract_text,
-            "submission_date": submission_date,
-            "source": source,
-            "html_path": str(query.html_path),
-        },
-        linked_citations=params.linked_citations,
-        remove_inline_citations=params.remove_inline_citations,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-        images_subdir=images_dir_name,
-        extra_metadata={
-            "submission_date": submission_date,
-            "html_path": str(query.html_path),
-        },
-        include_anchors=params.include_anchors,
+        FinalizeContext(
+            params=params,
+            arxiv_id=arxiv_id,
+            paper_output_dir=paper_output_dir,
+            paper_yml_data={
+                "title": doc.metadata.title or title,
+                "authors": [a.name for a in doc.metadata.authors],
+                "abstract": doc.metadata.abstract_text,
+                "submission_date": submission_date,
+                "source": source,
+                "html_path": str(query.html_path),
+            },
+            images_subdir=images_dir_name,
+            extra_metadata={
+                "submission_date": submission_date,
+                "html_path": str(query.html_path),
+            },
+        ),
     )
 
 

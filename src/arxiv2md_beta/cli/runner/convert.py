@@ -211,48 +211,19 @@ def _select_spec(input_text: str, params: ConvertParams) -> tuple[_ModeSpec, str
 async def _pdf_fallback_flow(query, params: ConvertParams, reason: Exception) -> Path:
     """TeX pipeline failed: download the arXiv PDF and point at mineru.
 
-    No Markdown is written (so the idempotency check will not treat this as a
-    completed conversion) and :class:`PdfFallbackCompleted` (exit 7) is raised
-    so scripts can tell "PDF ready, needs external parsing" from a plain
-    failure.
+    Business shape (dir + PDF + manifest) lives in
+    :func:`arxiv2md_beta.ingestion.persist.pdf_fallback_output`; this CLI
+    wrapper only talks to the user and raises the typed partial-success
+    signal :class:`PdfFallbackCompleted` (exit 7) so scripts can tell
+    "PDF ready, needs external parsing" from a plain failure.
     """
-    from arxiv2md_beta.exceptions import PdfFallbackCompleted
-    from arxiv2md_beta.network.arxiv_api import submission_date_from_new_style_arxiv_id
-    from arxiv2md_beta.network.fetch import fetch_arxiv_pdf
-    from arxiv2md_beta.output.layout import create_paper_output_dir
-    from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
-    from arxiv2md_beta.settings import get_settings as _get_settings
-
-    base_output_dir = determine_output_dir(params.output)
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-    submission_date = submission_date_from_new_style_arxiv_id(query.arxiv_id)
-    paper_output_dir = create_paper_output_dir(
-        base_output_dir,
-        submission_date,
-        None,  # title unknown without a metadata round-trip; keep fast-fail
-        source=params.source,
-        short=params.short,
-        identity=query.arxiv_id,
-    )
-    pdf_path = paper_output_dir / f"{paper_output_dir.name}.pdf"
-    await fetch_arxiv_pdf(query.arxiv_id, pdf_path, query.version, use_cache=not params.no_cache)
-
-    manifest = build_paper_manifest(
-        arxiv_id=query.arxiv_id,
-        title=None,
-        submission_date=submission_date,
-        source_url=f"https://arxiv.org/abs/{query.arxiv_id}",
-        pdf_path=str(pdf_path),
-        markdown_file=None,
-        output_text="",
-        parser=params.parser,
-        naming_scheme=params.naming_scheme or _get_settings().output_naming.naming_scheme,
-        duration_seconds=None,
-        status="pdf_fallback",
-    )
-    write_paper_manifest(paper_output_dir, manifest)
-
     import typer
+
+    from arxiv2md_beta.exceptions import PdfFallbackCompleted
+    from arxiv2md_beta.ingestion.persist import pdf_fallback_output
+
+    paper_output_dir = await pdf_fallback_output(query=query, params=params)
+    pdf_path = paper_output_dir / f"{paper_output_dir.name}.pdf"
 
     typer.echo(f"TeX source unavailable ({reason}).", err=True)
     typer.echo(f"PDF downloaded to: {pdf_path}", err=True)

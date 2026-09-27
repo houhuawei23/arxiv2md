@@ -84,6 +84,44 @@ async def ingest_local_archive(
             )
 
 
+async def _finalize_local_archive(
+    doc: DocumentIR,
+    *,
+    params: ConvertParams,
+    query: LocalArchiveQuery,
+    arxiv_id: str,
+    paper_output_dir: Path,
+    title: str | None,
+    images_dir_name: str,
+) -> tuple[IngestionResult, dict[str, Any]]:
+    """Shared finalize tail for both local-archive flavors (TeX and HTML).
+
+    Split Markdown emission + paper.yml + structured export; the yml data
+    and metadata carry the archive path both flavors share.
+    """
+    from arxiv2md_beta.ingestion.ir_finalize import FinalizeContext, finalize_ingestion_output
+
+    ctx = FinalizeContext(
+        params=params,
+        arxiv_id=arxiv_id,
+        paper_output_dir=paper_output_dir,
+        paper_yml_data={
+            "title": doc.metadata.title or title,
+            "authors": [a.name for a in doc.metadata.authors],
+            "abstract": doc.metadata.abstract_text,
+            "submission_date": query.submission_date,
+            "source": params.source,
+            "archive_path": str(query.archive_path),
+        },
+        images_subdir=images_dir_name,
+        extra_metadata={
+            "submission_date": query.submission_date,
+            "archive_path": str(query.archive_path),
+        },
+    )
+    return await asyncio.to_thread(finalize_ingestion_output, doc, ctx)
+
+
 async def _ingest_latex_archive(
     params: ConvertParams,
     query: LocalArchiveQuery,
@@ -165,32 +203,14 @@ async def _ingest_latex_archive(
     except Exception as e:
         raise LocalIngestionError(f"Failed to parse LaTeX: {e}") from e
 
-    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
-    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
-
-    return await asyncio.to_thread(
-        finalize_ingestion_output,
+    return await _finalize_local_archive(
         doc,
+        params=params,
+        query=query,
         arxiv_id=arxiv_id,
         paper_output_dir=paper_output_dir,
-        paper_yml_data={
-            "title": doc.metadata.title or title,
-            "authors": [a.name for a in doc.metadata.authors],
-            "abstract": doc.metadata.abstract_text,
-            "submission_date": query.submission_date,
-            "source": params.source,
-            "archive_path": str(query.archive_path),
-        },
-        linked_citations=params.linked_citations,
-        remove_inline_citations=params.remove_inline_citations,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-        images_subdir=images_dir_name,
-        extra_metadata={
-            "submission_date": query.submission_date,
-            "archive_path": str(query.archive_path),
-        },
-        include_anchors=params.include_anchors,
+        title=title,
+        images_dir_name=images_dir_name,
     )
 
 
@@ -268,32 +288,14 @@ async def _ingest_html_archive(
     except Exception as e:
         raise LocalIngestionError(f"Failed to build IR: {e}") from e
 
-    # Shared finalize tail: split Markdown emission + paper.yml + structured export.
-    from arxiv2md_beta.ingestion.ir_finalize import finalize_ingestion_output
-
-    return await asyncio.to_thread(
-        finalize_ingestion_output,
+    return await _finalize_local_archive(
         doc,
+        params=params,
+        query=query,
         arxiv_id=arxiv_id,
         paper_output_dir=paper_output_dir,
-        paper_yml_data={
-            "title": doc.metadata.title or title,
-            "authors": [a.name for a in doc.metadata.authors],
-            "abstract": doc.metadata.abstract_text,
-            "submission_date": query.submission_date,
-            "source": params.source,
-            "archive_path": str(query.archive_path),
-        },
-        linked_citations=params.linked_citations,
-        remove_inline_citations=params.remove_inline_citations,
-        structured_output=params.structured_output,
-        emit_graph_csv=params.emit_graph_csv,
-        images_subdir=images_dir_name,
-        extra_metadata={
-            "submission_date": query.submission_date,
-            "archive_path": str(query.archive_path),
-        },
-        include_anchors=params.include_anchors,
+        title=title,
+        images_dir_name=images_dir_name,
     )
 
 

@@ -13,6 +13,7 @@ references/appendix output). Both steps live here once now.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from arxiv2md_beta.ir.inlines import ImageRefIR
 from arxiv2md_beta.ir.transforms.section_filter import split_ir_sections
 from arxiv2md_beta.ir.visitor import iter_block_descendants, iter_inline_lists
 from arxiv2md_beta.output.markdown_postprocess import finalize_markdown
+from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.settings import get_settings
 
 # Top-level bullet ("- " / "* " at column 0) marks a reference entry start.
@@ -263,21 +265,29 @@ def _repoint_svg_srcs(doc: DocumentIR, old_src: str, new_src: str) -> None:
                     il.src = new_src
 
 
+@dataclass
+class FinalizeContext:
+    """Everything the shared finalize tail needs.
+
+    Flag-style options (linked citations, structured export, anchors, …)
+    ride along in ``params`` so a new ConvertParams flag needs no change at
+    any call site; the remaining fields are the facts only the ingestion
+    entry knows (ids, dirs, path-specific yml data).
+    """
+
+    params: ConvertParams
+    arxiv_id: str
+    paper_output_dir: Path
+    paper_yml_data: dict[str, Any]
+    images_subdir: str
+    version: str | None = None
+    extra_metadata: dict[str, Any] = field(default_factory=dict)
+    include_abstract_in_tree: bool | None = None
+
+
 def finalize_ingestion_output(
     doc: DocumentIR,
-    *,
-    arxiv_id: str,
-    paper_output_dir: Path,
-    paper_yml_data: dict[str, Any],
-    version: str | None = None,
-    linked_citations: bool = False,
-    remove_inline_citations: bool = False,
-    structured_output: str = "none",
-    emit_graph_csv: bool = False,
-    images_subdir: str,
-    extra_metadata: dict[str, Any] | None = None,
-    include_abstract_in_tree: bool | None = None,
-    include_anchors: bool | None = None,
+    ctx: FinalizeContext,
 ) -> tuple[Any, dict[str, Any]]:
     """Shared ingestion tail: emit Markdown, build result, write paper.yml + structured JSON.
 
@@ -287,7 +297,11 @@ def finalize_ingestion_output(
     LaTeX paths forgot to forward ``remove_inline_citations`` /
     ``linked_citations``).
 
-    ``include_abstract_in_tree`` controls whether the ``Abstract`` line
+    Flag-style options (linked citations, structured export, anchors, …)
+    come straight from ``ctx.params`` — adding a new ConvertParams flag no
+    longer means forwarding it through every call site by hand.
+
+    ``ctx.include_abstract_in_tree`` controls whether the ``Abstract`` line
     appears in the sections tree. ``None`` (the default) derives it from
     ``doc.metadata.abstract_text``; the HTML orchestrator passes the
     section-filter decision explicitly (an ``Abstract``-filtered conversion
@@ -307,13 +321,17 @@ def finalize_ingestion_output(
     from arxiv2md_beta.schemas import IngestionResult
     from arxiv2md_beta.settings import get_settings
 
+    arxiv_id = ctx.arxiv_id
+    version = ctx.version
+    p = ctx.params
+
     reference_section_titles = get_settings().ingestion.reference_section_titles
     content, content_references, content_appendix = emit_split_markdown(
         doc,
         reference_section_titles=reference_section_titles,
-        linked_citations=linked_citations,
-        remove_inline_citations=remove_inline_citations,
-        include_anchors=include_anchors,
+        linked_citations=p.linked_citations,
+        remove_inline_citations=p.remove_inline_citations,
+        include_anchors=p.include_anchors,
     )
 
     m = doc.metadata
@@ -333,7 +351,7 @@ def finalize_ingestion_output(
             affils = ", ".join(author.affiliations) if author.affiliations else ""
             summary_lines.append(f"  - {author.name} — {affils}" if affils else f"  - {author.name}")
     summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
-    show_abstract = bool(m.abstract_text) if include_abstract_in_tree is None else include_abstract_in_tree
+    show_abstract = bool(m.abstract_text) if ctx.include_abstract_in_tree is None else ctx.include_abstract_in_tree
     tree_lines = ["Sections:"]
     if show_abstract:
         tree_lines.append("Abstract")
@@ -355,26 +373,26 @@ def finalize_ingestion_output(
     # (output/metadata.py) — no wrapper needed here.
     from arxiv2md_beta.output.metadata import save_paper_metadata
 
-    save_paper_metadata(paper_yml_data, paper_output_dir)
+    save_paper_metadata(ctx.paper_yml_data, ctx.paper_output_dir)
 
     structured_export = run_structured_export(
         doc,
-        paper_output_dir,
-        mode=structured_output,
-        emit_graph_csv=emit_graph_csv,
-        images_subdir=images_subdir,
+        ctx.paper_output_dir,
+        mode=p.structured_output,
+        emit_graph_csv=p.emit_graph_csv,
+        images_subdir=ctx.images_subdir,
     )
 
     metadata: dict[str, Any] = {
         "title": result_title,
         "authors": author_names,
         "abstract": m.abstract_text,
-        "paper_output_dir": paper_output_dir,
+        "paper_output_dir": ctx.paper_output_dir,
         "arxiv_id": arxiv_id,
         "structured_export": structured_export,
     }
-    if extra_metadata:
-        metadata.update(extra_metadata)
+    if ctx.extra_metadata:
+        metadata.update(ctx.extra_metadata)
     return result, metadata
 
 
