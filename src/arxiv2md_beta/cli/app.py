@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn, TypeVar
 
 import typer
 from rich.console import Console
@@ -72,13 +73,31 @@ def _version_callback(show_version: bool) -> None:
         raise typer.Exit()
 
 
-def _handle_command_error(logger: Logger, exc: BaseException) -> None:
+def _handle_command_error(logger: Logger, exc: BaseException) -> NoReturn:
     """Map typed errors to exit codes; generic exceptions exit with 1."""
     if isinstance(exc, Arxiv2mdError):
         logger.error(f"Error: {exc}")
         raise typer.Exit(code=exc.exit_code) from exc
     logger.error(f"Error: {exc}")
     raise typer.Exit(code=1) from exc
+
+
+_T = TypeVar("_T")
+
+
+def _run_command(body: Callable[[], _T]) -> _T:
+    """Run one command body, mapping errors to exit codes.
+
+    Shared guard for every command: ``typer.Exit`` / ``KeyboardInterrupt``
+    pass through untouched, everything else is logged and mapped to its
+    typed exit code (generic failures exit 1).
+    """
+    try:
+        return body()
+    except (typer.Exit, KeyboardInterrupt):
+        raise
+    except BaseException as exc:
+        _handle_command_error(get_logger(), exc)
 
 
 @app.callback()
@@ -172,7 +191,6 @@ def convert_cmd(
     concurrency: int | None = CONCURRENCY_OPT,
 ) -> None:
     """Convert an arXiv paper or local TeX archive to Markdown."""
-    logger = get_logger()
     cli = apply_convert_cli_settings(
         parser=parser,
         source=source,
@@ -213,12 +231,7 @@ def convert_cmd(
         no_progress=cli.no_progress,
         concurrency=cli.concurrency,
     )
-    try:
-        run_convert_sync(params)
-    except BaseException as exc:
-        if isinstance(exc, typer.Exit | KeyboardInterrupt):
-            raise
-        _handle_command_error(logger, exc)
+    _run_command(lambda: run_convert_sync(params))
 
 
 @app.command("batch")
@@ -278,7 +291,6 @@ def batch_cmd(
     dry_run: bool = DRY_RUN_OPT,
 ) -> None:
     """Convert multiple papers listed in INPUT_FILE (same options as ``convert``)."""
-    logger = get_logger()
     cli = apply_convert_cli_settings(
         parser=parser,
         source=source,
@@ -318,18 +330,15 @@ def batch_cmd(
         no_progress=cli.no_progress,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
-    try:
-        results = run_batch_sync(
+    results = _run_command(
+        lambda: run_batch_sync(
             lines,
             params_template=template,
             max_concurrency=max_concurrency,
             continue_on_error=not fail_fast,
             delay_seconds=delay_seconds,
         )
-    except BaseException as exc:
-        if isinstance(exc, typer.Exit | KeyboardInterrupt):
-            raise
-        _handle_command_error(logger, exc)
+    )
 
     table = Table(title="batch results", show_lines=True)
     table.add_column("input", overflow="fold")
@@ -432,12 +441,7 @@ def paper_yml_cmd(
             output=output.strip(),
             force=force,
         )
-    try:
-        run_paper_yml_sync(params)
-    except BaseException as exc:
-        if isinstance(exc, typer.Exit | KeyboardInterrupt):
-            raise
-        _handle_command_error(logger, exc)
+    _run_command(lambda: run_paper_yml_sync(params))
 
 
 @app.command("images")
@@ -467,7 +471,6 @@ def images_cmd(
     ),
 ) -> None:
     """Extract and process figures from arXiv TeX source only (no Markdown)."""
-    logger = get_logger()
     s = get_settings()
     d = s.cli_defaults
     subdir = images_subdir if images_subdir is not None else d.images_subdir
@@ -477,12 +480,7 @@ def images_cmd(
         images_subdir=subdir,
         no_tex_cache=no_tex_cache,
     )
-    try:
-        run_images_sync(params)
-    except BaseException as exc:
-        if isinstance(exc, typer.Exit | KeyboardInterrupt):
-            raise
-        _handle_command_error(logger, exc)
+    _run_command(lambda: run_images_sync(params))
 
 
 app.add_typer(config_app, name="config")
@@ -516,8 +514,6 @@ def bibtex_cmd(
     )
     from arxiv2md_beta.network.fetch import fetch_arxiv_html
     from arxiv2md_beta.query.parser import parse_arxiv_input
-
-    logger = get_logger()
 
     async def _run() -> None:
         # Check if input is a local file
@@ -567,14 +563,12 @@ def bibtex_cmd(
         else:
             typer.echo(bibtex)
 
-    try:
+    def _run_bibtex() -> None:
         from arxiv2md_beta.network.http import run_async
 
         run_async(_run())
-    except BaseException as exc:
-        if isinstance(exc, typer.Exit | KeyboardInterrupt):
-            raise
-        _handle_command_error(logger, exc)
+
+    _run_command(_run_bibtex)
 
 
 def main() -> None:
