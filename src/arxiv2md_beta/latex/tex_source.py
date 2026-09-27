@@ -24,6 +24,7 @@ from arxiv2md_beta.network.download import (
     with_mirror_fallback,
 )
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.text import find_matching_brace_end
 
 
 class TexSourceInfo(NamedTuple):
@@ -537,24 +538,6 @@ def expand_tex_source_for_parsing(tex_source_info: TexSourceInfo) -> str:
     return _expanded_tex_cached(tex_source_info.main_tex_file, tex_source_info.extracted_dir)
 
 
-def _find_matching_brace_end(text: str, open_brace_idx: int) -> int | None:
-    """Return index of ``}`` that closes ``{`` at ``open_brace_idx`` (nested ``{}`` aware)."""
-    if open_brace_idx >= len(text) or text[open_brace_idx] != "{":
-        return None
-    depth = 0
-    i = open_brace_idx
-    while i < len(text):
-        c = text[i]
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    return None
-
-
 # Longer command names share prefixes (e.g. \icmltitlerunning): the (?!…)
 # lookahead excludes a following Unicode letter, matching the old isalpha check.
 _TITLE_BLOCK_RE = re.compile(r"\\(?:icmltitle|title)(?![^\W\d_])", re.UNICODE)
@@ -583,7 +566,7 @@ def _macro_block_brace_end(text: str, j: int) -> int | None:
             j += 1
     if j >= n or text[j] != "{":
         return None
-    return _find_matching_brace_end(text, j)
+    return find_matching_brace_end(text, j)
 
 
 def _strip_macro_blocks(text: str, pattern: re.Pattern[str]) -> str:

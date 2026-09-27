@@ -9,7 +9,7 @@ from loguru import logger
 
 from arxiv2md_beta.latex import tex_source as tex_source_mod
 from arxiv2md_beta.latex.tex_source import TexSourceInfo
-from arxiv2md_beta.network.author_enrichment import _names_match, dedupe_affiliation_strings
+from arxiv2md_beta.utils.text import dedupe_affiliation_strings, find_matching_brace_end, names_match
 
 
 def parse_author_affiliations_from_tex(tex: str) -> list[dict[str, Any]]:
@@ -82,7 +82,7 @@ def merge_tex_affiliations_into_metadata(
                 taffs = [str(taffs)] if taffs else []
             if not tname or not taffs:
                 continue
-            if not _names_match(name, tname):
+            if not names_match(name, tname):
                 continue
             existing: list[str] = []
             if isinstance(au.get("affiliations"), list):
@@ -166,19 +166,9 @@ def _strip_tex_comments(text: str) -> str:
 
 
 def _balanced_inner(s: str, open_brace_idx: int) -> str | None:
-    if open_brace_idx >= len(s) or s[open_brace_idx] != "{":
-        return None
-    depth = 0
-    i = open_brace_idx
-    while i < len(s):
-        if s[i] == "{":
-            depth += 1
-        elif s[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return s[open_brace_idx + 1 : i]
-        i += 1
-    return None
+    """Inner text of the ``{…}`` group at *open_brace_idx* (nesting-aware)."""
+    end = find_matching_brace_end(s, open_brace_idx)
+    return None if end is None else s[open_brace_idx + 1 : end]
 
 
 # --- ICML (icml2026): \icmlauthor{Name}{key,key} + \icmlaffiliation{key}{Institution} ---

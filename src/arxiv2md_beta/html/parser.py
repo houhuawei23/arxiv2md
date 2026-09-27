@@ -11,6 +11,7 @@ from arxiv2md_beta.schemas import SectionNode
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.html_attrs import attr_optional
 from arxiv2md_beta.utils.html_attrs import classes as css_classes
+from arxiv2md_beta.utils.text import dedupe_strings
 
 try:
     from bs4 import BeautifulSoup
@@ -413,7 +414,7 @@ def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
                         if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
                             affils.append(aff_text)
 
-            affils = _dedupe_strings(affils)
+            affils = dedupe_strings(affils)
             results.append(ParsedAuthor(name=name, affiliations=affils))
             continue
 
@@ -487,7 +488,7 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
                 results.append(
                     ParsedAuthor(
                         name=current_name,
-                        affiliations=_dedupe_strings(current_affils),
+                        affiliations=dedupe_strings(current_affils),
                     )
                 )
             current_name = part
@@ -506,7 +507,7 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
         results.append(
             ParsedAuthor(
                 name=current_name,
-                affiliations=_dedupe_strings(current_affils),
+                affiliations=dedupe_strings(current_affils),
             )
         )
 
@@ -554,7 +555,7 @@ def _extract_authors_from_cells(cells: list[Tag]) -> list[ParsedAuthor]:
             aff_text = _clean_single_author_text(italic)
             if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
                 affils.append(aff_text)
-        results.append(ParsedAuthor(name=name, affiliations=_dedupe_strings(affils)))
+        results.append(ParsedAuthor(name=name, affiliations=dedupe_strings(affils)))
     return results
 
 
@@ -594,7 +595,7 @@ def _pair_bold_italic_spans(bolds: list[Tag], italics: list[Tag]) -> list[Parsed
                     if aff_text and aff_text != name and _looks_like_affiliation(aff_text):
                         affils.append(aff_text)
                     j += 1
-                results.append(ParsedAuthor(name=name, affiliations=_dedupe_strings(affils)))
+                results.append(ParsedAuthor(name=name, affiliations=dedupe_strings(affils)))
         i += 1  # type: ignore[assignment, operator]
 
     return results
@@ -688,7 +689,7 @@ def _parse_sequential_author_spans(container: Tag) -> list[ParsedAuthor]:
                     # Ambiguous: if short, might be part of name; otherwise skip
                     break
 
-            affils = _dedupe_strings(affils)
+            affils = dedupe_strings(affils)
             results.append(ParsedAuthor(name=name, affiliations=affils))
             i = j
         else:
@@ -818,18 +819,6 @@ def _clean_single_author_text(node: Tag | NavigableString) -> str:
         return ""
 
     return text
-
-
-def _dedupe_strings(parts: list[str]) -> list[str]:
-    """Remove duplicates preserving order."""
-    seen: set[str] = set()
-    out: list[str] = []
-    for p in parts:
-        key = p.lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(p)
-    return out
 
 
 def _clean_author_text(node: Tag) -> list[str]:

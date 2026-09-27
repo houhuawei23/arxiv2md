@@ -12,15 +12,11 @@ from loguru import logger
 from arxiv2md_beta.exceptions import IngestionError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
-from arxiv2md_beta.latex.tex_source import (
-    ArchiveExtractionError,
-    TexSourceInfo,
-    _find_matching_brace_end,
-    extract_local_archive,
-)
+from arxiv2md_beta.latex.tex_source import ArchiveExtractionError, TexSourceInfo, extract_local_archive
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.text import find_matching_brace_end
 
 
 class LocalIngestionError(IngestionError):
@@ -555,7 +551,7 @@ def _strip_latex_commands(text: str) -> str:
     while i < n:
         ch = text[i]
         if ch == "{":
-            end = _find_matching_brace_end(text, i)
+            end = find_matching_brace_end(text, i)
             if end is None:
                 out.append(text[i + 1 :])  # unbalanced: keep inner text
                 break
@@ -586,7 +582,7 @@ def _strip_latex_commands(text: str) -> str:
                 break
         drop_args = cmd in _TEX_DROP_ARG_COMMANDS
         while i < n and text[i] == "{":
-            end = _find_matching_brace_end(text, i)
+            end = find_matching_brace_end(text, i)
             if end is None:
                 if not drop_args:
                     out.append(text[i + 1 :])

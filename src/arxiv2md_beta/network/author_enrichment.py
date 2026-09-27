@@ -14,33 +14,7 @@ from arxiv2md_beta.network.openalex_api import fetch_openalex_work_for_arxiv
 from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
-
-
-def _norm_name(s: str) -> str:
-    return " ".join(s.lower().replace(".", " ").split())
-
-
-def _names_match(a: str, b: str) -> bool:
-    if not a or not b:
-        return False
-    if _norm_name(a) == _norm_name(b):
-        return True
-    pa = a.split()
-    pb = b.split()
-    if not pa or not pb:
-        return False
-    if pa[-1].lower() == pb[-1].lower():
-        return True
-    # "Last, First" vs "First Last"
-    if "," in a:
-        last_a = a.split(",")[0].strip().lower()
-        if last_a == pb[-1].lower():
-            return True
-    if "," in b:
-        last_b = b.split(",")[0].strip().lower()
-        if last_b == pa[-1].lower():
-            return True
-    return False
+from arxiv2md_beta.utils.text import dedupe_affiliation_strings, names_match
 
 
 def _orcid_id(url_or_id: str | None) -> str | None:
@@ -49,45 +23,6 @@ def _orcid_id(url_or_id: str | None) -> str | None:
     s = url_or_id.strip()
     m = re.search(r"(\d{4}-\d{4}-\d{4}-\d{3}[0-9X])", s, re.I)
     return m.group(1) if m else None
-
-
-def dedupe_affiliation_strings(parts: list[str]) -> list[str]:
-    """Remove case-insensitive duplicates and shorter strings contained in a longer one.
-
-    Public API (also used by ``latex/author_affiliations.py``). Deliberately
-    different from ``html/parser._dedupe_strings``: that one only drops
-    exact case-insensitive duplicates and keeps every surviving string
-    verbatim, while this one additionally strips/empties entries and
-    suppresses strings subsumed by a longer affiliation ("MIT" vs
-    "Massachusetts Institute of Technology, Cambridge, MA").
-    """
-    if not parts:
-        return []
-    seen: set[str] = set()
-    uniq: list[str] = []
-    for p in parts:
-        p = str(p).strip()
-        if not p:
-            continue
-        key = p.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(p)
-    kept: list[str] = []
-    for p in uniq:
-        pl = p.lower()
-        redundant = False
-        for q in uniq:
-            if p is q:
-                continue
-            ql = q.lower()
-            if pl in ql and len(q) > len(p):
-                redundant = True
-                break
-        if not redundant:
-            kept.append(p)
-    return kept
 
 
 def _merge_openalex_into_authors(
@@ -109,7 +44,7 @@ def _merge_openalex_into_authors(
             continue
         for ash in authorships:
             oa_name = ((ash.get("author") or {}).get("display_name") or "").strip()
-            if not oa_name or not _names_match(name, oa_name):
+            if not oa_name or not names_match(name, oa_name):
                 continue
             insts = ash.get("institutions") or []
             inst_names = [i.get("display_name") for i in insts if isinstance(i, dict) and i.get("display_name")]
