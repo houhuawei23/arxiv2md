@@ -198,7 +198,7 @@ class TestPdfFallback:
 
         monkeypatch.setattr(
             fetch_module,
-            "_cache_dir_for",
+            "cache_dir_for",
             lambda arxiv_id, version: tmp_path / "cache",
         )
 

@@ -101,7 +101,7 @@ async def test_pdf_download_survives_garbage_content_length(monkeypatch: pytest.
     """A malformed Content-Length header must not kill the PDF download."""
     _no_sleep(monkeypatch)
     cache_dir = tmp_path / "cache"
-    monkeypatch.setattr(fetch_mod, "_cache_dir_for", lambda arxiv_id, version: cache_dir)
+    monkeypatch.setattr(fetch_mod, "cache_dir_for", lambda arxiv_id, version: cache_dir)
     respx.get("https://arxiv.org/pdf/2501.12345.pdf").mock(
         return_value=Response(
             200,

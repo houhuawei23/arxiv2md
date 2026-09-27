@@ -7,7 +7,9 @@ import respx
 from httpx import Response
 
 from arxiv2md_beta.exceptions import NetworkError, UserInputError
-from arxiv2md_beta.network.fetch import _cache_dir_for, _is_cache_fresh, fetch_arxiv_html
+from arxiv2md_beta.network.download import cache_dir_for as _cache_dir_for
+from arxiv2md_beta.network.download import is_cache_fresh as _is_cache_fresh
+from arxiv2md_beta.network.fetch import fetch_arxiv_html
 from arxiv2md_beta.network.http import _build_client, get_http_client
 from arxiv2md_beta.query.parser import parse_arxiv_input
 
@@ -77,7 +79,7 @@ class TestFetchArxivHtml:
     async def test_fetch_404_raises_network_error(self, tmp_path, monkeypatch):
         """Test that 404 raises NetworkError."""
         from arxiv2md_beta import settings as settings_module
-        from arxiv2md_beta.network import fetch as fetch_module
+        from arxiv2md_beta.network import download as download_module
 
         monkeypatch.setattr(
             settings_module,
@@ -93,7 +95,7 @@ class TestFetchArxivHtml:
         )
         # Minimal fake settings above have no mirror config; disable the
         # mirror so this test stays focused on the 404 → NetworkError path.
-        monkeypatch.setattr(fetch_module, "to_export_mirror", lambda *a, **k: None)
+        monkeypatch.setattr(download_module, "to_export_mirror", lambda *a, **k: None)
 
         with respx.mock:
             respx.get("https://arxiv.org/html/2501.12345").mock(
@@ -327,7 +329,7 @@ class TestFetch404NoRetry:
 
         monkeypatch.setattr(
             fetch_module,
-            "_cache_dir_for",
+            "cache_dir_for",
             lambda arxiv_id, version: tmp_path / f"{arxiv_id}__{version or 'latest'}",
         )
 
@@ -438,7 +440,7 @@ class TestExportMirror:
 
         monkeypatch.setattr(
             fetch_module,
-            "_cache_dir_for",
+            "cache_dir_for",
             lambda arxiv_id, version: tmp_path / f"{arxiv_id}__{version or 'latest'}",
         )
 
@@ -471,7 +473,7 @@ class TestExportMirror:
         """urls.arxiv_mirror_host = '' disables mirror retries entirely."""
         from types import SimpleNamespace
 
-        from arxiv2md_beta.network import fetch as fetch_module
+        from arxiv2md_beta.network import download as download_module
         from arxiv2md_beta.network import mirror as mirror_module
 
         self._mock_cache(monkeypatch, tmp_path)
@@ -480,8 +482,8 @@ class TestExportMirror:
             http=SimpleNamespace(mirror_on_404=False, mirror_on_rate_limit=False),
         )
         monkeypatch.setattr(mirror_module, "get_settings", lambda: fake)
-        monkeypatch.setattr(fetch_module, "to_export_mirror", mirror_module.to_export_mirror)
-        monkeypatch.setattr(fetch_module, "mirror_worth_try", mirror_module.mirror_worth_try)
+        monkeypatch.setattr(download_module, "to_export_mirror", mirror_module.to_export_mirror)
+        monkeypatch.setattr(download_module, "mirror_worth_try", mirror_module.mirror_worth_try)
         with respx.mock:
             route = respx.get("https://arxiv.org/html/2501.12345").mock(
                 return_value=Response(404, text="Not found", headers={"content-type": "text/html; charset=utf-8"})
@@ -521,14 +523,14 @@ class TestPoisonedCacheSelfHeal:
         cache_dir.mkdir(parents=True)
         html_path = cache_dir / "source.html"
         html_path.write_text("<html><head><title> No content available </title></head></html>", encoding="utf-8")
-        monkeypatch.setattr(fetch_module, "_cache_dir_for", lambda arxiv_id, version: cache_dir)
+        monkeypatch.setattr(fetch_module, "cache_dir_for", lambda arxiv_id, version: cache_dir)
 
         good_html = "<html><head><title>Real Paper</title></head><body>ok</body></html>"
 
-        async def fake_fetch(url: str) -> str:
+        async def fake_fetch(url: str, **_kwargs: object) -> str:
             return good_html
 
-        monkeypatch.setattr(fetch_module, "_fetch_with_retries", fake_fetch)
+        monkeypatch.setattr(fetch_module, "fetch_text_with_retries", fake_fetch)
 
         async def _run():
             return await fetch_module.fetch_arxiv_html(

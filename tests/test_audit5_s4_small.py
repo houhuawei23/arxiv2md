@@ -11,7 +11,7 @@ from arxiv2md_beta.latex.includes import (
     _after_unescaped_comment,
     resolve_latex_includes,
 )
-from arxiv2md_beta.latex.tex_source import _file_is_pdf
+from arxiv2md_beta.network.download import _file_is_pdf
 
 
 class TestFileIsPdfSniff:

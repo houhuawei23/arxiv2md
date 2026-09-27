@@ -11,20 +11,19 @@ import uuid
 import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
-import aiofiles
-import httpx
 from loguru import logger
 
-from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, NonRetryableNetworkError, StorageError
-from arxiv2md_beta.network.http import acquire_rate_slot, get_http_client, http_request_slot
-from arxiv2md_beta.network.mirror import mirror_worth_try, to_export_mirror
-from arxiv2md_beta.network.retry import strict_http_retry_loop
+from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
+from arxiv2md_beta.network.download import (
+    cache_dir_for,
+    download_file_with_retries,
+    is_cache_fresh,
+    with_mirror_fallback,
+)
 from arxiv2md_beta.settings import get_settings
-from arxiv2md_beta.utils.progress import async_byte_download_progress
 
 
 class TexSourceInfo(NamedTuple):
@@ -82,12 +81,6 @@ class TexSourceNotFoundError(NetworkError):
     pass
 
 
-def _file_is_pdf(path: Path) -> bool:
-    """Sniff the 5-byte PDF magic without reading the whole file (audit5 R-2)."""
-    with open(path, "rb") as f:
-        return f.read(5) == b"%PDF-"
-
-
 def _safe_archive_target(output_dir: Path, member_name: str) -> Path:
     """Return a normalized extraction target contained by *output_dir*."""
     if not member_name or Path(member_name).is_absolute():
@@ -111,16 +104,6 @@ class ArchiveExtractionError(StorageError):
     """Raised when local archive extraction fails."""
 
     pass
-
-
-def _cache_dir_for(arxiv_id: str, version: str | None) -> Path:
-    """Get cache directory for arXiv ID."""
-    base = arxiv_id
-    if version and arxiv_id.endswith(version):
-        base = arxiv_id[: -len(version)]
-    version_tag = version or "latest"
-    key = f"{base}__{version_tag}".replace("/", "_")
-    return get_settings().resolved_cache_path() / key
 
 
 async def fetch_and_extract_tex_source(
@@ -151,7 +134,7 @@ async def fetch_and_extract_tex_source(
     ImageExtractionError
         If image extraction fails
     """
-    cache_dir = _cache_dir_for(arxiv_id, version)
+    cache_dir = cache_dir_for(arxiv_id, version)
     tex_source_path = cache_dir / "tex_source.tar.gz"
     extracted_dir = cache_dir / "tex_extracted"
 
@@ -163,7 +146,7 @@ async def fetch_and_extract_tex_source(
         and tex_source_path.exists()
         and extracted_dir.exists()
         and _has_tex_files(extracted_dir)
-        and _mtime_within_ttl(tex_source_path)
+        and is_cache_fresh(tex_source_path)
     ):
         try:
             info = _extract_info_from_dir(extracted_dir)
@@ -182,26 +165,14 @@ async def fetch_and_extract_tex_source(
     tex_url = get_settings().urls.arxiv_src_template.format(arxiv_id=arxiv_id)
     logger.info(f"Downloading TeX source from {tex_url}")
 
-    async def _download_with_mirror() -> None:
-        try:
-            await _download_tex_source(tex_url, tex_source_path)
-        except NetworkError as tex_error:
-            # Mirror fallback: export.arxiv.org serves /src/ from its own
-            # backend with independent rate limiting.
-            mirrored = to_export_mirror(tex_url)
-            if not (mirrored and mirror_worth_try(tex_error)):
-                raise
-            logger.warning(f"Retrying TeX source download via export mirror: {mirrored}")
-            try:
-                await _download_tex_source(mirrored, tex_source_path)
-            except NetworkError as mirror_error:
-                logger.warning(f"Export mirror TeX fallback also failed: {mirror_error}")
-                raise tex_error from mirror_error
-
-    try:
-        await _download_with_mirror()
-    except RuntimeError as e:
-        raise TexSourceNotFoundError(f"Failed to download TeX source for {arxiv_id}: {e}") from e
+    # TexSourceNotFoundError (404 / PDF-only / budget exhausted) and any other
+    # NetworkError propagate to the orchestrator, which degrades to a
+    # no-images conversion instead of failing the paper.
+    await with_mirror_fallback(
+        tex_url,
+        describe="TeX source download",
+        fetch=lambda url: _download_tex_source(url, tex_source_path),
+    )
 
     # Extract archive into a task-private temp dir, then move into place.
     # Two concurrent conversions of the same paper share the cache path; a
@@ -226,16 +197,14 @@ async def fetch_and_extract_tex_source(
             staging_dir.replace(extracted_dir)
 
         await asyncio.to_thread(_swap_into_place)
-        # staging_dir no longer exists (renamed); re-root info onto the
-        # canonical cache path.
+        # staging_dir no longer exists (renamed); re-root the staging-tree
+        # info onto the canonical cache path — no second rglob pass needed.
         info = _rebase_tex_info(staging_info, staging_dir, extracted_dir)
     except Exception as e:
         # Remove only our own partial extract — never a shared directory.
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise ImageExtractionError(f"Failed to extract TeX source: {e}") from e
 
-    # Extract images and find main tex file (rglob + per-file reads are IO-bound)
-    info = await asyncio.to_thread(_extract_info_from_dir, extracted_dir)
     _log_tex_source_paths(arxiv_id, cache_dir, extracted_dir, tex_source_path, info)
     return info
 
@@ -296,7 +265,7 @@ def extract_local_archive(
         extracted_dir = output_dir
 
     # Check cache: use archive file mtime for TTL (same reason as arXiv TeX cache)
-    if use_cache and extracted_dir.exists() and _mtime_within_ttl(archive_path) and _has_tex_files(extracted_dir):
+    if use_cache and extracted_dir.exists() and is_cache_fresh(archive_path) and _has_tex_files(extracted_dir):
         logger.info(f"Using cached extraction for {archive_path.name}")
         return _extract_info_from_dir(extracted_dir)
 
@@ -410,97 +379,23 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
 
 
 async def _download_tex_source(url: str, output_path: Path) -> None:
-    """Download TeX source with retries and progress bar."""
-    s = get_settings()
-    h = s.http
-    timeout = httpx.Timeout(h.fetch_timeout_s * h.large_transfer_timeout_multiplier)
-    last_status: int | None = None
-
-    client = get_http_client()
-    non_retryable = set(h.non_retryable_status_codes)
-
-    async def attempt(_n: int) -> None:
-        nonlocal last_status
-        await acquire_rate_slot()
-        async with http_request_slot(), client.stream("GET", url, timeout=timeout) as response:
-            if response.status_code == 404:
-                raise TexSourceNotFoundError(
-                    f"TeX source not found at {url}. This paper may not have TeX source available.",
-                    status_code=404,
-                )
-
-            if response.status_code in non_retryable:
-                # Permanent (403 ban, 410 withdrawn...): give up at once.
-                # NetworkError subtype → orchestrator degrades to a
-                # no-images conversion instead of failing the paper.
-                raise NonRetryableNetworkError(
-                    f"HTTP {response.status_code} from arXiv", status_code=response.status_code
-                )
-
-            if response.status_code >= 400:
-                last_status = response.status_code
-                raise RuntimeError(f"HTTP {response.status_code} from arXiv")
-
-            # Some papers have no TeX source (PDF-only submission); arXiv
-            # then serves the rendered PDF from /src/ with HTTP 200, not
-            # 404. Detect it so callers take the no-TeX fallback path
-            # instead of failing tar extraction later.
-            content_type = response.headers.get("content-type", "").lower()
-            if "pdf" in content_type:
-                raise TexSourceNotFoundError(
-                    f"TeX source not available for this paper (arXiv served a PDF from {url}); "
-                    "the paper was likely submitted as PDF-only."
-                )
-
-            # Get content length for progress bar; malformed headers
-            # (proxy noise) degrade to an indeterminate bar.
-            try:
-                total_size = int(response.headers.get("content-length", 0))
-            except (TypeError, ValueError):
-                total_size = 0
-            total_size = max(0, total_size)
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            disable_tqdm = s.images.disable_tqdm
-
-            # Write to a temp sibling then rename so a concurrent
-            # conversion never sees (or overwrites) a half-written cache.
-            tmp_path = output_path.with_name(f"{output_path.name}.{uuid.uuid4().hex}.part")
-            try:
-                # The download itself stays inside the try: a
-                # mid-stream RequestError used to leave the orphan
-                # .part behind (audit5 R-1).
-                async with (
-                    async_byte_download_progress(
-                        "Downloading TeX source",
-                        total_size if total_size > 0 else None,
-                        disable=disable_tqdm,
-                    ) as advance,
-                    aiofiles.open(tmp_path, "wb") as f,
-                ):
-                    async for chunk in response.aiter_bytes():
-                        await f.write(chunk)
-                        advance(len(chunk))
-
-                # Belt-and-suspenders: header-based check above can miss
-                # PDF-only papers when content-type is generic. Sniff magic
-                # bytes so the bogus file never lands in the cache.
-                if await asyncio.to_thread(_file_is_pdf, tmp_path):
-                    raise TexSourceNotFoundError(
-                        f"TeX source not available for this paper "
-                        f"(arXiv served a PDF from {url}); the paper was likely submitted as PDF-only."
-                    )
-                tmp_path.replace(output_path)
-                return
-            finally:
-                tmp_path.unlink(missing_ok=True)
-
-    return await strict_http_retry_loop(
-        attempt,
+    """Download TeX source with retries, progress bar and PDF-only sniffing."""
+    await download_file_with_retries(
+        url,
+        output_path,
         label=f"download TeX source {url}",
-        retryable=(httpx.RequestError, httpx.HTTPStatusError, RuntimeError),
+        progress_label="Downloading TeX source",
+        not_found_error=lambda: TexSourceNotFoundError(
+            f"TeX source not found at {url}. This paper may not have TeX source available.",
+            status_code=404,
+        ),
+        pdf_only_error=lambda: TexSourceNotFoundError(
+            f"TeX source not available for this paper (arXiv served a PDF from {url}); "
+            "the paper was likely submitted as PDF-only."
+        ),
         exhausted=lambda last_exc: TexSourceNotFoundError(
-            f"Failed to download TeX source from {url}: {last_exc}", status_code=last_status
+            f"Failed to download TeX source from {url}: {last_exc}",
+            status_code=getattr(last_exc, "status_code", None),
         ),
     )
 
@@ -906,15 +801,3 @@ def _resolve_image_path(image_path_str: str, base_dir: Path, index: _ImageIndex)
 def _has_tex_files(extracted_dir: Path) -> bool:
     """True if extraction looks complete (at least one .tex file)."""
     return any(extracted_dir.rglob("*.tex"))
-
-
-def _mtime_within_ttl(path: Path) -> bool:
-    """Whether ``path``'s mtime is within ``cache.ttl_seconds`` (authoritative for downloads)."""
-    if not path.exists():
-        return False
-    ttl = get_settings().cache.ttl_seconds
-    if ttl <= 0:
-        return True
-    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-    age_seconds = (datetime.now(timezone.utc) - mtime).total_seconds()
-    return age_seconds <= ttl
