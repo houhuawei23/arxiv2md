@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
@@ -15,7 +14,7 @@ from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.latex.tex_source import ArchiveExtractionError, extract_local_archive
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult, LocalArchiveQuery
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.text import find_matching_brace_end
 
@@ -31,7 +30,7 @@ async def ingest_local_archive(
     query: LocalArchiveQuery,
     sections: list[str],
     base_output_dir: Path,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Process a local archive file (tar.gz, tgz, or zip) and convert to Markdown.
 
     This function handles both LaTeX-based archives (containing .tex files)
@@ -94,7 +93,7 @@ async def _finalize_local_archive(
     paper_output_dir: Path,
     title: str | None,
     images_dir_name: str,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Shared finalize tail for both local-archive flavors (TeX and HTML).
 
     Split Markdown emission + paper.yml + structured export; the yml data
@@ -129,7 +128,7 @@ async def _ingest_latex_archive(
     tex_source_info: TexSourceInfo,
     sections: list[str],
     base_output_dir: Path,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Process a LaTeX-based local archive via the IR pipeline."""
     from arxiv2md_beta.output.layout import create_paper_output_dir
 
@@ -222,7 +221,7 @@ async def _ingest_html_archive(
     html_files: list[Path],
     sections: list[str],
     base_output_dir: Path,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Process an HTML-based local archive via the IR pipeline."""
     from arxiv2md_beta.html.parser import parse_arxiv_html
     from arxiv2md_beta.output.layout import create_paper_output_dir

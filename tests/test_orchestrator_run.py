@@ -59,13 +59,13 @@ async def test_run_happy_path(tmp_path, monkeypatch, sample_html) -> None:
 
     assert "Tiny Paper" in result.summary
     assert result.content.strip()
-    assert metadata["arxiv_id"] == "2501.11120"
-    assert metadata["paper_output_dir"] == orch._paper_output_dir
-    assert metadata["paper_output_dir"].is_dir()
-    assert not metadata.get("pdf_only")
-    assert "performance" in metadata
+    assert metadata.arxiv_id == "2501.11120"
+    assert metadata.paper_output_dir == orch._paper_output_dir
+    assert metadata.paper_output_dir.is_dir()
+    assert not metadata.pdf_only
+    assert metadata.performance is not None
     # paper.yml written by the concurrent gather branch
-    assert (metadata["paper_output_dir"] / "paper.yml").exists()
+    assert (metadata.paper_output_dir / "paper.yml").exists()
 
 
 @pytest.mark.asyncio
@@ -79,10 +79,10 @@ async def test_run_pdf_only_fallback(tmp_path, monkeypatch) -> None:
     orch = _orch(tmp_path)
     result, metadata = await orch.run()
 
-    assert metadata["pdf_only"] is True
+    assert metadata.pdf_only is True
     assert "PDF-only" in result.content
-    assert metadata["paper_output_dir"].is_dir()
-    assert (metadata["paper_output_dir"] / "paper.yml").exists()
+    assert metadata.paper_output_dir.is_dir()
+    assert (metadata.paper_output_dir / "paper.yml").exists()
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_run_metadata_failure_degrades_to_html(tmp_path, monkeypatch) -> N
 
     result, metadata = await orch.run()
     assert result.content.strip()
-    assert metadata["title"] == "Tiny Paper"
+    assert metadata.title == "Tiny Paper"
 
 
 @pytest.mark.asyncio

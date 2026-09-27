@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
 from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.schemas import IngestionResult, LocalHtmlQuery
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
 
 
@@ -26,7 +25,7 @@ async def ingest_local_html(
     query: LocalHtmlQuery,
     sections: list[str],
     base_output_dir: Path,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Process a local HTML file and convert to Markdown via the IR pipeline."""
     source = params.source or query.source
 

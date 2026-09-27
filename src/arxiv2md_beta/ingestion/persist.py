@@ -27,7 +27,7 @@ from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_mani
 from arxiv2md_beta.output.markdown_utils import count_tokens
 from arxiv2md_beta.output.quality_gate import ensure_not_stub, is_stub
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.atomic_io import atomic_write_text
 from arxiv2md_beta.utils.logging_config import get_logger
@@ -95,27 +95,22 @@ def _manifest_stub_status(
 
 
 def resolve_paper_output_dir(
-    metadata: dict[str, Any],
+    metadata: IngestionMetadata,
     base_output_dir: Path,
     *,
     source: str,
     short: str | None,
 ) -> Path:
     """Normalize ``paper_output_dir`` from metadata or create under ``base_output_dir``."""
-    submission_date = metadata.get("submission_date")
-    title = metadata.get("title")
-    paper_output_dir = metadata.get("paper_output_dir")
-    if paper_output_dir is None:
+    if metadata.paper_output_dir is None:
         return create_paper_output_dir(
             base_output_dir,
-            submission_date,
-            title,
+            metadata.submission_date,
+            metadata.title,
             source=source,
             short=short,
         )
-    if isinstance(paper_output_dir, str):
-        return Path(paper_output_dir)
-    return paper_output_dir  # type: ignore[return-value]
+    return metadata.paper_output_dir
 
 
 def _resolve_output_filename(
@@ -210,7 +205,7 @@ async def pdf_fallback_output(
 async def _finalize_pdf_only_output(
     *,
     paper_output_dir: Path,
-    metadata: dict[str, Any],
+    metadata: IngestionMetadata,
     params: ConvertParams,
     fallback_md_stem: str,
     pdf_fetch: tuple[str, str | None] | None,
@@ -224,8 +219,6 @@ async def _finalize_pdf_only_output(
     PDF when the download succeeds, and a ``status="pdf_only"`` manifest.
     """
     s = get_settings()
-    title = metadata.get("title")
-    submission_date = metadata.get("submission_date")
     naming_scheme = params.naming_scheme or s.output_naming.naming_scheme
     pdf_path = paper_output_dir / _pdf_filename_for(paper_output_dir, fallback_md_stem, naming_scheme)
 
@@ -235,10 +228,10 @@ async def _finalize_pdf_only_output(
         downloaded = await _download_pdf_to(pdf_path, arxiv_id, version, params)
 
     manifest = build_paper_manifest(
-        arxiv_id=metadata.get("arxiv_id"),
-        title=title,
-        submission_date=submission_date,
-        source_url=metadata.get("urls", {}).get("abstract") if isinstance(metadata.get("urls"), dict) else None,
+        arxiv_id=metadata.arxiv_id,
+        title=metadata.title,
+        submission_date=metadata.submission_date,
+        source_url=None,
         # Only record the path when the file is actually there — a phantom
         # path would break batch-level consistency checks.
         pdf_path=str(pdf_path) if downloaded else None,
@@ -256,7 +249,7 @@ async def _finalize_pdf_only_output(
 async def persist_ingestion_output(
     *,
     result: IngestionResult,
-    metadata: dict[str, Any],
+    metadata: IngestionMetadata,
     params: ConvertParams,
     base_output_dir: Path,
     fallback_md_stem: str,
@@ -279,15 +272,15 @@ async def persist_ingestion_output(
     )
     logger.info(f"Output directory: {paper_output_dir}")
 
-    submission_date = metadata.get("submission_date")
-    title = metadata.get("title")
+    submission_date = metadata.submission_date
+    title = metadata.title
     naming_scheme = params.naming_scheme or s.output_naming.naming_scheme
 
     # Markdown content/refs/appendix are already finalized at emission time
     # (emit_split_markdown applies the single format+clean pass), so no
     # further postprocessing is needed here.
 
-    if metadata.get("pdf_only"):
+    if metadata.pdf_only:
         # pdf_only products are just the PDF + paper.yml.
         return await _finalize_pdf_only_output(
             paper_output_dir=paper_output_dir,
@@ -360,10 +353,10 @@ async def persist_ingestion_output(
         output_text, cli_allow_stub=params.allow_stub, settings=s, token_count=token_count
     )
     manifest = build_paper_manifest(
-        arxiv_id=metadata.get("arxiv_id"),
+        arxiv_id=metadata.arxiv_id,
         title=title,
         submission_date=submission_date,
-        source_url=metadata.get("urls", {}).get("abstract") if isinstance(metadata.get("urls"), dict) else None,
+        source_url=None,
         # Only a path that actually landed on disk goes into the manifest —
         # a phantom path breaks batch-level consistency checks downstream.
         pdf_path=str(pdf_path) if pdf_task is not None and pdf_downloaded else None,

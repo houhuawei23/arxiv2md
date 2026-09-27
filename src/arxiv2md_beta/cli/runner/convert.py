@@ -33,7 +33,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_html,
 )
 from arxiv2md_beta.query.sections import collect_sections
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
@@ -46,7 +46,7 @@ class _ModeSpec:
     """Per-input-mode wiring for the shared convert handler."""
 
     parse: Callable[[str], Any]
-    ingest: Callable[[ConvertParams, Any, list[str], Path], Awaitable[tuple[IngestionResult, dict]]]
+    ingest: Callable[[ConvertParams, Any, list[str], Path], Awaitable[tuple[IngestionResult, IngestionMetadata]]]
     fallback_stem: Callable[[Any], str]
     pdf_fetch: Callable[[Any], tuple[str, str | None] | None]
     log_local_success: bool

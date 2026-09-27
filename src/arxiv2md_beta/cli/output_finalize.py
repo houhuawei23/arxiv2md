@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from arxiv2md_beta.ingestion.persist import persist_ingestion_output
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.utils.logging_config import get_logger
 
 logger = get_logger()
@@ -53,7 +52,7 @@ def _print_summary(result: IngestionResult) -> None:
 async def finalize_convert_output(
     *,
     result: IngestionResult,
-    metadata: dict[str, Any],
+    metadata: IngestionMetadata,
     params: ConvertParams,
     base_output_dir: Path,
     fallback_md_stem: str,
@@ -74,9 +73,7 @@ async def finalize_convert_output(
         log_local_success=log_local_success,
     )
 
-    structured = metadata.get("structured_export")
-    if not isinstance(structured, dict):
-        structured = None
+    structured = metadata.structured_export or None
 
     # Machine-readable result line: emitted only after the quality gate has
     # passed and main markdown + sidecars + manifest are on disk, so a parent

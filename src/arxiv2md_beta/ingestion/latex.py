@@ -13,7 +13,7 @@ from arxiv2md_beta.latex.tex_source import TexSourceNotFoundError, fetch_and_ext
 from arxiv2md_beta.network.arxiv_api import author_display_names_from_metadata, fetch_arxiv_metadata
 from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configured
 from arxiv2md_beta.params import ConvertParams
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.timing import async_timed_operation
@@ -26,7 +26,7 @@ async def ingest_paper(
     query: Any,
     sections: list[str],
     base_output_dir: Path,
-) -> tuple[IngestionResult, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Fetch, parse, and serialize an arXiv paper from LaTeX source into Markdown.
 
     Unified entry for the remote-LaTeX path (the CLI ``--parser latex`` mode).

@@ -15,7 +15,7 @@ from arxiv2md_beta.ingestion.persist import (
     write_split_markdown_sidecars,
 )
 from arxiv2md_beta.output.layout import build_output_basename
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 
 
 def test_format_output_with_tree() -> None:
@@ -52,10 +52,10 @@ def test_build_output_basename_arxiv_ym_with_short() -> None:
     assert got == "202606-Arxiv-2M-LimiX"
 
 
-def test_resolve_paper_output_dir_from_metadata_str(tmp_path: Path) -> None:
+def test_resolve_paper_output_dir_from_metadata(tmp_path: Path) -> None:
     sub = tmp_path / "out"
     sub.mkdir()
-    meta = {"paper_output_dir": str(sub), "submission_date": "2020-01-01", "title": "T"}
+    meta = IngestionMetadata(paper_output_dir=sub, submission_date="2020-01-01", title="T")
     got = resolve_paper_output_dir(meta, tmp_path, source="Arxiv", short=None)
     assert got == sub
 
@@ -115,11 +115,10 @@ async def test_finalize_convert_output_writes_md(tmp_path: Path) -> None:
     # Body above the stub quality-gate thresholds (stub_min_bytes=5000).
     body = "Real body content. " * 400
     result = IngestionResult(summary="Sum", sections_tree="", content=body)
-    meta = {
-        "submission_date": "20200101",
-        "title": "Hello World Title Here",
-        "paper_output_dir": None,
-    }
+    meta = IngestionMetadata(
+        submission_date="20200101",
+        title="Hello World Title Here",
+    )
     params = ConvertParams(
         input_text="1234.5678",
         parser="html",
@@ -200,13 +199,12 @@ async def test_pdf_only_bypasses_stub_gate_and_downloads_pdf(tmp_path: Path) -> 
     from arxiv2md_beta.output.manifest import read_paper_manifest
 
     result = IngestionResult(summary="Sum", sections_tree="", content="tiny note")
-    meta = {
-        "submission_date": "20200101",
-        "title": "PDF Only Paper",
-        "paper_output_dir": None,
-        "arxiv_id": "1234.5678",
-        "pdf_only": True,
-    }
+    meta = IngestionMetadata(
+        submission_date="20200101",
+        title="PDF Only Paper",
+        arxiv_id="1234.5678",
+        pdf_only=True,
+    )
     params = ConvertParams(
         input_text="1234.5678",
         parser="html",
@@ -261,7 +259,7 @@ async def test_pdf_only_records_no_pdf_path_when_download_fails(tmp_path: Path) 
     from arxiv2md_beta.output.manifest import read_paper_manifest
 
     result = IngestionResult(summary="Sum", sections_tree="", content="tiny note")
-    meta = {"title": "PDF Only Paper", "paper_output_dir": None, "arxiv_id": "1234.5678", "pdf_only": True}
+    meta = IngestionMetadata(title="PDF Only Paper", arxiv_id="1234.5678", pdf_only=True)
     params = ConvertParams(
         input_text="1234.5678",
         parser="html",

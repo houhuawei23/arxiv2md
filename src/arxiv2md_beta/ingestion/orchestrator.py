@@ -44,7 +44,7 @@ from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configur
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.query.parser import parse_arxiv_input
 from arxiv2md_beta.query.sections import collect_sections
-from arxiv2md_beta.schemas import IngestionResult
+from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -90,7 +90,7 @@ class IngestionOrchestrator:
 
     # ── Public entry point ─────────────────────────────────────────────
 
-    async def run(self) -> tuple[IngestionResult, dict[str, Any]]:
+    async def run(self) -> tuple[IngestionResult, IngestionMetadata]:
         """Execute the full pipeline and return (result, metadata).
 
         Three stages:
@@ -172,12 +172,12 @@ class IngestionOrchestrator:
                 ),
             )
         result.performance = self._performance.snapshot()
-        metadata["performance"] = result.performance
+        metadata.performance = result.performance
         return result, metadata
 
     # ── Step 0: Parse query ────────────────────────────────────────────
 
-    def _run_pdf_only_fallback(self) -> tuple[IngestionResult, dict[str, Any]]:
+    def _run_pdf_only_fallback(self) -> tuple[IngestionResult, IngestionMetadata]:
         """Minimal-output path for papers without HTML rendering.
 
         Creates the output directory (named from API metadata), saves
@@ -230,20 +230,16 @@ class IngestionOrchestrator:
         except (OSError, ValueError, TypeError) as e:
             logger.warning(f"Failed to save paper.yml: {e}")
 
-        metadata: dict[str, Any] = {
-            "title": title,
-            "authors": self._display_author_names,
-            "abstract": self._api_metadata.get("summary"),
-            "submission_date": self._submission_date,
-            "paper_output_dir": self._paper_output_dir,
-            "arxiv_id": self._query.arxiv_id,
-            "structured_export": {},
-            # Tells finalize_convert_output to skip the stub quality gate and
-            # persist only the PDF + manifest — a metadata note can never pass
-            # the 5000-byte gate, so without this flag the PDF fallback would
-            # be unreachable (exit 5 with no artifacts).
-            "pdf_only": True,
-        }
+        metadata = IngestionMetadata(
+            arxiv_id=self._query.arxiv_id,
+            title=title,
+            authors=self._display_author_names,
+            abstract=self._api_metadata.get("summary"),
+            submission_date=self._submission_date,
+            paper_output_dir=self._paper_output_dir,
+            structured_export={},
+            pdf_only=True,
+        )
         return result, metadata
 
     def _parse_query(self) -> None:

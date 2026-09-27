@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from arxiv2md_beta.ir.assets import SvgAsset
 from arxiv2md_beta.ir.blocks import FigureIR
@@ -27,6 +27,9 @@ from arxiv2md_beta.ir.visitor import iter_block_descendants, iter_inline_lists
 from arxiv2md_beta.output.markdown_postprocess import finalize_markdown
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.settings import get_settings
+
+if TYPE_CHECKING:
+    from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 
 # Top-level bullet ("- " / "* " at column 0) marks a reference entry start.
 # Continuation / wrapped lines never begin with a bullet at column 0, so this
@@ -288,7 +291,7 @@ class FinalizeContext:
 def finalize_ingestion_output(
     doc: DocumentIR,
     ctx: FinalizeContext,
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[IngestionResult, IngestionMetadata]:
     """Shared ingestion tail: emit Markdown, build result, write paper.yml + structured JSON.
 
     This is the single implementation of the finalize steps shared by every
@@ -318,7 +321,7 @@ def finalize_ingestion_output(
         create_sections_tree,
         format_token_count,
     )
-    from arxiv2md_beta.schemas import IngestionResult
+    from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
     from arxiv2md_beta.settings import get_settings
 
     arxiv_id = ctx.arxiv_id
@@ -383,16 +386,15 @@ def finalize_ingestion_output(
         images_subdir=ctx.images_subdir,
     )
 
-    metadata: dict[str, Any] = {
-        "title": result_title,
-        "authors": author_names,
-        "abstract": m.abstract_text,
-        "paper_output_dir": ctx.paper_output_dir,
-        "arxiv_id": arxiv_id,
-        "structured_export": structured_export,
-    }
-    if ctx.extra_metadata:
-        metadata.update(ctx.extra_metadata)
+    metadata = IngestionMetadata(
+        arxiv_id=arxiv_id,
+        title=result_title,
+        authors=author_names,
+        abstract=m.abstract_text,
+        paper_output_dir=ctx.paper_output_dir,
+        structured_export=structured_export,
+        extra=ctx.extra_metadata,
+    )
     return result, metadata
 
 
