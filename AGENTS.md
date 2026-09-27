@@ -42,10 +42,12 @@
 arxiv2md-beta/
 ├── src/arxiv2md_beta/          # 主源代码目录
 │   ├── __init__.py             # 包初始化，版本号
+│   ├── exceptions.py           # 类型化异常 + 稳定退出码（1–8, 130）
+│   ├── contracts.py            # 跨层契约：ParsedArxivHtml / SectionNode / TexSourceInfo
 │   ├── params.py               # ConvertParams（CLI 与 ingestion 共享，避免 ingestion→cli 依赖倒置）
 │   ├── __main__.py             # python -m 入口，转调 cli.main
 │   ├── cli/                    # Typer 应用与异步编排
-│   │   ├── app.py              # Typer：callback + convert / batch / images / paper-yml / config / bibtex
+│   │   ├── app.py              # Typer：callback + convert / batch / images / paper-yml / config / bibtex；_run_command 统一错误守卫
 │   │   ├── convert_cli.py      # convert 命令参数处理
 │   │   ├── config_cmd.py       # config 子命令
 │   │   │   ├── options.py       # convert/batch 共享的 Typer 选项注解
@@ -60,25 +62,26 @@ arxiv2md-beta/
 │   │   ├── assets.py           # 图片 / SVG 资源
 │   │   ├── builders/           # HTML / LaTeX Builder
 │   │   │   ├── _algorithm.py   # HTMLBuilder 纯函数算法层
-│   │   │   ├── _math_norm.py   # display-math 拆分/规范化（双语义命名区分）
+│   │   │   ├── _display_split.py  # 段落在 display-math 处拆分（两 builder 共享）
+│   │   │   ├── _math_norm.py   # math LaTeX 规范化正则（双语义命名区分）
 │   │   │   ├── _shared.py      # builder 间共享正则/常量（bib-ref 等）
 │   │   │   └── _table_spans.py # 表格 span 处理
-│   │   ├── emitters/           # Markdown / JSON Emitter
+│   │   ├── emitters/           # Markdown / JSON Emitter（锚点发射由 emitter 的 include_anchors 决定）
 │   │   ├── transforms/         # Numbering / SectionFilter / FigureReorder Pass
 │   │   ├── resolvers/          # ImageResolver
 │   │   └── visitor.py          # IR 树遍历工具（child specs / collectors）
 │   ├── html/                   # arXiv HTML 解析
-│   │   └── parser.py           # BeautifulSoup 解析器（→ ParsedArxivHtml）
+│   │   └── parser.py           # BeautifulSoup 解析器（→ ParsedArxivHtml，契约在 contracts.py）
 │   ├── latex/                  # LaTeX 解析
 │   │   ├── includes.py         # \input/\include 递归展开
-│   │   ├── tex_source.py       # TeX 源下载 / 缓存 / 归档解压（staging swap）
+│   │   ├── tex_source.py       # TeX 源下载 / 缓存 / 归档解压（staging swap；契约在 contracts.py）
 │   │   └── author_affiliations.py  # TeX 作者-单位解析
 │   ├── ingestion/              # 入口编排（四路输入统一 (params, query, sections, dir) 签名）
 │   │   ├── __init__.py         # 导出 ingest_paper（= LaTeX 入口）
-│   │   ├── orchestrator.py     # IR 管道编排器（远程 HTML 路径，三阶段 run()）
+│   │   ├── orchestrator.py     # IR 管道编排器（远程 HTML 路径，三阶段 run()；接受 runner 预计算的上下文）
 │   │   ├── _builders.py        # build_html_document / build_latex_document（共享构建）
-│   │   ├── ir_finalize.py      # 共享尾部：emit_split_markdown / finalize_ingestion_output
-│   │   ├── persist.py          # 结果落盘业务层：质量门/命名/写盘/PDF/manifest
+│   │   ├── ir_finalize.py      # 共享尾部：FinalizeContext / finalize_ingestion_output（返回 IngestionMetadata）
+│   │   ├── persist.py          # 结果落盘业务层：质量门/命名/写盘/PDF/manifest（含 pdf_fallback_output）
 │   │   ├── latex.py            # 远程 LaTeX 流程（走 IR）
 │   │   ├── local.py            # 本地 TeX/HTML 归档（走 IR）
 │   │   └── local_html.py       # 本地 HTML 文件（走 IR）
@@ -91,12 +94,13 @@ arxiv2md-beta/
 │   │   ├── processor.py        # process_images_async：下载 / PDF→PNG / TikZ / EPS
 │   │   └── extract.py          # 仅提取图片的 CLI/API 入口
 │   ├── network/                # HTTP 客户端、arXiv API、Crossref、OpenAlex
+│   │   ├── download.py         # 唯一下载原语：状态分类 / 流式 .part 缓存写 / 镜像回退 / TTL 缓存
 │   │   └── retry.py            # 共享重试循环（strict_http_retry_loop，指数退避）
 │   ├── output/                 # 输出格式化、目录布局、metadata、结构化导出
 │   ├── query/                  # 查询解析（parser.py、sections.py）
-│   ├── schemas/                # Pydantic 数据模型
+│   ├── schemas/                # Pydantic 数据模型（IngestionResult / IngestionMetadata / 查询模型）
 │   ├── settings/               # 配置加载与 schema
-│   └── utils/                  # 日志、进度、文件兼容、辅助函数
+│   └── utils/                  # 日志、进度、文件兼容、text（姓名匹配/去重/括号配平）等辅助函数
 ├── tests/                      # 测试目录
 ├── demo/                       # 示例脚本
 ├── docs/                       # 设计文档
@@ -140,7 +144,9 @@ MarkdownEmitter / JsonEmitter → Markdown / JSON
   `html/markdown.py`、`html/sections.py`、`html/serializers/`、
   `output/formatter.py`、`output/structured_export.py`、
   `latex/parser.py`、`latex/structured.py`、`ir/_legacy_blocks.py`、
-  `ir/transforms/anchor.py`、`--legacy` CLI flag。
+  `ir/transforms/anchor.py`、`--legacy` CLI flag、`cache/` 包（仅剩
+  陈旧 .pyc）、`schemas/sections.py`（SectionNode 移入 `contracts.py`，
+  死字段 `markdown` 一并删除）。
 - 剩余技术债见 `docs/architecture.md`「已知技术债」。
 
 ## 构建和安装
