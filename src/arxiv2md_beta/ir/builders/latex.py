@@ -438,15 +438,13 @@ class LaTeXBuilder(IRBuilder):
         # ``_build_sections`` so ``split_ir_sections`` can route it to the
         # References.md sidecar — matching the HTML builder contract (where
         # references stay in ``doc.sections`` (there is no separate bibliography field).
-        abstract_blocks: list[BlockUnion] = []
         sections = self._build_sections(blocks)
 
         # Pandoc places \begin{abstract} content in meta.abstract (a string),
-        # not in the block stream, so abstract_blocks stays empty. Synthesize a
-        # paragraph so the MarkdownEmitter (which walks doc.abstract) emits it —
-        # otherwise the abstract is silently dropped from IR output.
-        if not abstract_blocks and abstract_text:
-            abstract_blocks = [ParagraphIR(inlines=[TextIR(text=abstract_text)])]
+        # not in the block stream. Synthesize a paragraph so the MarkdownEmitter
+        # (which walks doc.abstract) emits it — otherwise the abstract is
+        # silently dropped from IR output.
+        abstract_blocks: list[BlockUnion] = [ParagraphIR(inlines=[TextIR(text=abstract_text)])] if abstract_text else []
 
         author_irs = [AuthorIR(name=a) for a in authors]
         return DocumentIR(

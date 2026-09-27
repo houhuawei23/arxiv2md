@@ -458,9 +458,9 @@ class MarkdownEmitter(IREmitter):
         # newline would tear the pipe table apart, so BreakIR-style breaks
         # become <br>. Cells render through _cell_inlines: math latex gets
         # '|' → \vert on copies so the pipe escaping below cannot rewrite it.
-        headers = [_escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(h)))) for h in tbl.headers]
+        headers = [escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(h)))) for h in tbl.headers]
         rows = [
-            [_escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(c)))) for c in row] for row in tbl.rows
+            [escape_pipe_cell(_cell_text(self._emit_inlines(self._cell_inlines(c)))) for c in row] for row in tbl.rows
         ]
 
         if not headers and not rows:
@@ -719,8 +719,3 @@ def _post_process(md: str) -> str:
 def _cell_text(rendered: str) -> str:
     """Flatten rendered cell content to a single line (newlines → ``<br>``)."""
     return rendered.replace("\n", "<br>")
-
-
-def _escape_pipe_cell(text: str) -> str:
-    """Escape unescaped ``|`` characters inside a pipe-table cell."""
-    return escape_pipe_cell(text)

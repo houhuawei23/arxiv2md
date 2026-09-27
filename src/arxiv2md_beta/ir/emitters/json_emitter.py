@@ -99,10 +99,7 @@ def _section_to_dict(sec: SectionIR) -> dict[str, Any]:
     }
 
 
-def _build_asset_list(
-    doc: DocumentIR,
-    images_subdir: str,
-) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def _build_asset_list(doc: DocumentIR) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Build asset list and stem→path map from *doc*."""
     assets: list[dict[str, Any]] = []
     stem_map: dict[str, str] = {}
@@ -374,7 +371,7 @@ class JsonEmitter(IREmitter):
 
     def _build_full(self, doc: DocumentIR) -> dict[str, Any]:
         result = self._build_document(doc)
-        assets, stem_map = _build_asset_list(doc, "")
+        assets, stem_map = _build_asset_list(doc)
         result["assets"] = assets
         result["stem_to_path"] = stem_map
         return result
@@ -404,7 +401,7 @@ class JsonEmitter(IREmitter):
         return {"paper.document.json": str(path.relative_to(out_dir))}
 
     def _write_assets(self, doc: DocumentIR, out_dir: Path, images_subdir: str) -> dict[str, str]:
-        assets, stem_map = _build_asset_list(doc, images_subdir)
+        assets, stem_map = _build_asset_list(doc)
         data: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "arxiv_id": doc.metadata.arxiv_id,
