@@ -93,29 +93,27 @@ def emit_split_markdown(
     emitter = MarkdownEmitter(
         linked_citations=linked_citations,
         remove_inline_citations=remove_inline_citations,
+        include_anchors=include_anchors,
     )
     main_irs, ref_irs, app_irs = split_ir_sections(doc.sections, reference_section_titles)
 
     # Sidecar views drop abstract + front matter; the emitter only reads
     # those three fields, so a shallow copy per view is enough.
-    content = finalize_markdown(
-        emitter.emit(doc.model_copy(update={"sections": main_irs})),
-        include_anchors=include_anchors,
-    )
+    content = finalize_markdown(emitter.emit(doc.model_copy(update={"sections": main_irs})))
 
     content_references = None
     if ref_irs:
         ref_view = doc.model_copy(update={"sections": ref_irs, "abstract": [], "front_matter": []})
         ref_raw = emitter.emit(ref_view)
         if ref_raw.strip():
-            ref_final = finalize_markdown(ref_raw, include_anchors=include_anchors)
+            ref_final = finalize_markdown(ref_raw)
             content_references = _number_reference_entries(ref_final, include_anchors=include_anchors)
 
     content_appendix = None
     if app_irs:
         app_view = doc.model_copy(update={"sections": app_irs, "abstract": [], "front_matter": []})
         app_raw = emitter.emit(app_view)
-        content_appendix = finalize_markdown(app_raw, include_anchors=include_anchors) if app_raw.strip() else None
+        content_appendix = finalize_markdown(app_raw) if app_raw.strip() else None
 
     return content, content_references, content_appendix
 

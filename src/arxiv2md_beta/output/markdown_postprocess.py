@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 
 from arxiv2md_beta.output.markdown_utils import protect_fenced_code, restore_protected_code
-from arxiv2md_beta.settings import get_settings
 
 _ANCHOR_TAG_RE = re.compile(r'<a id="[^"]*"></a>')
 _TRAILING_MATH_SPACE_RE = re.compile(r"\\(?: |\,|\;|\:|\!|quad|qquad|hspace\{[^}]*\})\s*$")
@@ -37,26 +36,6 @@ _INLINE_LINK_PLACEHOLDER_RE = re.compile(r"\x00MD_LINK_(\d+)\x00")
 # time this runs, so their content cannot trigger a false row match.
 _TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
 _TABLE_ROW_PLACEHOLDER_RE = re.compile(r"\x00MD_ROW_(\d+)\x00")
-# Fragment-only markdown links ([text](#target)); flattened when anchors are
-# stripped, since they cannot resolve without the anchor tags.
-_FRAGMENT_LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(#[^)\n]*\)")
-
-
-def _strip_anchor_tags(text: str) -> str:
-    r"""Strip all ``<a id=\"...\"></a>`` anchors and normalize leftover blank lines.
-
-    Markdown links whose target is a bare fragment (``[Figure 2](#figure-2)``)
-    are flattened to their link text: with the anchors gone they could never
-    resolve, so keeping the syntax only ships dead links.
-
-    Caller has already lifted fenced code blocks out: blank-line collapsing
-    and per-line ``rstrip`` must not touch their contents.
-    """
-    text = _ANCHOR_TAG_RE.sub("", text)
-    text = _FRAGMENT_LINK_RE.sub(r"\2", text)
-    # Collapse 3+ newlines to 2 and trim trailing whitespace per line.
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return "\n".join(line.rstrip() for line in text.split("\n"))
 
 
 def _clean_math_latex(latex: str) -> str:
@@ -256,24 +235,18 @@ def _clean_math_and_spacing(text: str) -> str:
     return result
 
 
-def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> str:
+def clean_markdown_output(text: str) -> str:
     r"""Apply final Markdown cleanup.
 
-    Parameters
-    ----------
-    text
-        Raw Markdown content.
-    include_anchors
-        If ``True``, keep ``<a id=\"...\"></a>`` tags. If ``None``, read from
-        ``settings.output.include_anchors`` (default ``False``).
+    Anchor handling used to live here too (``_strip_anchor_tags`` removed the
+    anchors the emitter had just written); the emitter now emits them only
+    when ``settings.output.include_anchors`` asks for it, so the text layer
+    has nothing to undo.
 
-    Returns:
-    -------
-    str
-        Cleaned Markdown content.
+    Returns the cleaned Markdown with a single trailing newline (POSIX text
+    convention; keeps written .md files and goldens stable under
+    end-of-file-fixer).
     """
-    if include_anchors is None:
-        include_anchors = get_settings().output.include_anchors
     if not text:
         return text
     # ONE fence lift for the whole cleanup (audit5 X6): the sub-passes used
@@ -281,27 +254,22 @@ def clean_markdown_output(text: str, *, include_anchors: bool | None = None) -> 
     # line scans per finalize. The final blank-line collapse below must not
     # touch fence contents either.
     text, saved_fences = protect_fenced_code(text)
-    if not include_anchors:
-        text = _strip_anchor_tags(text)
     text = _clean_math_and_spacing(text)
     # Ensure no excessive blank lines remain.
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = restore_protected_code(text, saved_fences)
-    # Emit a single trailing newline (POSIX text convention; keeps written
-    # .md files and goldens stable under end-of-file-fixer).
     return text.strip() + "\n"
 
 
-def finalize_markdown(text: str, *, include_anchors: bool | None = None) -> str:
+def finalize_markdown(text: str) -> str:
     """Single-pass Markdown finalization: format then clean.
 
     Composes :func:`format_markdown_output` (anchor newlines, table captions,
     display-math simplification, bullet dedup, blank-line collapse) with
-    :func:`clean_markdown_output` (optional anchor stripping, math-latex
-    cleanup, inline ``$`` spacing). Replaces the former two-layer postprocess
-    (one pass at emission, a second at CLI finalize) with a single application
-    right after emission.
+    :func:`clean_markdown_output` (math-latex cleanup, inline ``$`` spacing).
+    Replaces the former two-layer postprocess (one pass at emission, a second
+    at CLI finalize) with a single application right after emission.
     """
     from arxiv2md_beta.output.markdown_utils import format_markdown_output
 
-    return clean_markdown_output(format_markdown_output(text), include_anchors=include_anchors)
+    return clean_markdown_output(format_markdown_output(text))

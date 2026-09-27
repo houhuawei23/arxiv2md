@@ -102,7 +102,15 @@ def _a_id(anchor: str) -> str:
 
 
 class MarkdownEmitter(IREmitter):
-    """Serialize a :class:`DocumentIR` to GitHub-flavoured Markdown."""
+    """Serialize a :class:`DocumentIR` to GitHub-flavoured Markdown.
+
+    ``include_anchors`` (default: ``settings.output.include_anchors``) decides
+    whether ``<a id>`` anchors are emitted at all. It used to be the other way
+    round — the emitter always wrote anchors and ``markdown_postprocess``
+    stripped them back off — which shipped dead fragment links that a text
+    layer then had to flatten; emitting them conditionally is one decision in
+    one place.
+    """
 
     format_name = "markdown"
 
@@ -111,9 +119,21 @@ class MarkdownEmitter(IREmitter):
         *,
         linked_citations: bool = False,
         remove_inline_citations: bool = False,
+        include_anchors: bool | None = None,
     ) -> None:
         self.linked_citations = linked_citations
         self.remove_inline_citations = remove_inline_citations
+        if include_anchors is None:
+            from arxiv2md_beta.settings import get_settings
+
+            include_anchors = get_settings().output.include_anchors
+        self.include_anchors = include_anchors
+
+    def _anchor(self, anchor: str | None) -> str:
+        """``<a id>`` when anchors are enabled and *anchor* is set; blank else."""
+        if not self.include_anchors or not anchor:
+            return ""
+        return _a_id(anchor)
 
     def emit(self, doc: DocumentIR) -> str:
         parts: list[str] = []
@@ -132,7 +152,9 @@ class MarkdownEmitter(IREmitter):
             parts.append("")
 
         # Sections
-        for section in doc.sections:
+        for i, section in enumerate(doc.sections):
+            if i:
+                parts.append("")
             parts.append(self._emit_section(section))
 
         return _post_process("\n".join(parts))
@@ -143,10 +165,9 @@ class MarkdownEmitter(IREmitter):
         parts: list[str] = []
 
         # Anchor
-        if section.anchor:
-            parts.append(_a_id(section.anchor))
-        elif section.struct_id:
-            parts.append(_a_id(section.struct_id))
+        anchor = self._anchor(section.anchor or section.struct_id)
+        if anchor:
+            parts.append(anchor)
 
         # Heading
         hashes = "#" * max(1, min(6, section.level))
@@ -179,8 +200,8 @@ class MarkdownEmitter(IREmitter):
         elif t == "heading":
             level = getattr(block, "level", 2)
             text = self._emit_inlines(getattr(block, "inlines", []))
-            anchor = getattr(block, "anchor", None)
-            prefix = f"{_a_id(anchor)}\n\n" if anchor else ""
+            prefix = self._anchor(getattr(block, "anchor", None))
+            prefix = f"{prefix}\n\n" if prefix else ""
             return f"{prefix}{'#' * level} {text}"
         elif t == "figure":
             return self._emit_figure(block)
@@ -244,7 +265,11 @@ class MarkdownEmitter(IREmitter):
             if all(n is not None for n in num_lists):
                 nums = [n for sub in num_lists if sub is not None for n in sub]
                 if nums:
-                    parts.append("(" + ", ".join(_citation_refs(nums, linked=self.linked_citations)) + ")")
+                    parts.append(
+                        "("
+                        + ", ".join(_citation_refs(nums, linked=self.linked_citations and self.include_anchors))
+                        + ")"
+                    )
             else:
                 parts.extend(self._emit_inline(il) for il in run)
             run.clear()
@@ -303,7 +328,8 @@ class MarkdownEmitter(IREmitter):
                 # natbib keys ("[vicuna ]" -> "[9]").
                 nums = _citation_nums(inline.target_id)
                 if nums is not None:
-                    if self.linked_citations:
+                    linked = self.linked_citations and self.include_anchors
+                    if linked:
                         return "".join(_citation_refs(nums, linked=True))
                     return "[" + ",".join(_citation_refs(nums, linked=False)) + "]"
                 # Fallback: bare key text, with trailing punctuation/whitespace
@@ -317,6 +343,10 @@ class MarkdownEmitter(IREmitter):
                     return f"[{escape_md_text(cite_text)}](#{escape_url(inline.target_id)})"
                 return f"[{escape_md_text(cite_text)}]"
             if inline.kind == "internal" and inline.target_id:
+                # Fragment links without anchor tags cannot resolve; keep
+                # the text (mirrors the old emit-then-strip result).
+                if not self.include_anchors:
+                    return text
                 return f"[{escape_md_text(text)}](#{escape_url(inline.target_id)})"
             elif inline.url:
                 return f"[{escape_md_text(text)}]({escape_url(inline.url)})"
@@ -349,9 +379,9 @@ class MarkdownEmitter(IREmitter):
         lines: list[str] = []
 
         # Anchor
-        fid = fig.figure_id or fig.anchor
+        fid = self._anchor(fig.figure_id or fig.anchor)
         if fid:
-            lines.append(_a_id(fid))
+            lines.append(fid)
             lines.append("")
 
         # Images — every path routes alt/src through the escape policies
@@ -419,9 +449,9 @@ class MarkdownEmitter(IREmitter):
         lines: list[str] = []
 
         # Anchor
-        tid = tbl.table_id or tbl.anchor
+        tid = self._anchor(tbl.table_id or tbl.anchor)
         if tid:
-            lines.append(_a_id(tid))
+            lines.append(tid)
             lines.append("")
 
         # Headers & rows. Cell content is flattened to one line: a literal
@@ -485,9 +515,9 @@ class MarkdownEmitter(IREmitter):
 
     def _emit_equation(self, eq: EquationIR) -> str:
         parts: list[str] = []
-        anchor = eq.anchor
+        anchor = self._anchor(eq.anchor)
         if anchor:
-            parts.append(_a_id(anchor))
+            parts.append(anchor)
             parts.append("")
         num = eq.equation_number
         latex = eq.latex
@@ -608,9 +638,9 @@ class MarkdownEmitter(IREmitter):
 
     def _emit_algorithm(self, alg: AlgorithmIR) -> str:
         lines: list[str] = []
-        anchor = alg.anchor
+        anchor = self._anchor(alg.anchor)
         if anchor:
-            lines.append(_a_id(anchor))
+            lines.append(anchor)
             lines.append("")
         caption = self._emit_inlines(alg.caption)
         if caption:
