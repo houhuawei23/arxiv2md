@@ -6,8 +6,6 @@ import asyncio
 import re
 from pathlib import Path
 
-from loguru import logger
-
 from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import IngestionError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
@@ -16,7 +14,10 @@ from arxiv2md_beta.latex.tex_source import ArchiveExtractionError, extract_local
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult, LocalArchiveQuery
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.logging_config import get_logger
 from arxiv2md_beta.utils.text import find_matching_brace_end
+
+logger = get_logger()
 
 
 class LocalIngestionError(IngestionError):

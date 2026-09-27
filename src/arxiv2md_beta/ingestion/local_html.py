@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from loguru import logger
-
 from arxiv2md_beta.exceptions import IngestionError
 from arxiv2md_beta.ir.document import DocumentIR
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult, LocalHtmlQuery
 from arxiv2md_beta.settings import get_settings
+from arxiv2md_beta.utils.logging_config import get_logger
+
+logger = get_logger()
 
 
 class LocalHtmlIngestionError(IngestionError):

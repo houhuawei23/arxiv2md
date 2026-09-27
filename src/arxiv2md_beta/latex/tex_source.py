@@ -459,7 +459,8 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
             content = tex_file.read_text(encoding="utf-8", errors="ignore")
             if "\\documentclass" in content and "\\begin{document}" in content:
                 return tex_file
-        except Exception:
+        except OSError:
+            # Unreadable/vanished file: fall through to the next candidate.
             pass
 
     # Check for arXiv ID pattern in filename
