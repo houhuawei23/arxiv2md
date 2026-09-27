@@ -44,7 +44,7 @@ from arxiv2md_beta.output.metadata_tex import merge_tex_affiliations_if_configur
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.query.parser import parse_arxiv_input
 from arxiv2md_beta.query.sections import collect_sections
-from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
+from arxiv2md_beta.schemas import ArxivQuery, IngestionMetadata, IngestionResult
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
@@ -63,11 +63,36 @@ class IngestionOrchestrator:
         result, metadata = await orch.run()
     """
 
-    def __init__(self, params: ConvertParams, settings: AppSettings | None = None) -> None:
-        """Optionally inject *settings* for tests; defaults to the process global."""
+    def __init__(
+        self,
+        params: ConvertParams,
+        settings: AppSettings | None = None,
+        *,
+        query: ArxivQuery | None = None,
+        selected_sections: list[str] | None = None,
+        base_output_dir: Path | None = None,
+    ) -> None:
+        """Optionally inject *settings* for tests; defaults to the process global.
+
+        ``query`` / ``selected_sections`` / ``base_output_dir`` accept values
+        already derived by the CLI runner's mode spec, so the shared
+        ``_process_with`` front-half runs exactly once per paper instead of
+        twice (the orchestrator used to re-parse the input, re-collect the
+        section selection, and re-resolve/re-create the output dir).
+        """
         self.params = params
         self._settings = settings or get_settings()
         self._ingestion_cfg = self._settings.ingestion
+
+        # Precomputed runner context (None = derive it here). Resolving
+        # eagerly keeps ``self._query`` etc. non-optional afterwards.
+        self._query: ArxivQuery = query if query is not None else parse_arxiv_input(params.input_text.strip())
+        self._selected_sections: list[str] = (
+            selected_sections if selected_sections is not None else collect_sections(params.sections, params.section)
+        )
+        self._base_output_dir: Path = (
+            base_output_dir if base_output_dir is not None else determine_output_dir(params.output)
+        )
 
         # Mutable pipeline state
         self._html: str = ""
@@ -83,7 +108,6 @@ class IngestionOrchestrator:
         self._images_dir: Path | None = None
 
         # Section-filter state
-        self._selected_sections: list[str] = []
         self._include_abstract: bool = True
 
         self._performance = PerformanceMonitor()
@@ -191,7 +215,7 @@ class IngestionOrchestrator:
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
         title = self._api_metadata.get("title") or strip_version(self._query.arxiv_id)
 
-        base_output_dir = determine_output_dir(self.params.output)
+        base_output_dir = self._base_output_dir
         base_output_dir.mkdir(parents=True, exist_ok=True)
         self._paper_output_dir = create_paper_output_dir(
             base_output_dir,
@@ -243,7 +267,7 @@ class IngestionOrchestrator:
         return result, metadata
 
     def _parse_query(self) -> None:
-        self._query = parse_arxiv_input(self.params.input_text.strip())
+        """No-op — the query is resolved in ``__init__`` (see runner precompute)."""
 
     # ── Step 1: Fetch HTML ─────────────────────────────────────────────
 
@@ -316,8 +340,7 @@ class IngestionOrchestrator:
     # ── Step 4: Filter sections ────────────────────────────────────────
 
     def _filter_sections(self) -> None:
-        self._selected_sections = collect_sections(self.params.sections, self.params.section)
-
+        """Derive abstract inclusion from the (already-resolved) section selection."""
         # Determine whether abstract should be included
         abstract_key = self._ingestion_cfg.abstract_section_title.lower()
         selected_lower = [s.lower() for s in self._selected_sections]
@@ -329,14 +352,10 @@ class IngestionOrchestrator:
     # ── Step 5: Setup output directory ─────────────────────────────────
 
     def _setup_output_dir(self) -> None:
-        from arxiv2md_beta.output.layout import determine_output_dir
-
         assert self._parsed is not None
 
-        base_output_dir = determine_output_dir(self.params.output)
-        base_output_dir.mkdir(parents=True, exist_ok=True)
         self._paper_output_dir = create_paper_output_dir(
-            base_output_dir,
+            self._base_output_dir,
             self._submission_date,
             self._parsed.title,
             source=self.params.source,

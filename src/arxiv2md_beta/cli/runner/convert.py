@@ -55,9 +55,19 @@ class _ModeSpec:
 
 
 def _ingest_arxiv_html(params: ConvertParams, query, sections, base_output_dir: Path):
+    """Remote-HTML ingestion, fed the context ``_process_with`` already derived.
+
+    The orchestrator accepts the precomputed query / section selection /
+    output dir so the shared front-half runs once, not twice.
+    """
     from arxiv2md_beta.ingestion.orchestrator import IngestionOrchestrator
 
-    return IngestionOrchestrator(params).run()
+    return IngestionOrchestrator(
+        params,
+        query=query,
+        selected_sections=sections,
+        base_output_dir=base_output_dir,
+    ).run()
 
 
 async def _process_with(
