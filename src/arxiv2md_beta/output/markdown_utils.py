@@ -20,7 +20,7 @@ from loguru import logger
 from arxiv2md_beta.settings import get_settings
 
 if TYPE_CHECKING:
-    from arxiv2md_beta.schemas import SectionNode
+    from arxiv2md_beta.contracts import SectionNode
 
 try:
     import tiktoken

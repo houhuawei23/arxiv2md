@@ -11,9 +11,9 @@ from typing import Any
 
 from loguru import logger
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import Arxiv2mdError, NetworkError
 from arxiv2md_beta.latex.tex_source import (
-    TexSourceInfo,
     TexSourceNotFoundError,
     fetch_and_extract_tex_source,
 )

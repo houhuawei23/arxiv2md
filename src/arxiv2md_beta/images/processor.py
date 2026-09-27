@@ -16,8 +16,8 @@ from loguru import logger
 from pdf2image import convert_from_path
 from PIL import Image, ImageChops
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import ImageProcessingError, PDFConversionError
-from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.concurrency import concurrency_slot
 from arxiv2md_beta.utils.progress import iterable_task_progress

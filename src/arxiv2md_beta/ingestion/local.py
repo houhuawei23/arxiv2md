@@ -9,10 +9,11 @@ from typing import Any
 
 from loguru import logger
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import IngestionError, ParserNotAvailableError
 from arxiv2md_beta.images.processor import process_images_async
 from arxiv2md_beta.ir.document import DocumentIR
-from arxiv2md_beta.latex.tex_source import ArchiveExtractionError, TexSourceInfo, extract_local_archive
+from arxiv2md_beta.latex.tex_source import ArchiveExtractionError, extract_local_archive
 from arxiv2md_beta.params import ConvertParams
 from arxiv2md_beta.schemas import IngestionResult, LocalArchiveQuery
 from arxiv2md_beta.settings import get_settings

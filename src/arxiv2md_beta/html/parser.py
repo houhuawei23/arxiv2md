@@ -5,9 +5,8 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 
-from arxiv2md_beta.schemas import SectionNode
+from arxiv2md_beta.contracts import ParsedArxivHtml, ParsedAuthor, SectionNode
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.html_attrs import attr_optional
 from arxiv2md_beta.utils.html_attrs import classes as css_classes
@@ -107,28 +106,6 @@ _AFFILIATION_KEYWORDS = {
 _FOOTNOTE_MARKER_RE = re.compile(r"^[\*†‡§¶‖#♯\d]+$")
 
 
-@dataclass
-class ParsedAuthor:
-    """An author record with optional affiliation(s)."""
-
-    name: str
-    affiliations: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ParsedArxivHtml:
-    """Parsed content extracted from arXiv HTML."""
-
-    title: str | None
-    authors: list[ParsedAuthor]
-    abstract: str | None
-    abstract_html: str | None  # Inner HTML of abstract div for figure-aware conversion
-    front_matter_html: str | None  # HTML between abstract and first section (e.g. title-block figures)
-    sections: list[SectionNode]
-    submission_date: str | None = None  # Format: YYYYMMDD
-    document_root: Tag | None = None  # Root Tag for downstream IR builder reuse
-
-
 def _extract_front_matter_html(soup: BeautifulSoup, document_root: Tag) -> str | None:
     """Extract HTML between abstract and first section (e.g. title-block figures)."""
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
@@ -155,7 +132,7 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
     soup = BeautifulSoup(html, "html.parser")
     document_root = _find_document_root(soup)
 
-    title = _extract_title(soup)
+    title = _extract_title(soup, document_root)
     authors = _extract_authors_with_affiliations(soup)
     abstract = _extract_abstract(soup)
     abstract_html = _extract_abstract_html(soup)
@@ -171,7 +148,6 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
         front_matter_html=front_matter_html,
         sections=sections,
         submission_date=submission_date,
-        document_root=document_root,
     )
 
 

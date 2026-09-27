@@ -2,7 +2,6 @@
 
 from arxiv2md_beta.schemas.ingestion import IngestionResult
 from arxiv2md_beta.schemas.query import ArxivQuery, LocalArchiveQuery, LocalHtmlQuery
-from arxiv2md_beta.schemas.sections import SectionNode
 from arxiv2md_beta.schemas.structured import SCHEMA_VERSION
 
 __all__ = [
@@ -10,6 +9,5 @@ __all__ = [
     "LocalArchiveQuery",
     "LocalHtmlQuery",
     "IngestionResult",
-    "SectionNode",
     "SCHEMA_VERSION",
 ]

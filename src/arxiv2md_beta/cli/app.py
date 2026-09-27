@@ -90,7 +90,9 @@ def _run_command(body: Callable[[], _T]) -> _T:
 
     Shared guard for every command: ``typer.Exit`` / ``KeyboardInterrupt``
     pass through untouched, everything else is logged and mapped to its
-    typed exit code (generic failures exit 1).
+    typed exit code (generic failures exit 1). Also tears down the shared
+    image-conversion process pool — lifecycle ownership belongs at the CLI
+    edge, not inside the HTTP layer.
     """
     try:
         return body()
@@ -98,6 +100,10 @@ def _run_command(body: Callable[[], _T]) -> _T:
         raise
     except BaseException as exc:
         _handle_command_error(get_logger(), exc)
+    finally:
+        from arxiv2md_beta.images.processor import shutdown_process_pool
+
+        shutdown_process_pool()
 
 
 @app.callback()

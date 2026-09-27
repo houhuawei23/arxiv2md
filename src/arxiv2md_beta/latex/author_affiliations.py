@@ -7,8 +7,8 @@ from typing import Any
 
 from loguru import logger
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.latex import tex_source as tex_source_mod
-from arxiv2md_beta.latex.tex_source import TexSourceInfo
 from arxiv2md_beta.utils.text import dedupe_affiliation_strings, find_matching_brace_end, names_match
 
 

@@ -12,10 +12,10 @@ import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
 
 from loguru import logger
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import ImageProcessingError, NetworkError, StorageError
 from arxiv2md_beta.network.download import (
     cache_dir_for,
@@ -25,18 +25,6 @@ from arxiv2md_beta.network.download import (
 )
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.text import find_matching_brace_end
-
-
-class TexSourceInfo(NamedTuple):
-    """Information about extracted TeX source."""
-
-    extracted_dir: Path
-    main_tex_file: Path | None
-    image_files: dict[str, Path]  # figure_label -> local_path
-    all_images: list[Path]  # All image files found
-    # \includegraphics inside \begin{figure} envs only, in float order. Drives
-    # the figure-index map so ar5iv xN.png names resolve to the right file.
-    figure_image_files: list[Path] = []
 
 
 def _info_paths_intact(info: TexSourceInfo) -> bool:

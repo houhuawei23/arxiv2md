@@ -14,6 +14,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import (
     ImageProcessingError,
     NetworkError,
@@ -27,7 +28,6 @@ from arxiv2md_beta.ir.document import AuthorIR, DocumentIR
 from arxiv2md_beta.ir.resolvers import ImageResolver
 from arxiv2md_beta.ir.transforms import build_default_pipeline
 from arxiv2md_beta.latex.tex_source import (
-    TexSourceInfo,
     fetch_and_extract_tex_source,
 )
 from arxiv2md_beta.network.arxiv_api import (

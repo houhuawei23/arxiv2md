@@ -14,6 +14,8 @@ from typing import Any, cast
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from arxiv2md_beta.contracts import ParsedArxivHtml
+from arxiv2md_beta.html.parser import parse_arxiv_html
 from arxiv2md_beta.ir.assets import SvgAsset
 from arxiv2md_beta.ir.blocks import (
     AlgorithmIR,
@@ -138,8 +140,6 @@ class HTMLBuilder(IRBuilder):
     def build(self, source: Any, **kwargs: Any) -> DocumentIR:
         """Parse HTML *source* (str, bytes, or ParsedArxivHtml) into a :class:`DocumentIR`."""
         arxiv_id = kwargs.get("arxiv_id", "unknown")
-        from arxiv2md_beta.html.parser import ParsedArxivHtml
-
         if isinstance(source, ParsedArxivHtml):
             return self._build_from_parsed(source, arxiv_id)
         if isinstance(source, bytes):
@@ -148,8 +148,6 @@ class HTMLBuilder(IRBuilder):
 
     def _build_from_parsed(self, parsed: Any, arxiv_id: str) -> DocumentIR:
         """从已解析的 :class:`ParsedArxivHtml` 构建 IR，避免再次解析完整 HTML。."""
-        from arxiv2md_beta.html.parser import ParsedArxivHtml
-
         assert isinstance(parsed, ParsedArxivHtml)
 
         authors = [AuthorIR(name=a.name, affiliations=a.affiliations) for a in parsed.authors]
@@ -189,8 +187,9 @@ class HTMLBuilder(IRBuilder):
         return doc
 
     def _build_from_html(self, html: str, arxiv_id: str) -> DocumentIR:
-        from arxiv2md_beta.html.parser import parse_arxiv_html
-
+        # html.parser sits *above* the IR layer but depends on nothing in it,
+        # so this edge is one-way (no cycle). The contract type itself lives
+        # in arxiv2md_beta.contracts.
         parsed = parse_arxiv_html(html)
         return self._build_from_parsed(parsed, arxiv_id)
 
