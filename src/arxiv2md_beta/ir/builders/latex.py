@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import re
@@ -15,7 +14,6 @@ from arxiv2md_beta.ir.blocks import (
     BlockQuoteIR,
     BlockUnion,
     CodeIR,
-    EquationIR,
     FigureIR,
     HeadingIR,
     ListIR,
@@ -24,6 +22,7 @@ from arxiv2md_beta.ir.blocks import (
     RuleIR,
     TableIR,
 )
+from arxiv2md_beta.ir.builders._display_split import split_paragraph_at_display_math
 from arxiv2md_beta.ir.builders._math_norm import (
     MBOX_TO_TEXT_RE,
     MULTI_SPACE_RE,
@@ -764,51 +763,8 @@ class LaTeXBuilder(IRBuilder):
                     result.append(b)
         return result
 
-    def _contains_display_math(self, inlines: list[InlineUnion]) -> bool:
-        """True if any inline (recursively, through container inlines) is display math."""
-        for il in inlines:
-            if isinstance(il, MathIR) and il.display:
-                return True
-            if hasattr(il, "inlines") and self._contains_display_math(il.inlines):
-                return True
-        return False
-
-    def _partition_display_math(self, inlines: list[InlineUnion]) -> list[tuple[str, list[InlineUnion] | str]]:
-        r"""Partition *inlines* into ``("text", inlines)`` / ``("eq", latex)`` segments.
-
-        Display math inside container inlines (e.g. an italic ``EmphasisIR`` wrapping
-        a ``\begin{assumption}`` body) is lifted out; the surrounding text is
-        re-wrapped in a clone of the container so styling is preserved.
-        """
-        segments: list[tuple[str, list[InlineUnion] | str]] = []
-        current: list[InlineUnion] = []
-
-        def flush() -> None:
-            if current:
-                segments.append(("text", list(current)))
-                current.clear()
-
-        for il in inlines:
-            if isinstance(il, MathIR) and il.display:
-                flush()
-                segments.append(("eq", il.latex))
-            elif hasattr(il, "inlines") and self._contains_display_math(il.inlines):
-                sub = self._partition_display_math(il.inlines)
-                for kind, val in sub:
-                    if kind == "eq":
-                        flush()
-                        segments.append(("eq", val))
-                    else:
-                        cloned = copy.deepcopy(il)
-                        cloned.inlines = list(val)  # type: ignore[attr-defined]
-                        current.append(cloned)
-            else:
-                current.append(il)
-        flush()
-        return segments
-
     def _split_display_math_paragraph(self, inlines: list[InlineUnion]) -> BlockUnion | list[BlockUnion]:
-        r"""Split a paragraph's inlines at display-math inlines.
+        r"""Split a paragraph's inlines at display-math inlines (shared impl).
 
         Pandoc places ``\begin{align}``/``$$`` display math INSIDE a Para as a
         DisplayMath inline (possibly nested inside an emphasis container); the
@@ -818,25 +774,8 @@ class LaTeXBuilder(IRBuilder):
         rather than mid-paragraph — mid-paragraph ``$$`` is absorbed into the
         surrounding text and breaks KaTeX/MathJax.
         """
-        if not self._contains_display_math(inlines):
-            return ParagraphIR(
-                inlines=inlines,
-            )
-        blocks: list[BlockUnion] = []
-        for kind, val in self._partition_display_math(inlines):
-            if kind == "eq":
-                blocks.append(
-                    EquationIR(
-                        latex=cast("str", val),
-                    )
-                )
-            else:
-                blocks.append(
-                    ParagraphIR(
-                        inlines=cast("list[InlineUnion]", val),
-                    )
-                )
-        return blocks
+        blocks = split_paragraph_at_display_math(inlines)
+        return blocks[0] if len(blocks) == 1 else blocks
 
     def _block_from_pandoc(self, blk: dict) -> BlockUnion | list[BlockUnion] | None:
         """Convert a single Pandoc block dict to an IR block."""

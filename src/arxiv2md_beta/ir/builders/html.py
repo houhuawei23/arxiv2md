@@ -60,6 +60,7 @@ from arxiv2md_beta.ir.builders._algorithm import (
     _svg_foreignobject_latex,
     _trim_inline_edges,
 )
+from arxiv2md_beta.ir.builders._display_split import split_paragraph_at_display_math
 from arxiv2md_beta.ir.builders._math_norm import (
     TAG_RE,
 )
@@ -290,7 +291,7 @@ class HTMLBuilder(IRBuilder):
             # If the paragraph contains display math, lift those equations out as
             # block-level elements so the Markdown emitter can render them with
             # proper $$ delimiters instead of inline math breaking list layout.
-            split_blocks = self._split_paragraph_inlines(inlines)
+            split_blocks = split_paragraph_at_display_math(inlines)
             if len(split_blocks) == 1:
                 return split_blocks[0]
             return split_blocks
@@ -418,44 +419,6 @@ class HTMLBuilder(IRBuilder):
         )
 
     # ── Inline conversion ──────────────────────────────────────────────
-
-    def _split_paragraph_inlines(
-        self,
-        inlines: list[InlineUnion],
-    ) -> list[BlockUnion]:
-        """Split paragraph inlines into paragraph/equation blocks.
-
-        Display math that appears inside a paragraph wrapper is lifted to a
-        block-level :class:`EquationIR` so it is rendered as display math rather
-        than inline ``$$...$$`` embedded in a paragraph line.
-        """
-        blocks: list[BlockUnion] = []
-        current: list[InlineUnion] = []
-
-        def _flush_current() -> None:
-            nonlocal current
-            # Drop runs that only contain whitespace text
-            if any(not (il.type == "text" and not il.text.strip()) for il in current):
-                blocks.append(
-                    ParagraphIR(
-                        inlines=list(current),
-                    )
-                )
-            current = []
-
-        for il in inlines:
-            if il.type == "math" and getattr(il, "display", False):
-                _flush_current()
-                blocks.append(
-                    EquationIR(
-                        latex=il.latex or "",
-                    )
-                )
-            else:
-                current.append(il)
-
-        _flush_current()
-        return blocks
 
     def _tag_to_inlines(self, tag: Tag) -> list[InlineUnion]:
         """Convert a BeautifulSoup tag's children to a list of inline IR nodes."""

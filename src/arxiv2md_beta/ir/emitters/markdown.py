@@ -49,6 +49,22 @@ _EMPHASIS_CLOSERS: dict[str, str] = {
 # builder joins multi-cites as a bare comma list ("35,2,5").
 _CITATION_NUM_RE = re.compile(r"^(?:ref-)?(\d+(?:\s*,\s*\d+)*)$")
 
+
+def _citation_nums(target_id: str | None) -> list[str] | None:
+    """Numeric citation list encoded in *target_id*, or None if not numeric."""
+    m = _CITATION_NUM_RE.match(target_id or "")
+    return [n.strip() for n in m.group(1).split(",")] if m else None
+
+
+def _citation_refs(nums: list[str], *, linked: bool) -> list[str]:
+    """Render each citation number: ``[N](#ref-N)`` when linked, bare ``N`` else.
+
+    Callers add their own framing — runs get a parenthesised group
+    ``(N, M)``; single citations render ``[N]`` / ``[N](#ref-N)``.
+    """
+    return [f"[{n}](#ref-{n})" for n in nums] if linked else list(nums)
+
+
 # Text inline that only separates two adjacent citations (", ", "; ").
 _CITE_SEP_RE = re.compile(r"^[\s,;]*$")
 
@@ -224,13 +240,11 @@ class MarkdownEmitter(IREmitter):
         def flush_run() -> None:
             if not run:
                 return
-            matches = [_CITATION_NUM_RE.match(il.target_id or "") for il in run]
-            nums = [n.strip() for m in matches if m for n in m.group(1).split(",")]
-            if all(matches) and nums:
-                if self.linked_citations:
-                    parts.append("(" + ", ".join(f"[{n}](#ref-{n})" for n in nums) + ")")
-                else:
-                    parts.append(f"({', '.join(nums)})")
+            num_lists = [_citation_nums(il.target_id) for il in run]
+            if all(n is not None for n in num_lists):
+                nums = [n for sub in num_lists if sub is not None for n in sub]
+                if nums:
+                    parts.append("(" + ", ".join(_citation_refs(nums, linked=self.linked_citations)) + ")")
             else:
                 parts.extend(self._emit_inline(il) for il in run)
             run.clear()
@@ -287,12 +301,11 @@ class MarkdownEmitter(IREmitter):
                 # (#bib.bibN -> target_id "ref-N"). Emit the numeric form [N]
                 # so citations match a numbered reference list instead of bare
                 # natbib keys ("[vicuna ]" -> "[9]").
-                m = _CITATION_NUM_RE.match(inline.target_id or "")
-                if m:
-                    nums = [n.strip() for n in m.group(1).split(",")]
+                nums = _citation_nums(inline.target_id)
+                if nums is not None:
                     if self.linked_citations:
-                        return "".join(f"[{n}](#ref-{n})" for n in nums)
-                    return f"[{','.join(nums)}]"
+                        return "".join(_citation_refs(nums, linked=True))
+                    return "[" + ",".join(_citation_refs(nums, linked=False)) + "]"
                 # Fallback: bare key text, with trailing punctuation/whitespace
                 # stripped ("vicuna ", "radford2021learning, " -> "[vicuna]").
                 cite_text = text.strip().rstrip(",").rstrip(";").strip()
