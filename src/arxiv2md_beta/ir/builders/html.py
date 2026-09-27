@@ -83,6 +83,16 @@ from arxiv2md_beta.utils.html_attrs import attr_optional, attr_str
 from arxiv2md_beta.utils.html_attrs import classes as css_classes
 
 
+def _parse_list_start(tag: Tag) -> int | None:
+    """The ``start`` attribute of an ``<ol>``, or None when absent/1/invalid."""
+    raw_start = attr_optional(tag, "start")
+    try:
+        parsed_start = int(str(raw_start)) if raw_start is not None else 1
+    except ValueError:
+        parsed_start = 1
+    return parsed_start if parsed_start != 1 else None
+
+
 class HTMLBuilder(IRBuilder):
     """Build a :class:`DocumentIR` from arXiv HTML.
 
@@ -225,21 +235,19 @@ class HTMLBuilder(IRBuilder):
             return []
         soup = BeautifulSoup(html_fragment, "html.parser")
         self._text_cache.clear()
-        blocks, _ = self._children_to_blocks(soup.children, 0)
+        blocks = self._children_to_blocks(soup.children)
         # Flush remaining footnotes at end of fragment
         while self._pending_footnotes:
             blocks.append(self._pending_footnotes.popleft())
         return blocks
 
-    def _children_to_blocks(self, children: Iterable[Any], start_idx: int) -> tuple[list[BlockUnion], int]:
+    def _children_to_blocks(self, children: Iterable[Any]) -> list[BlockUnion]:
         """Process an iterable of BeautifulSoup nodes into IR blocks.
 
-        Returns the list of blocks and the next available index.  Pending
-        footnotes are inserted after each block that generates them, but
-        remaining footnotes are *not* flushed — the caller must do that.
+        Pending footnotes are inserted after each block that generates them,
+        but remaining footnotes are *not* flushed — the caller must do that.
         """
         blocks: list[BlockUnion] = []
-        idx = start_idx
         for child in children:
             if isinstance(child, NavigableString):
                 text = re.sub(r"\s+", " ", str(child)).strip()
@@ -249,23 +257,20 @@ class HTMLBuilder(IRBuilder):
                             inlines=[TextIR(text=text)],
                         )
                     )
-                    idx += 1
                 continue
             if not isinstance(child, Tag):
                 continue
-            result = self._tag_to_blocks(child, idx)
+            result = self._tag_to_blocks(child)
             if isinstance(result, list):
                 blocks.extend(result)
-                idx += len(result)
             elif result is not None:
                 blocks.append(result)
-                idx += 1
             # Insert any pending footnotes after the current block
             while self._pending_footnotes:
                 blocks.append(self._pending_footnotes.popleft())
-        return blocks, idx
+        return blocks
 
-    def _tag_to_blocks(self, tag: Tag, base_idx: int) -> list[BlockUnion] | BlockUnion | None:
+    def _tag_to_blocks(self, tag: Tag) -> list[BlockUnion] | BlockUnion | None:
         """Convert a BeautifulSoup tag to one or more block IR nodes."""
         tag_name = tag.name
 
@@ -301,18 +306,9 @@ class HTMLBuilder(IRBuilder):
             items = self._build_ar5iv_list_items(tag) if tag_name == "span" else self._build_list_items(tag)
             if not items:
                 return None
-            start: int | None = None
-            if tag_name == "ol":
-                raw_start = attr_optional(tag, "start")
-                try:
-                    parsed_start = int(str(raw_start)) if raw_start is not None else 1
-                except ValueError:
-                    parsed_start = 1
-                if parsed_start != 1:
-                    start = parsed_start
             return ListIR(
                 ordered=(tag_name == "ol" or _is_ar5iv_ordered_list(classes)),
-                start=start,
+                start=_parse_list_start(tag) if tag_name == "ol" else None,
                 items=items,
             )
 
@@ -328,8 +324,7 @@ class HTMLBuilder(IRBuilder):
 
         # Container elements — recurse directly without re-parsing
         if tag_name in ("section", "article", "div", "span"):
-            blocks, _ = self._children_to_blocks(tag.children, base_idx)
-            return blocks
+            return self._children_to_blocks(tag.children)
 
         # Headings
         if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -357,7 +352,7 @@ class HTMLBuilder(IRBuilder):
 
         # Blockquote
         if tag_name == "blockquote":
-            inner_blocks, _ = self._children_to_blocks(tag.children, base_idx)
+            inner_blocks = self._children_to_blocks(tag.children)
             if not inner_blocks:
                 return None
             return BlockQuoteIR(
@@ -937,11 +932,7 @@ class HTMLBuilder(IRBuilder):
             steps.extend(self._build_algorithm_listing(listing))
         if steps:
             return _nest_algorithm_steps(steps)
-        body, _ = self._children_to_blocks(
-            [c for c in tag.children if c is not caption_tag],
-            0,
-        )
-        return body
+        return self._children_to_blocks([c for c in tag.children if c is not caption_tag])
 
     def _build_algorithm_listing(self, listing: Tag) -> list[BlockUnion]:
         r"""Rebuild algorithm pseudocode rows as paragraph steps with real math.
@@ -1010,22 +1001,18 @@ class HTMLBuilder(IRBuilder):
                         # degrade to bullets here) and its start number.
                         nested = self._build_list_items(child)
                         if nested:
-                            start: int | None = None
-                            if child.name == "ol":
-                                raw_start = attr_optional(child, "start")
-                                try:
-                                    parsed_start = int(str(raw_start)) if raw_start is not None else 1
-                                except ValueError:
-                                    parsed_start = 1
-                                if parsed_start != 1:
-                                    start = parsed_start
-                            item_blocks.append(ListIR(items=nested, ordered=(child.name == "ol"), start=start))
+                            item_blocks.append(
+                                ListIR(
+                                    items=nested,
+                                    ordered=(child.name == "ol"),
+                                    start=_parse_list_start(child) if child.name == "ol" else None,
+                                )
+                            )
                     elif child.name in ("section", "article", "div", "span"):
                         # Recurse generically so that block-level siblings (e.g.
                         # nested ar5iv lists inside <div class="ltx_para">) are
                         # preserved instead of flattened to raw inline HTML.
-                        blocks, _ = self._children_to_blocks(child.children, len(item_blocks))
-                        item_blocks.extend(blocks)
+                        item_blocks.extend(self._children_to_blocks(child.children))
                     else:
                         inlines = self._tag_to_inlines(child)
                         if inlines:
@@ -1071,10 +1058,9 @@ class HTMLBuilder(IRBuilder):
                             )
                     elif child.name in ("section", "article", "div", "span"):
                         # Recurse generically but keep inline math intact
-                        blocks, _ = self._children_to_blocks(child.children, len(item_blocks))
-                        item_blocks.extend(blocks)
+                        item_blocks.extend(self._children_to_blocks(child.children))
                     else:
-                        result = self._tag_to_blocks(child, len(item_blocks))
+                        result = self._tag_to_blocks(child)
                         if isinstance(result, list):
                             item_blocks.extend(result)
                         elif result is not None:
@@ -1082,6 +1068,3 @@ class HTMLBuilder(IRBuilder):
             if item_blocks:
                 items.append(item_blocks)
         return items
-
-
-# ── Constants ──────────────────────────────────────────────────────────
