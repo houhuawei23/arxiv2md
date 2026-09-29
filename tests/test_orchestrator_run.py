@@ -202,3 +202,101 @@ def test_strip_abstract_heading_keeps_unrelated_heading() -> None:
     doc.abstract = [heading]
     _strip_abstract_heading(doc)
     assert doc.abstract == [heading]
+
+
+@pytest.mark.asyncio
+async def test_run_html_unavailable_degrades_to_latex(tmp_path, monkeypatch) -> None:
+    """Degradation chain tier 2: no HTML rendering but TeX exists → full LaTeX conversion."""
+
+    async def no_html(*args, **kwargs) -> str:
+        raise NetworkError("no HTML rendering", status_code=404)
+
+    monkeypatch.setattr(orch_module, "fetch_arxiv_html", no_html)
+
+    from arxiv2md_beta.contracts import TexSourceInfo
+
+    async def ok_tex(*args, **kwargs):
+        return TexSourceInfo(extracted_dir=tmp_path, main_tex_file=None, image_files={}, all_images=[])
+
+    monkeypatch.setattr(orch_module, "fetch_and_extract_tex_source", ok_tex)
+
+    # Keep the PDF-only tier's abs-page enrichment off the network.
+    import arxiv2md_beta.network.author_enrichment as enrichment_module
+
+    async def no_abs(base_id: str):
+        return None
+
+    monkeypatch.setattr(enrichment_module, "fetch_abs_html", no_abs)
+
+    from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
+
+    latex_result = IngestionResult(
+        summary="# Title: Tiny Paper (latex)", sections_tree="Sections:", content="full body"
+    )
+    latex_meta = IngestionMetadata(
+        arxiv_id="2501.11120",
+        title="Tiny Paper",
+        authors=[],
+        abstract=None,
+        submission_date=None,
+        paper_output_dir=tmp_path,
+        structured_export={},
+        pdf_only=False,
+    )
+
+    async def fake_latex_ingest(params, query, sections, base_output_dir):
+        return latex_result, latex_meta
+
+    import arxiv2md_beta.ingestion.latex as latex_module
+
+    monkeypatch.setattr(latex_module, "ingest_paper", fake_latex_ingest)
+
+    orch = _orch(tmp_path)
+    result, metadata = await orch.run()
+
+    assert metadata is latex_meta
+    assert not metadata.pdf_only
+    assert "latex" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_run_pdf_only_fallback_enriches_from_abs_page(tmp_path, monkeypatch) -> None:
+    """Degradation chain tier 3 with the Atom API off.
+
+    The abs landing page must supply title/authors/abstract so the output
+    dir is not named from the bare arXiv id.
+    """
+
+    async def no_html(*args, **kwargs) -> str:
+        raise NetworkError("no HTML rendering", status_code=404)
+
+    monkeypatch.setattr(orch_module, "fetch_arxiv_html", no_html)
+    _mock_no_tex(monkeypatch)
+
+    abs_html = (
+        "<html><head>"
+        '<meta name="citation_title" content="Implicit Bias in LLMs: A Survey"/>'
+        '<meta name="citation_author" content="Xinru Lin"/>'
+        '<meta name="citation_author" content="Luyang Li"/>'
+        '<meta name="citation_online_date" content="2025/03/04"/>'
+        "</head><body>"
+        '<div class="abstract">Abstract: This paper surveys implicit bias in LLMs.</div>'
+        "</body></html>"
+    )
+
+    async def fake_abs_html(base_id: str):
+        return abs_html
+
+    import arxiv2md_beta.network.author_enrichment as enrichment_module
+
+    monkeypatch.setattr(enrichment_module, "fetch_abs_html", fake_abs_html)
+
+    orch = _orch(tmp_path)
+    result, metadata = await orch.run()
+
+    assert metadata.pdf_only is True
+    assert metadata.title == "Implicit Bias in LLMs: A Survey"
+    assert metadata.abstract == "This paper surveys implicit bias in LLMs."
+    assert metadata.authors == ["Xinru Lin", "Luyang Li"]
+    assert "Implicit-Bias-in-LLMs" in str(metadata.paper_output_dir)
+    assert metadata.paper_output_dir.is_dir()

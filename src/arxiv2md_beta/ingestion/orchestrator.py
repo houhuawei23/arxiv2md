@@ -18,6 +18,7 @@ from arxiv2md_beta.contracts import TexSourceInfo
 from arxiv2md_beta.exceptions import (
     ImageProcessingError,
     NetworkError,
+    ParseError,
     StorageError,
 )
 from arxiv2md_beta.html.parser import ParsedArxivHtml, parse_arxiv_html
@@ -119,8 +120,8 @@ class IngestionOrchestrator:
 
         Three stages:
         1. **acquire** — parse the query, speculatively start the TeX
-           download, fetch HTML + API metadata in parallel (PDF-only
-           fallback when no HTML rendering exists);
+           download, fetch HTML + API metadata in parallel (no HTML rendering
+           degrades in order: LaTeX conversion, then the PDF-only fallback);
         2. **build** — filter sections, create the output directory, await
            the TeX download + image processing, then build/transform the IR
            (CPU-bound steps offloaded);
@@ -143,12 +144,14 @@ class IngestionOrchestrator:
             await self._reap_tex_task(tex_task)
             raise
         if self._parsed is None:
-            # PDF-only paper (no HTML rendering anywhere): still produce the
-            # output directory, paper.yml, a stub paper.md, and let finalize
-            # download the PDF — a minimal record beats aborting with nothing.
-            # The in-flight TeX download is irrelevant here.
+            # No HTML rendering anywhere: degrade in order — full LaTeX
+            # conversion when the TeX source exists, otherwise the PDF-only
+            # minimal output (directory + paper.yml + stub paper.md + PDF).
+            latex = await self._try_latex_fallback(tex_task)
+            if latex is not None:
+                return latex
             await self._reap_tex_task(tex_task)
-            return self._run_pdf_only_fallback()
+            return await self._run_pdf_only_fallback()
 
         # ── Stage 2: build the IR ─────────────────────────────────────────
         try:
@@ -201,19 +204,92 @@ class IngestionOrchestrator:
 
     # ── Step 0: Parse query ────────────────────────────────────────────
 
-    def _run_pdf_only_fallback(self) -> tuple[IngestionResult, IngestionMetadata]:
-        """Minimal-output path for papers without HTML rendering.
+    async def _try_latex_fallback(
+        self,
+        tex_task: asyncio.Task | None,
+    ) -> tuple[IngestionResult, IngestionMetadata] | None:
+        """LaTeX tier of the degradation chain (HTML → LaTeX → PDF-only).
 
-        Creates the output directory (named from API metadata), saves
-        ``paper.yml``, and returns a stub result so ``finalize_convert_output``
-        writes ``paper.md`` and downloads the PDF. Content conversion is
-        impossible — there is nothing to parse.
+        Runs when no HTML rendering exists but the TeX source may: awaits the
+        speculative TeX download (which also warms the cache), then reuses the
+        remote-LaTeX pipeline — its own source fetch hits the warm cache and
+        it emits a full Markdown conversion. ``None`` means "no usable TeX
+        either (or the LaTeX conversion failed)", sending the caller to the
+        PDF-only tier.
+        """
+        from arxiv2md_beta.ingestion.latex import ingest_paper
+
+        try:
+            if tex_task is not None:
+                await tex_task
+            logger.info(f"[{self._query.arxiv_id}] No HTML rendering; trying LaTeX source conversion...")
+            return await ingest_paper(self.params, self._query, self._selected_sections, self._base_output_dir)
+        except NetworkError as e:
+            # Includes TexSourceNotFoundError (404 / PDF-only submissions).
+            logger.warning(f"[{self._query.arxiv_id}] LaTeX source unavailable: {e}")
+            return None
+        except (
+            ImageProcessingError,
+            StorageError,
+            ParseError,
+            OSError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+            subprocess.TimeoutExpired,
+        ) as e:
+            logger.warning(f"[{self._query.arxiv_id}] LaTeX fallback conversion failed: {e}")
+            return None
+
+    async def _fetch_abs_page_metadata(self) -> dict[str, Any]:
+        """Best-effort title/authors/abstract/date from the abs landing page.
+
+        PDF-only papers never yield an HTML rendering, so when the Atom API is
+        disabled or failed, the abs page is the only metadata source — without
+        it the output directory and ``paper.yml`` are named from the bare id.
+        Mirrors ``_fetch_api_metadata``'s enrichment-only contract: any failure
+        degrades to a warning, never aborts the fallback.
+        """
+        from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_metadata
+        from arxiv2md_beta.network.author_enrichment import fetch_abs_html
+
+        try:
+            html = await fetch_abs_html(strip_version(self._query.arxiv_id))
+            if not html:
+                return {}
+            return parse_abs_page_metadata(html)
+        except Exception as e:  # noqa: BLE001 — enrichment only, same as _fetch_api_metadata
+            logger.warning(f"abs-page metadata fetch failed for {self._query.arxiv_id}: {e}")
+            return {}
+
+    async def _run_pdf_only_fallback(self) -> tuple[IngestionResult, IngestionMetadata]:
+        """Last tier of the degradation chain: PDF-only minimal output.
+
+        Reached only when both the HTML rendering and the TeX source are
+        unavailable (likely a PDF-only submission). Creates the output
+        directory (named from API metadata), saves ``paper.yml``, and returns
+        a stub result so ``finalize_convert_output`` writes ``paper.md`` and
+        downloads the PDF. Content conversion is impossible — there is nothing
+        to parse.
         """
         self._submission_date = self._api_metadata.get("submission_date") or (
             submission_date_from_new_style_arxiv_id(self._query.arxiv_id)
         )
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
-        title = self._api_metadata.get("title") or strip_version(self._query.arxiv_id)
+        title = self._api_metadata.get("title")
+        abstract_text = self._api_metadata.get("summary")
+
+        if not title or not self._display_author_names:
+            abs_meta = await self._fetch_abs_page_metadata()
+            title = title or abs_meta.get("title")
+            abstract_text = abstract_text or abs_meta.get("summary")
+            if not self._display_author_names:
+                self._display_author_names = list(abs_meta.get("authors", []))
+            if not self._submission_date:
+                m = re.match(r"(\d{4})[/-](\d{2})[/-](\d{2})", str(abs_meta.get("date") or ""))
+                if m:
+                    self._submission_date = "".join(m.groups())
+        title = title or strip_version(self._query.arxiv_id)
 
         base_output_dir = self._base_output_dir
         base_output_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +324,8 @@ class IngestionOrchestrator:
 
         paper_meta = dict(self._api_metadata)
         paper_meta.setdefault("title", title)
+        if abstract_text and not paper_meta.get("summary"):
+            paper_meta["summary"] = abstract_text
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, strip_version(self._query.arxiv_id))
         try:
             save_paper_metadata(paper_meta, self._paper_output_dir)
@@ -258,7 +336,7 @@ class IngestionOrchestrator:
             arxiv_id=self._query.arxiv_id,
             title=title,
             authors=self._display_author_names,
-            abstract=self._api_metadata.get("summary"),
+            abstract=abstract_text,
             submission_date=self._submission_date,
             paper_output_dir=self._paper_output_dir,
             structured_export={},

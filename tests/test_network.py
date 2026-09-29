@@ -573,3 +573,35 @@ class TestPlaceholderDetectionVariants:
         from arxiv2md_beta.network.fetch import _reject_no_content_placeholder
 
         _reject_no_content_placeholder("<html><head><title>[1234.5678] A Real Paper</title></head><body></body></html>")
+
+
+class TestAbsLandingPageDetection:
+    """ar5iv 307-redirects un-converted (PDF-only) papers to arxiv.org/abs/*.
+
+    The redirect chain ends in HTTP 200 with the real paper title, so neither
+    the 404 classification nor the "No content available" placeholder check
+    fires — the abs landing page used to be cached as paper content and only
+    the late quality gate rejected the resulting stub. The marker text is
+    unique to the abs page and must never appear in a laTeXML rendering.
+    """
+
+    ABS_LANDING = (
+        "<html><head><title>[2503.02776] Implicit Bias in LLMs: A Survey</title></head>"
+        "<body>View a PDF of the paper titled Implicit Bias in LLMs: A Survey</body></html>"
+    )
+
+    def test_abs_landing_page_rejected(self):
+        from arxiv2md_beta.network.fetch import _reject_no_content_placeholder
+
+        with pytest.raises(Exception, match="No HTML content available"):
+            _reject_no_content_placeholder(self.ABS_LANDING)
+
+    def test_real_latex_rendering_with_marker_text_passes(self):
+        """The ltx_document guard keeps a genuine rendering whose prose quotes the marker."""
+        from arxiv2md_beta.network.fetch import _reject_no_content_placeholder
+
+        html = (
+            "<html><head><title>[1234.5678] A Real Paper</title></head>"
+            '<body><article class="ltx_document">View a PDF of the paper titled — cited prose</article></body></html>'
+        )
+        _reject_no_content_placeholder(html)

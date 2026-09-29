@@ -1,13 +1,49 @@
-"""Parse arXiv abstract (abs) HTML for author display names and optional affiliation hints."""
+"""Parse arXiv abstract (abs) HTML for metadata, authors, and affiliation hints."""
 
 from __future__ import annotations
 
 import re
 from html import unescape
+from typing import Any
 
 from bs4 import BeautifulSoup
 
 from arxiv2md_beta.utils.html_attrs import attr_optional
+
+
+def parse_abs_page_metadata(html: str) -> dict[str, Any]:
+    """Extract title/authors/abstract/date from an ``arxiv.org/abs/*`` page.
+
+    PDF-only submissions never yield an HTML rendering, so the abs landing
+    page is their only rich-metadata source when the Atom API is disabled or
+    unreachable. All fields are best-effort; missing ones are simply absent
+    from the returned dict.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    citation: dict[str, list[str]] = {}
+    for meta in soup.find_all("meta"):
+        name = attr_optional(meta, "name")
+        if name and name.startswith("citation_") and attr_optional(meta, "content"):
+            citation.setdefault(name, []).append(str(meta["content"]).strip())
+
+    out: dict[str, Any] = {}
+    if citation.get("citation_title"):
+        out["title"] = citation["citation_title"][0]
+    if citation.get("citation_author"):
+        out["authors"] = citation["citation_author"]
+    for date_key in ("citation_online_date", "citation_date"):
+        if citation.get(date_key):
+            out["date"] = citation[date_key][0]
+            break
+
+    abs_block = soup.select_one("div.abstract") or soup.select_one("blockquote.abstract")
+    if abs_block:
+        text = re.sub(r"^Abstract:\s*", "", abs_block.get_text(" ", strip=True), flags=re.I)
+        if text:
+            out["summary"] = text
+
+    return out
 
 
 def parse_abs_page_for_authors(html: str) -> tuple[list[str], list[str]]:

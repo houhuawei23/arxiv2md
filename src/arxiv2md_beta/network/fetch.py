@@ -97,20 +97,34 @@ def _html_not_found() -> NetworkError:
 # (audit5 R-3).
 _PLACEHOLDER_TITLE_RE = re.compile(r"<title[^>]*>\s*No content available\s*</title>", re.IGNORECASE)
 
+# ar5iv answers 307 (→ arxiv.org/abs/<id>) for papers it never converted, so
+# the *final* response is the abs landing page: HTTP 200, the real paper
+# title, but no body. Its "View a PDF of the paper titled …" link text is
+# unique to the abs page and never appears in a laTeXML rendering.
+_ABS_LANDING_MARKER_RE = re.compile(r"View a PDF of the paper titled", re.IGNORECASE)
+
 
 def _reject_no_content_placeholder(html_text: str) -> None:
-    """Reject ar5iv/arXiv "No content available" placeholder pages.
+    """Reject non-content pages: "No content available" placeholders and abs landing pages.
 
-    PDF-only submissions have no HTML rendering; ar5iv then answers HTTP 200
-    with a placeholder page. Treating it as paper content produces an empty
-    document titled "No content available", so raise instead and let the
-    caller surface a clear error.
+    PDF-only submissions have no HTML rendering. ar5iv answers either with an
+    HTTP 200 placeholder page or (observed for e.g. 2503.02776) with a 307
+    redirect to the arXiv abs page, which follows redirects turn into a 200
+    landing page. Treating either as paper content produces a stub document
+    that only the late quality gate would catch, so raise here and let the
+    caller fall through to the LaTeX/PDF degradation chain.
     """
     if _PLACEHOLDER_TITLE_RE.search(html_text):
         raise NetworkError(
             "No HTML content available for this paper (ar5iv/arXiv returned a "
             "placeholder page). The paper was likely submitted as PDF-only and "
             "has no HTML rendering."
+        )
+    if _ABS_LANDING_MARKER_RE.search(html_text) and "ltx_document" not in html_text:
+        raise NetworkError(
+            "No HTML content available for this paper (the endpoint redirected "
+            "to the abstract landing page). The paper was likely submitted as "
+            "PDF-only and has no HTML rendering."
         )
 
 
