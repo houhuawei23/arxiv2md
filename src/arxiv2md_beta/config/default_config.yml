@@ -95,6 +95,13 @@ logging:
   file_retention: "7 days"
   file_compression: zip
   default_log_file: "arxiv2md_beta.log"
+  # Per-run log files: ~/.cache/arxiv2md-beta/logs/YYYY-MM-DD/YYYY-MM-DD-HH-MM-SS-<subcommand>-<label>.log
+  per_run_files: true
+  dir: "logs"
+  # {elapsed} is the time since process start, rendered as HH:MM:SS.mmm
+  run_file_format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | +{elapsed} | {message}"
+  # Delete day subdirectories older than this at startup; 0 = keep forever
+  retention_days: 30
 
 features:
   enable_file_logging: true

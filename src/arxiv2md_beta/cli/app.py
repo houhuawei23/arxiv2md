@@ -56,7 +56,7 @@ from arxiv2md_beta.cli.runner import (
 )
 from arxiv2md_beta.exceptions import Arxiv2mdError
 from arxiv2md_beta.settings import ConfigurationError, get_settings, load_settings
-from arxiv2md_beta.utils.logging_config import configure_logging, get_logger
+from arxiv2md_beta.utils.logging_config import configure_logging, get_logger, log_run_result
 
 app = typer.Typer(
     name="arxiv2md-beta",
@@ -156,6 +156,7 @@ def global_callback(
     log_path = configure_logging(
         settings=get_settings(),
         level="DEBUG" if verbose else None,
+        subcommand=ctx.invoked_subcommand,
     )
     if log_path:
         typer.echo(f"Logs: {log_path}")
@@ -585,5 +586,11 @@ def main() -> None:
     try:
         app()
     except KeyboardInterrupt:
+        log_run_result(status="interrupted", exit_code=130)
         get_logger().info("Interrupted by user")
         sys.exit(130)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+        log_run_result(status="success" if code == 0 else "failed", exit_code=code)
+        raise
+    log_run_result(status="success", exit_code=0)

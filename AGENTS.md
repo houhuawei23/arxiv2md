@@ -206,6 +206,7 @@ mypy src/arxiv2md_beta
 | 用户配置文件 | `ARXIV2MD_BETA_CONFIG_PATH` 或 `--config path.yml` |
 | 逻辑环境 | `app.environment` / `ARXIV2MD_BETA_APP__ENVIRONMENT`（`development` / `production` / `test`） |
 | 日志级别 | 默认 INFO；`--verbose` / `-v` 单次强制 DEBUG；或 `ARXIV2MD_BETA_APP__LOG_LEVEL` |
+| 日志文件 | 默认每次运行单独落盘：`~/.cache/arxiv2md-beta/logs/YYYY-MM-DD/YYYY-MM-DD-HH-MM-SS-<子命令>-<标签>.log`（含运行命令、逐条耗时、运行结果；`logging.retention_days` 控制保留天数）。`logging.per_run_files: false` 回退旧版单文件滚动日志 |
 | 缓存目录 | `ARXIV2MD_BETA_CACHE__DIR`（默认 `~/.cache/arxiv2md-beta`） |
 | HTTP 超时 | `ARXIV2MD_BETA_HTTP__FETCH_TIMEOUT_S` |
 | 禁用图片 | `--no-images` 或 `ARXIV2MD_BETA_IMAGES__DISABLE` |

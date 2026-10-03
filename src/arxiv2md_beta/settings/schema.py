@@ -186,6 +186,22 @@ class LoggingSection(BaseModel):
     file_retention: str
     file_compression: str
     default_log_file: str
+    per_run_files: bool = Field(
+        default=True,
+        description="One log file per run under the logs dir (day subdirectories, "
+        "`YYYY-MM-DD/HH-MM-SS-<subcommand>-<label>.log`); False = legacy single rotating file.",
+    )
+    dir: str = Field(
+        default="logs",
+        description="Log directory. Relative paths resolve under the cache root "
+        "(~/.cache/arxiv2md-beta), absolute paths are used as-is.",
+    )
+    run_file_format: str = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | +{elapsed} | {message}"
+    retention_days: int = Field(
+        default=30,
+        ge=0,
+        description="Delete day subdirectories older than this many days at startup. 0 = keep forever.",
+    )
 
 
 class FeaturesSection(BaseModel):
@@ -253,3 +269,10 @@ class AppSettings(BaseModel):
 
     def resolved_default_log_file(self) -> Path:
         return self.resolved_user_config_dir() / self.logging.default_log_file
+
+    def resolved_logs_dir(self) -> Path:
+        """Resolve the log directory: relative to the cache root, absolute as-is."""
+        p = Path(self.logging.dir).expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        return self.resolved_cache_path() / p
