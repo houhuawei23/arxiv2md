@@ -14,6 +14,7 @@ from typing import NamedTuple
 
 from loguru import logger
 from pdf2image import convert_from_path
+from pdf2image.exceptions import PDFPopplerTimeoutError
 from PIL import Image, ImageChops
 
 from arxiv2md_beta.contracts import TexSourceInfo
@@ -436,6 +437,7 @@ def _process_single_image(
                 last_page=1,
                 dpi=dpi,
                 use_cropbox=True,
+                timeout=60,
             )
             if images:
                 pil_img = images[0]
@@ -445,7 +447,9 @@ def _process_single_image(
                 logger.debug(f"Converted PDF to PNG: {source_path} -> {output_path}")
             else:
                 raise PDFConversionError(f"Failed to extract image from PDF: {source_path}")
-        except (OSError, PermissionError, ValueError) as e:
+        except (OSError, PermissionError, ValueError, PDFPopplerTimeoutError) as e:
+            # PDFPopplerTimeoutError: a malformed PDF can hang poppler forever,
+            # which would pin a ProcessPoolExecutor worker (no wall-clock cap).
             raise PDFConversionError(f"Failed to convert PDF {source_path}: {e}") from e
 
     elif suffix in {".png", ".jpg", ".jpeg"}:

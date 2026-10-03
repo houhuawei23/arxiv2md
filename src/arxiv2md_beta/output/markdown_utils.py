@@ -11,8 +11,13 @@ module with no circular-import surface.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
+import tempfile
+import threading
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -30,6 +35,34 @@ except ImportError:  # pragma: no cover - optional dependency
 # ── tiktoken encoding cache ──────────────────────────────────────────────────
 
 _tiktoken_encoding_cache: dict[str, Any] = {}
+_tiktoken_encoding_lock = threading.Lock()
+_TIKTOKEN_LOAD_TIMEOUT_S = 30.0
+
+
+def _ensure_stable_tiktoken_cache() -> None:
+    """Pin ``TIKTOKEN_CACHE_DIR`` under the app cache root (idempotent).
+
+    tiktoken defaults to ``<tmpdir>/data-gym-cache``, which system tmp cleaners
+    wipe — after that the next encoding load re-downloads a ~3.6 MB vocab from
+    openaipublic.blob.core.windows.net with no timeout (tiktoken uses a bare
+    ``requests.get``), which reads to the user as the CLI hanging forever. A
+    stable cache dir means the vocab is fetched at most once per install.
+    Vocab files already sitting in the default temp cache are migrated so no
+    re-download is needed after this change.
+    """
+    if "TIKTOKEN_CACHE_DIR" in os.environ:
+        return
+    cache_dir = get_settings().resolved_cache_path() / "tiktoken"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    legacy_dir = Path(tempfile.gettempdir()) / "data-gym-cache"
+    if legacy_dir.is_dir():
+        for legacy_file in legacy_dir.iterdir():
+            target = cache_dir / legacy_file.name
+            if legacy_file.is_file() and not target.exists():
+                # best-effort migration; worst case tiktoken re-downloads
+                with contextlib.suppress(OSError):
+                    target.write_bytes(legacy_file.read_bytes())
+    os.environ["TIKTOKEN_CACHE_DIR"] = str(cache_dir)
 
 
 def _get_cached_encoding(encoding_name: str) -> Any:
@@ -38,22 +71,50 @@ def _get_cached_encoding(encoding_name: str) -> Any:
     A failure to *load* the encoding (tiktoken downloads it on first use, so
     this fails offline) is logged once — the token half of the stub quality
     gate then silently passes, and users should know why (audit4 S5.1).
+
+    The load runs on a daemon thread with a timeout: tiktoken's download has
+    no timeout of its own, so a slow/unreachable vocab endpoint would otherwise
+    block finalization indefinitely. On timeout the run degrades to the byte
+    threshold while the download keeps going in the background, warming the
+    stable cache for the next run.
     """
-    if encoding_name in _tiktoken_encoding_cache:
-        return _tiktoken_encoding_cache[encoding_name]
-    if tiktoken is None:
-        return None
-    try:
-        enc = tiktoken.get_encoding(encoding_name)
-    except Exception as exc:  # noqa: BLE001 - tiktoken raises varied network/parse errors
-        logger.warning(
-            f"Could not load tiktoken encoding {encoding_name!r} ({exc}); "
-            "token counting is disabled for this run (quality gate falls back to the byte threshold only)."
-        )
-        _tiktoken_encoding_cache[encoding_name] = None
-        return None
-    _tiktoken_encoding_cache[encoding_name] = enc
-    return enc
+    with _tiktoken_encoding_lock:
+        if encoding_name in _tiktoken_encoding_cache:
+            return _tiktoken_encoding_cache[encoding_name]
+        if tiktoken is None:
+            return None
+        _ensure_stable_tiktoken_cache()
+        outcome: dict[str, Any] = {}
+
+        def _load() -> None:
+            try:
+                outcome["encoding"] = tiktoken.get_encoding(encoding_name)
+            except Exception as exc:  # noqa: BLE001 - tiktoken raises varied network/parse errors
+                outcome["error"] = exc
+
+        loader = threading.Thread(target=_load, name=f"tiktoken-load-{encoding_name}", daemon=True)
+        loader.start()
+        loader.join(_TIKTOKEN_LOAD_TIMEOUT_S)
+        if loader.is_alive():
+            logger.warning(
+                f"tiktoken encoding {encoding_name!r} did not load within "
+                f"{_TIKTOKEN_LOAD_TIMEOUT_S:.0f}s (vocab download from openaipublic "
+                "is slow or blocked); token counting is disabled for this run "
+                "(quality gate falls back to the byte threshold only). The "
+                "download continues in the background and is cached for next runs."
+            )
+            _tiktoken_encoding_cache[encoding_name] = None
+            return None
+        if "error" in outcome:
+            logger.warning(
+                f"Could not load tiktoken encoding {encoding_name!r} ({outcome['error']}); "
+                "token counting is disabled for this run (quality gate falls back to the byte threshold only)."
+            )
+            _tiktoken_encoding_cache[encoding_name] = None
+            return None
+        enc = outcome["encoding"]
+        _tiktoken_encoding_cache[encoding_name] = enc
+        return enc
 
 
 # ── Section tree helpers ─────────────────────────────────────────────────────
