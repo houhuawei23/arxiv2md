@@ -223,7 +223,7 @@ async def test_pdf_only_bypasses_stub_gate_and_downloads_pdf(tmp_path: Path) -> 
         emit_graph_csv=False,
     )
 
-    async def fake_pdf(arxiv_id, output_path, version=None, use_cache=True):
+    async def fake_pdf(arxiv_id, output_path, version=None, use_cache=True, disable_tqdm=None):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"%PDF-1.4 fake")
         return output_path

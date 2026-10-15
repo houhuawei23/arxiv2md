@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-10-15：batch 并发进度条 LiveError）
+
+- **batch 并发条目被误记为 error（`LiveError: Only one live display may be active at once`）**：下载/图片处理的 rich `Progress` 都建在同一模块级 stderr `Console` 上（`utils/progress.py`），而 rich 每个 Console 只允许一个活动 Live——`--max-concurrency > 1` 时多个 worker 的下载/图片处理阶段时间重叠，后进入者抛 `LiveError`，穿透 retry 循环后被 batch `run_one` 的 `except Exception` 兜底记成该条目的 error（并发 1 全部成功、最小复现并发 3 出 2 个 LiveError；冲突发生在图片阶段时文件已写好但 manifest 状态不一致）。三层修复：① `run_batch_flow` 经新增的 `template_for_workers` 在 worker_count > 1 时对模板强制 `no_progress=True`（`dataclasses.replace`），并发批量不再启动任何 Progress/Live，单并发 batch 保留进度条；② CLI `--no-progress` 打通到下载路径——`download_file_with_retries`/`fetch_arxiv_pdf`/`fetch_and_extract_tex_source` 新增 `disable_tqdm: bool | None` 形参（`None` 回落 `settings.images.disable_tqdm`），由 `ConvertParams.no_progress` 沿调用链（persist/orchestrator/latex）传入，不突变全局 settings 单例（此前该 flag 只作用于图片路径，对下载进度条无效，注释却声称 maps images.disable_tqdm）；③ `utils/progress.py` 进入 Progress 上下文时捕获 `LiveError` 降级为 disabled 模式并 log 一条 warning——任何未预见的第三调用点从"转换失败"降级为"无进度条"，其余异常照常上抛。回归测试：3 个并发 `async_byte_download_progress` 上下文零异常（修复前精确复现 2 个 LiveError）、并发 batch 模板强制 no_progress、单并发不强制。
+
 ### Added（2026-09-24：算法排版与 SVG 栅格化）
 
 - **算法伪代码嵌套列表排版**：`AlgorithmIR.steps` 由平铺段落改为单个嵌套 `ListIR`——每行伪代码一个条目，`while`/`for`/`if`/`loop`/`function` 之后各行自动缩进一层，`end ...` 行回到 opener 自身层级，与印刷版算法的视觉缩进一致。列表发射器对含行内 display-math（`$$...$$`）的条目按多行内容处理：fence 独立成行并缩进到条目内容列（此前 "text: $$" 行中开 fence 会破坏后续 Markdown 渲染）；含 `$` 的条目跳过 `_wrap_line` 折行（字符级硬折行会把无空格 LaTeX 公式拦腰截断，如 `\mathcal` 被劈成 `\ cal`）。

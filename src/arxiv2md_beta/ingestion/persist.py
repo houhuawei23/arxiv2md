@@ -147,7 +147,9 @@ def _pdf_filename_for(paper_output_dir: Path, output_filename: str, naming_schem
 
 async def _download_pdf_to(pdf_path: Path, arxiv_id: str, version: str | None, params: ConvertParams) -> bool:
     try:
-        await fetch_arxiv_pdf(arxiv_id, pdf_path, version, use_cache=not params.no_cache)
+        await fetch_arxiv_pdf(
+            arxiv_id, pdf_path, version, use_cache=not params.no_cache, disable_tqdm=params.no_progress
+        )
         logger.info(f"PDF downloaded to: {pdf_path}")
         return True
     except (httpx.RequestError, httpx.HTTPStatusError, OSError, NetworkError) as e:
@@ -183,7 +185,9 @@ async def pdf_fallback_output(
         identity=query.arxiv_id,
     )
     pdf_path = paper_output_dir / f"{paper_output_dir.name}.pdf"
-    await fetch_arxiv_pdf(query.arxiv_id, pdf_path, query.version, use_cache=not params.no_cache)
+    await fetch_arxiv_pdf(
+        query.arxiv_id, pdf_path, query.version, use_cache=not params.no_cache, disable_tqdm=params.no_progress
+    )
 
     manifest = build_paper_manifest(
         arxiv_id=query.arxiv_id,

@@ -99,6 +99,7 @@ async def fetch_and_extract_tex_source(
     arxiv_id: str,
     version: str | None = None,
     use_cache: bool = True,
+    disable_tqdm: bool | None = None,
 ) -> TexSourceInfo:
     """Download and extract TeX source from arXiv.
 
@@ -110,6 +111,10 @@ async def fetch_and_extract_tex_source(
         Version string (e.g., "v1")
     use_cache : bool
         Whether to use cached files if available
+    disable_tqdm : bool | None
+        Force the download progress bar off/on; ``None`` uses
+        ``settings.images.disable_tqdm`` (the CLI ``--no-progress`` flag is
+        passed here as ``ConvertParams.no_progress``).
 
     Returns:
     -------
@@ -160,7 +165,7 @@ async def fetch_and_extract_tex_source(
     await with_mirror_fallback(
         tex_url,
         describe="TeX source download",
-        fetch=lambda url: _download_tex_source(url, tex_source_path),
+        fetch=lambda url: _download_tex_source(url, tex_source_path, disable_tqdm),
     )
 
     # Extract archive into a task-private temp dir, then move into place.
@@ -367,13 +372,14 @@ def _extract_tar_archive(archive_path: Path, output_dir: Path) -> None:
         raise ArchiveExtractionError(f"Failed to extract tar: {e}") from e
 
 
-async def _download_tex_source(url: str, output_path: Path) -> None:
+async def _download_tex_source(url: str, output_path: Path, disable_tqdm: bool | None) -> None:
     """Download TeX source with retries, progress bar and PDF-only sniffing."""
     await download_file_with_retries(
         url,
         output_path,
         label=f"download TeX source {url}",
         progress_label="Downloading TeX source",
+        disable_tqdm=disable_tqdm,
         not_found_error=lambda: TexSourceNotFoundError(
             f"TeX source not found at {url}. This paper may not have TeX source available.",
             status_code=404,

@@ -62,7 +62,9 @@ async def ingest_paper(
         images_dir_name = get_settings().cli_defaults.images_subdir
 
         # Fetch and extract TeX source
-        tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=not params.no_cache)
+        tex_source_info = await fetch_and_extract_tex_source(
+            arxiv_id, version=version, use_cache=not params.no_cache, disable_tqdm=params.no_progress
+        )
 
         if not tex_source_info.main_tex_file:
             raise TexSourceNotFoundError(f"No main LaTeX file found for {arxiv_id}")

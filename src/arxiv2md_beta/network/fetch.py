@@ -133,8 +133,14 @@ async def fetch_arxiv_pdf(
     output_path: Path,
     version: str | None = None,
     use_cache: bool = True,
+    disable_tqdm: bool | None = None,
 ) -> Path:
-    """Download arXiv PDF and save to output path."""
+    """Download arXiv PDF and save to output path.
+
+    ``disable_tqdm`` forces the download progress bar off/on; ``None`` uses
+    ``settings.images.disable_tqdm`` (the CLI ``--no-progress`` flag is passed
+    here as ``ConvertParams.no_progress``).
+    """
     cache_path = cache_dir_for(arxiv_id, version) / "paper.pdf"
 
     if use_cache and is_cache_fresh(cache_path):
@@ -152,6 +158,7 @@ async def fetch_arxiv_pdf(
             label=f"download PDF {url}",
             progress_label="Downloading PDF",
             not_found_error=lambda: NonRetryableNetworkError(f"PDF not found at {url}", status_code=404),
+            disable_tqdm=disable_tqdm,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(shutil.copy2, cache_path, output_path)

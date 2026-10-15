@@ -48,6 +48,21 @@ def merge_convert_params(template: ConvertParams, input_text: str) -> ConvertPar
     return replace(template, input_text=input_text)
 
 
+def template_for_workers(template: ConvertParams, worker_count: int) -> ConvertParams:
+    """Batch template for a run with *worker_count* concurrent workers.
+
+    Concurrent workers share one stderr console, and rich allows a single
+    live display per console: overlapping download/image progress bars crash
+    conversions with ``LiveError``, which the runner then records as bogus
+    per-row errors (the same lines convert fine at concurrency 1). Progress
+    is pure display, so any concurrency > 1 forces it off; single-worker
+    batches keep the bar, and an explicit ``--no-progress`` is never undone.
+    """
+    if worker_count > 1 and not template.no_progress:
+        return replace(template, no_progress=True)
+    return template
+
+
 def normalize_batch_line(line: str) -> str:
     """Canonical form of a batch line for duplicate detection.
 
@@ -137,7 +152,7 @@ async def run_batch_flow(
         # authoritative check inside run_convert_flow (audit5 X1) instead of
         # two full-directory rescans per row.
         force = params_template.force
-        template = params_template
+        template = template_for_workers(params_template, worker_count)
         base_output_dir = determine_output_dir(template.output, template.settings)
         if not force:
             built: CompletedIdentityIndex = await asyncio.to_thread(CompletedIdentityIndex.build, base_output_dir)

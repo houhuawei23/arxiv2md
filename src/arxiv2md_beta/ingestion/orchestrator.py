@@ -468,6 +468,7 @@ class IngestionOrchestrator:
                 self._query.arxiv_id,
                 version=self._query.version,
                 use_cache=not self.params.no_cache,
+                disable_tqdm=self.params.no_progress,
             )
         )
 
@@ -486,6 +487,7 @@ class IngestionOrchestrator:
                         self._query.arxiv_id,
                         version=self._query.version,
                         use_cache=not self.params.no_cache,
+                        disable_tqdm=self.params.no_progress,
                     )
                 self._tex_source_info = tex
                 # 使用异步并行图像处理（CPU-bound 任务卸载到进程池）
@@ -530,6 +532,7 @@ class IngestionOrchestrator:
                         self._query.arxiv_id,
                         version=self._query.version,
                         use_cache=not self.params.no_cache,
+                        disable_tqdm=self.params.no_progress,
                     )
             except NetworkError as e:
                 logger.debug(f"No TeX source available for affiliation enrichment: {e}")

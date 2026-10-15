@@ -119,6 +119,7 @@ async def download_file_with_retries(
     not_found_error: Callable[[], NetworkError],
     pdf_only_error: Callable[[], NetworkError] | None = None,
     exhausted: Callable[[Exception | None], BaseException] | None = None,
+    disable_tqdm: bool | None = None,
 ) -> Path:
     """Stream *url* into *cache_path* (atomic ``.part`` rename) with retries.
 
@@ -126,6 +127,12 @@ async def download_file_with_retries(
     PDF from ``/src/`` with HTTP 200 for PDF-only submissions, detected via
     content-type and (for generic headers) magic bytes, so the bogus file
     never lands in the cache.
+
+    ``disable_tqdm`` mirrors the image-pipeline switch of the same name:
+    forced off/on progress bar, with ``None`` falling back to
+    ``settings.images.disable_tqdm``. The CLI ``--no-progress`` flag reaches
+    this via ``ConvertParams.no_progress`` (the settings global is never
+    mutated), so batch runs can silence every bar on one switch.
     """
     s = get_settings()
     timeout = s.http.fetch_timeout_s * s.http.large_transfer_timeout_multiplier
@@ -157,7 +164,7 @@ async def download_file_with_retries(
                     async_byte_download_progress(
                         progress_label,
                         total_size if total_size > 0 else None,
-                        disable=s.images.disable_tqdm,
+                        disable=s.images.disable_tqdm if disable_tqdm is None else disable_tqdm,
                     ) as advance,
                     aio_open(tmp_path, "wb") as f,
                 ):

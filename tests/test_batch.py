@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -11,7 +12,7 @@ import pytest
 
 from arxiv2md_beta.cli.params import ConvertParams
 from arxiv2md_beta.cli.runner import run_batch_flow
-from arxiv2md_beta.cli.runner.batch import merge_convert_params
+from arxiv2md_beta.cli.runner.batch import merge_convert_params, template_for_workers
 from arxiv2md_beta.exceptions import UserInputError
 from arxiv2md_beta.output.manifest import build_paper_manifest, write_paper_manifest
 
@@ -383,3 +384,76 @@ async def test_batch_flushes_manifest_at_end_despite_throttle(tmp_path: Path) ->
     data = json.loads((Path(out[0][2]).parent / "download_manifest.json").read_text(encoding="utf-8"))
     assert len(data["entries"]) == 3
     assert data["totals"] == {"ok": 3}
+
+
+def test_template_for_workers_forces_no_progress_when_concurrent() -> None:
+    """Concurrent batch workers must not run progress bars (shared console, one Live).
+
+    rich allows a single live display per console, so overlapping
+    download/image bars crashed conversions with ``LiveError`` and the runner
+    recorded bogus per-row errors. Progress is pure display: forced off for
+    any concurrency > 1, kept for single-worker batches.
+    """
+    template = _template()
+    assert template.no_progress is False
+
+    concurrent = template_for_workers(template, worker_count=3)
+    assert concurrent.no_progress is True
+    # replace semantics: the caller's template is untouched.
+    assert template.no_progress is False
+
+    # Single-worker batches keep the bar.
+    assert template_for_workers(template, worker_count=1).no_progress is False
+
+    # An explicit --no-progress is preserved, never re-enabled.
+    quiet = replace(template, no_progress=True)
+    assert template_for_workers(quiet, worker_count=1).no_progress is True
+    assert template_for_workers(quiet, worker_count=4).no_progress is True
+
+
+@pytest.mark.asyncio
+async def test_run_batch_flow_concurrent_forces_no_progress(tmp_path: Path) -> None:
+    """Regression: --max-concurrency 3 must silence progress via params, not settings.
+
+    The runner must force ``no_progress`` on the per-run template (worker_count
+    > 1) so no worker starts a rich Progress/Live on the shared stderr console.
+    """
+    captured: list[ConvertParams] = []
+
+    async def side_effect(params: ConvertParams) -> Path:
+        captured.append(params)
+        return tmp_path / "out"
+
+    lines = ["2501.00001", "2501.00002", "2501.00003"]
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        out = await run_batch_flow(
+            lines,
+            params_template=_template(output=str(tmp_path)),
+            max_concurrency=3,
+            continue_on_error=True,
+            delay_seconds=0.0,
+        )
+    assert all(r[3] == "ok" for r in out), out
+    assert len(captured) == 3
+    assert all(p.no_progress for p in captured), [p.no_progress for p in captured]
+
+
+@pytest.mark.asyncio
+async def test_run_batch_flow_serial_keeps_progress(tmp_path: Path) -> None:
+    """Single-worker batch keeps the progress bar (template not forced)."""
+    captured: list[ConvertParams] = []
+
+    async def side_effect(params: ConvertParams) -> Path:
+        captured.append(params)
+        return tmp_path / "out"
+
+    with patch("arxiv2md_beta.cli.runner.batch.run_convert_flow", side_effect=side_effect):
+        await run_batch_flow(
+            ["2501.00001"],
+            params_template=_template(output=str(tmp_path)),
+            max_concurrency=1,
+            continue_on_error=True,
+            delay_seconds=0.0,
+        )
+    assert len(captured) == 1
+    assert captured[0].no_progress is False
