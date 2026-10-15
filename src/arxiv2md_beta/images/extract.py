@@ -17,13 +17,19 @@ async def extract_arxiv_images(
     output_dir: Path,
     images_subdir: str,
     use_tex_cache: bool = True,
+    disable_tqdm: bool | None = None,
 ) -> ProcessedImages:
     r"""Download TeX source and run the same image pipeline as full LaTeX ingestion.
 
     Does not invoke pandoc or write Markdown. Intended for testing image extraction
     and PDF→PNG processing settings.
+
+    ``disable_tqdm`` is forwarded to :func:`fetch_and_extract_tex_source`;
+    ``None`` falls back to ``settings.images.disable_tqdm``.
     """
-    tex_source_info = await fetch_and_extract_tex_source(arxiv_id, version=version, use_cache=use_tex_cache)
+    tex_source_info = await fetch_and_extract_tex_source(
+        arxiv_id, version=version, use_cache=use_tex_cache, disable_tqdm=disable_tqdm
+    )
     if not tex_source_info.main_tex_file:
         logger.warning("No main .tex file found; processing image files discovered in the extract.")
     return await process_images_async(tex_source_info, output_dir, images_subdir)

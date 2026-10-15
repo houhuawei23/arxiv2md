@@ -43,7 +43,10 @@ class ConvertParams:
     include_anchors: bool | None = None  # None = settings.output.include_anchors
     naming_scheme: str | None = None  # None = settings.output_naming.naming_scheme
     fetch_metadata: bool = False  # OR-ed with settings.ingestion.fetch_arxiv_metadata
-    no_progress: bool = False  # maps images.disable_tqdm
+    # Explicit switch, NOT a settings.images.disable_tqdm mutation: consumers
+    # receive it as disable_tqdm=<params.no_progress> arguments (None = fall
+    # back to the settings default at the consumer).
+    no_progress: bool = False
     concurrency: int | None = None  # maps process_images_async(max_concurrency=...)
     force: bool = False
     allow_stub: bool = False

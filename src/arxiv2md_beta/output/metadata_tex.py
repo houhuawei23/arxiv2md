@@ -51,6 +51,7 @@ async def fetch_and_merge_tex_affiliations_for_metadata(
     metadata: dict[str, Any],
     arxiv_id: str,
     version: str | None = None,
+    disable_tqdm: bool | None = None,
 ) -> int:
     """Download arXiv TeX source and merge affiliations into ``metadata`` (in place).
 
@@ -66,6 +67,10 @@ async def fetch_and_merge_tex_affiliations_for_metadata(
         Normalized base id (e.g. ``2602.05842``), as from :func:`~arxiv2md_beta.query.parser.parse_arxiv_input`.
     version
         Optional version suffix (e.g. ``v2``), or ``None`` for latest.
+    disable_tqdm
+        Forwarded to :func:`fetch_and_extract_tex_source`; ``None`` falls back
+        to ``settings.images.disable_tqdm`` (concurrent callers should pass
+        ``ConvertParams.no_progress`` instead of relying on the fallback).
 
     Returns:
     -------
@@ -75,7 +80,7 @@ async def fetch_and_merge_tex_affiliations_for_metadata(
     if not get_settings().ingestion.enrich_affiliations_from_tex:
         return 0
     try:
-        tex = await fetch_and_extract_tex_source(arxiv_id, version=version)
+        tex = await fetch_and_extract_tex_source(arxiv_id, version=version, disable_tqdm=disable_tqdm)
     except TexSourceNotFoundError:
         logger.debug(f"No TeX source for {arxiv_id}; skipping TeX affiliation merge")
         return 0
