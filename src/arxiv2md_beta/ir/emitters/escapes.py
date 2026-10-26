@@ -30,6 +30,40 @@ def escape_pipe_cell(text: str) -> str:
     return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
+def escape_literal_dollars(text: str) -> str:
+    r"""Escape ``$`` characters that would open a math span in literal text.
+
+    Body text carries real dollars only as currency/cost figures ("a $500
+    budget"); a math renderer reading two of them on one line as inline math
+    corrupts the paragraph, and the finalize-stage ``$`` scanner pairs them
+    across blocks. ``TextIR`` content is literal by construction (math is a
+    separate ``MathIR`` node), so every unescaped ``$`` is escaped; an odd
+    backslash run already before the dollar means it was escaped upstream
+    (same run parity rule as :func:`escape_math_pipes`).
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            j = i
+            while j < n and text[j] == "\\":
+                j += 1
+            out.append(text[i:j])
+            if j < n and text[j] == "$" and (j - i) % 2 == 0:
+                out.append(r"\$")  # even run: the dollar is bare
+                j += 1
+            i = j
+            continue
+        if ch == "$":
+            out.append(r"\$")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def escape_math_pipes(latex: str) -> str:
     r"""Rewrite bare ``|`` in math as ``\vert `` so a pipe table cell survives.
 

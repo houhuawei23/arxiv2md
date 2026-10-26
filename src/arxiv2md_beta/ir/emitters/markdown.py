@@ -19,6 +19,7 @@ from arxiv2md_beta.ir.emitters.escapes import (
     code_fence,
     escape_html_attr,
     escape_line_start,
+    escape_literal_dollars,
     escape_math_pipes,
     escape_md_text,
     escape_pipe_cell,
@@ -128,6 +129,9 @@ class MarkdownEmitter(IREmitter):
 
             include_anchors = get_settings().output.include_anchors
         self.include_anchors = include_anchors
+        # Depth of open inline-code spans; text inside a code span is
+        # verbatim, so ``$`` escaping (escape_literal_dollars) is suspended.
+        self._code_span_depth = 0
 
     def _anchor(self, anchor: str | None) -> str:
         """``<a id>`` when anchors are enabled and *anchor* is set; blank else."""
@@ -298,7 +302,14 @@ class MarkdownEmitter(IREmitter):
         t = inline.type
 
         if t == "text":
-            return inline.text
+            # TextIR is literal prose (math rides in MathIR nodes): escape a
+            # bare "$" so currency figures cannot open a math span — two on
+            # one line used to pair up in renderers, and in the finalize
+            # stage's scanner they paired ACROSS blocks and flattened whole
+            # sections onto one line. Code-span content is verbatim.
+            if self._code_span_depth:
+                return inline.text
+            return escape_literal_dollars(inline.text)
         elif t == "emphasis":
             # Empty emphasis spans (ar5iv emits bare <span class="ltx_font_italic">
             # wrappers) would otherwise serialize as a stray '**'/'****' line.
@@ -308,7 +319,11 @@ class MarkdownEmitter(IREmitter):
             if style == "code":
                 # Backtick content breaks a single-` span; delimiters are
                 # content-dependent (audit5 G2-3)
-                inner = self._emit_inlines(inline.inlines)
+                self._code_span_depth += 1
+                try:
+                    inner = self._emit_inlines(inline.inlines)
+                finally:
+                    self._code_span_depth -= 1
                 d, c = inline_code_delims(inner)
                 return f"{d}{inner}{c}"
             d = _EMPHASIS_DELIMITERS.get(style, "")

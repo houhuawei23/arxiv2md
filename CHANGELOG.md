@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-10-26：arXiv 2610.10310 实测回归）
+
+以真实论文（2610.10310,RSIGym）端到端转换复测,发现并修复 3 个 HTML 管线缺陷：
+
+- **字面美元跨块配对把整节压成一行**：正文货币数额（"a $500 platform-service budget"）的裸 `$` 被 `finalize_markdown` 的行内公式扫描器（`_clean_math_and_spacing`）跨块配对——`$500` 因 flanking 规则无法就近闭合,扫描器一路前进到数千字符外 `$\pi$` 的闭合 `$`,跨行 region 触发换行折叠 `re.sub(r"\s*\n\s*", " ")`,把 Abstract→§3.1 之间约 1.4 万字符的标题、段落、Table 1、图全部压成一行并误标为公式。三层修复：① 扫描器拒绝内容跨空行（块边界）的配对候选——行内与 `$$` display 两个分支都加守卫,字面美元保持字面;② emitter 层新增 `escape_literal_dollars`——`TextIR` 为字面文本（数学走独立的 `MathIR` 节点）,裸 `$` 一律转义为 `\$`（奇数反斜杠串判定规则同 `escape_math_pipes`）,code span 内容原样豁免;③ 扫描器跳过 `\$` 转义美元。回归测试 8 个：跨块配对不再压行、display 对跨空行拒绝、转义美元跳过、emitter 转义/数学节点不转义/code span 原样。
+- **参考文献条目泄漏重序列化 HTML**：ar5iv 参考文献块里的裸 `<a>`（"External Links: Link"）与 `<sup>`（"Agent² RL-Bench"）落在块级上下文,`_tag_to_blocks` 无对应分支而落入 `RawBlockIR` 兜底,输出 `<a class="ltx_ref ltx_bib_external" ...>` 原始 HTML。现已知内联标签（`a`/`em`/`strong`/`b`/`i`/`sup`/`sub`/`cite`/`label`/`small`）在块级经 `_tag_to_inline` 转换（`<a>` 保留 href 为 `LinkIR`）,References.md 输出干净的 `[Link](url)`。
+- **同一 `ltx_personname` 内 `<br>` 分隔的多作者被粘成一人**：论文 HTML 把 "Qiguang Chen<br class=\"ltx_break\">Ziqi Zhao" 放进单个 personname span,单名路径空白折叠后输出 "Qiguang Chen Ziqi Zhao"（"Mengkang Hu Michael Qizhe Shieh" 同源）。现在 personname 含 `<br>` 时先尝试既有的 br 分隔多作者解析（经典 1706.03762 的 name/affiliation/email 模式不受影响）,9 位作者全部正确分开。
+
 ### Fixed（2026-10-15：batch 并发进度条 LiveError）
 
 - **batch 并发条目被误记为 error（`LiveError: Only one live display may be active at once`）**：下载/图片处理的 rich `Progress` 都建在同一模块级 stderr `Console` 上（`utils/progress.py`），而 rich 每个 Console 只允许一个活动 Live——`--max-concurrency > 1` 时多个 worker 的下载/图片处理阶段时间重叠，后进入者抛 `LiveError`，穿透 retry 循环后被 batch `run_one` 的 `except Exception` 兜底记成该条目的 error（并发 1 全部成功、最小复现并发 3 出 2 个 LiveError；冲突发生在图片阶段时文件已写好但 manifest 状态不一致）。三层修复：① `run_batch_flow` 经新增的 `template_for_workers` 在 worker_count > 1 时对模板强制 `no_progress=True`（`dataclasses.replace`），并发批量不再启动任何 Progress/Live，单并发 batch 保留进度条；② CLI `--no-progress` 打通到下载路径——`download_file_with_retries`/`fetch_arxiv_pdf`/`fetch_and_extract_tex_source` 新增 `disable_tqdm: bool | None` 形参（`None` 回落 `settings.images.disable_tqdm`），由 `ConvertParams.no_progress` 沿调用链（persist/orchestrator/latex）传入，不突变全局 settings 单例（此前该 flag 只作用于图片路径，对下载进度条无效，注释却声称 maps images.disable_tqdm）；③ `utils/progress.py` 进入 Progress 上下文时捕获 `LiveError` 降级为 disabled 模式并 log 一条 warning——任何未预见的第三调用点从"转换失败"降级为"无进度条"，其余异常照常上抛。回归测试：3 个并发 `async_byte_download_progress` 上下文零异常（修复前精确复现 2 个 LiveError）、并发 batch 模板强制 no_progress、单并发不强制。

@@ -36,6 +36,12 @@ _INLINE_LINK_PLACEHOLDER_RE = re.compile(r"\x00MD_LINK_(\d+)\x00")
 # time this runs, so their content cannot trigger a false row match.
 _TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
 _TABLE_ROW_PLACEHOLDER_RE = re.compile(r"\x00MD_ROW_(\d+)\x00")
+# A blank line is a block boundary (CommonMark: inline content cannot span
+# paragraphs). A ``$`` candidate whose content contains one is a literal
+# dollar — e.g. currency ("a $500 budget ... cost $X") — never math. Without
+# this guard the scanner pairs such a dollar with one pages later and the
+# newline-collapse below flattens whole sections onto a single line.
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
 
 
 def _clean_math_latex(latex: str) -> str:
@@ -118,10 +124,26 @@ def _clean_math_and_spacing(text: str) -> str:
     tokens: list[tuple[bool, str]] = [(i % 2 == 1, tok) for i, tok in enumerate(raw_tokens) if tok]
     n = len(tokens)
 
+    def _escaped_dollar(idx: int) -> bool:
+        """True when the "$" token at *idx* is backslash-escaped (``\\$``).
+
+        The emitter escapes literal/currency dollars (escape_literal_dollars);
+        an escaped dollar is prose, never a math delimiter.
+        """
+        if idx == 0 or tokens[idx - 1][0]:
+            return False
+        run = 0
+        for ch in reversed(tokens[idx - 1][1]):
+            if ch == "\\":
+                run += 1
+            else:
+                break
+        return run % 2 == 1
+
     def _next_dollar(start: int) -> int | None:
-        """Index of the next "$" token at or after *start*."""
+        """Index of the next unescaped "$" token at or after *start*."""
         for k in range(start, n):
-            if tokens[k][0]:
+            if tokens[k][0] and not _escaped_dollar(k):
                 return k
         return None
 
@@ -138,17 +160,29 @@ def _clean_math_and_spacing(text: str) -> str:
     i = 0
     while i < n:
         is_dollar, val = tokens[i]
-        if not is_dollar:
+        if not is_dollar or _escaped_dollar(i):
             text_buf.append(val)
             i += 1
             continue
 
         # Display math: two consecutive "$" tokens.
-        if i + 1 < n and tokens[i + 1][0]:
+        if i + 1 < n and tokens[i + 1][0] and not _escaped_dollar(i + 1):
             close = None
             k = i + 2
             while k < n:
-                if tokens[k][0] and k + 1 < n and tokens[k + 1][0]:
+                if (
+                    tokens[k][0]
+                    and not _escaped_dollar(k)
+                    and k + 1 < n
+                    and tokens[k + 1][0]
+                    and not _escaped_dollar(k + 1)
+                ):
+                    if _BLANK_LINE_RE.search("".join(v for _, v in tokens[i + 2 : k + 2])):
+                        # Blank line between the "$$" pair: block boundary —
+                        # these are two literal dollars (or two separate
+                        # constructs), not one display block. Keep scanning.
+                        k += 1
+                        continue
                     close = k
                     break
                 k += 1
@@ -179,6 +213,14 @@ def _clean_math_and_spacing(text: str) -> str:
                 c_last = tokens[close - 1][1][-1]
                 if not c_first.isspace() and not c_last.isspace():
                     content = "".join(v for _, v in tokens[i + 1 : close])
+                    if _BLANK_LINE_RE.search(content):
+                        # The pair spans a block boundary (heading, paragraph
+                        # break, table...) — a literal dollar like "$500",
+                        # not math. Reject and keep scanning; otherwise the
+                        # newline-collapse below flattens the whole span.
+                        content = None
+                        k = close + 1
+                        continue
                     break
             k = close + 1
         if content is None:

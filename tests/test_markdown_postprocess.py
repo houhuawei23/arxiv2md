@@ -274,3 +274,79 @@ def test_many_rejected_flanking_candidates_stay_literal() -> None:
     assert _clean_math_and_spacing(src) == src
     src2 = "a $1 $2 $3 $4 $5 b"
     assert _clean_math_and_spacing(src2) == src2
+
+
+class TestBlockBoundaryDollarGuard:
+    r"""A ``$`` pair spanning a blank line is prose, never math (RSIGym 2610.10310).
+
+    Currency ("a $500 budget") used to pair with a dollar pages later; the
+    inline region's newline-collapse then flattened whole sections —
+    headings, tables, figures — onto a single line.
+    """
+
+    def test_currency_opening_never_flattens_blocks(self) -> None:
+        text = (
+            "budget of $500 per run.\n"
+            "\n"
+            "## 1 Introduction\n"
+            "\n"
+            "Paragraph text here.\n"
+            "\n"
+            "| a | b |\n"
+            "| --- | --- |\n"
+            "| x | y |\n"
+            "\n"
+            "math $\\pi$ tail\n"
+        )
+        result = clean_markdown_output(text)
+        assert "## 1 Introduction" in result.splitlines()
+        assert "| x | y |" in result.splitlines()
+        assert "$\\pi$" in result
+
+    def test_display_pair_across_blank_line_rejected(self) -> None:
+        text = "a $$x\n\ny$$ b\n"
+        result = clean_markdown_output(text)
+        assert "\n\n" in result  # block structure preserved
+
+    def test_escaped_dollar_is_literal(self) -> None:
+        text = "a \\$500 and \\$1,000 day with $x$ math\n"
+        result = clean_markdown_output(text)
+        assert "\\$500" in result
+        assert "$x$" in result
+
+
+class TestEmitterEscapesLiteralDollars:
+    """TextIR is literal prose: bare ``$`` must be escaped (currency figures)."""
+
+    def _doc(self, blocks):
+        from arxiv2md_beta.ir import DocumentIR, PaperMetadata, SectionIR
+
+        return DocumentIR(
+            metadata=PaperMetadata(arxiv_id="t"),
+            sections=[SectionIR(title="S", level=1, anchor="S1", blocks=blocks)],
+        )
+
+    def test_text_dollar_escaped(self) -> None:
+        from arxiv2md_beta.ir import ParagraphIR, TextIR
+
+        doc = self._doc([ParagraphIR(inlines=[TextIR(text="a $500 budget and $1,000 total")])])
+        out = MarkdownEmitter().emit(doc)
+        assert "\\$500" in out and "\\$1,000" in out
+
+    def test_math_dollar_not_escaped(self) -> None:
+        from arxiv2md_beta.ir import MathIR, ParagraphIR, TextIR
+
+        doc = self._doc(
+            [ParagraphIR(inlines=[TextIR(text="agent "), MathIR(latex="\\pi", display=False), TextIR(text=" runs")])]
+        )
+        out = MarkdownEmitter().emit(doc)
+        assert "$\\pi$" in out
+
+    def test_code_span_dollar_verbatim(self) -> None:
+        from arxiv2md_beta.ir import EmphasisIR, ParagraphIR, TextIR
+
+        doc = self._doc(
+            [ParagraphIR(inlines=[EmphasisIR(style="code", inlines=[TextIR(text="cost $5")])])]
+        )
+        out = MarkdownEmitter().emit(doc)
+        assert "`cost $5`" in out
