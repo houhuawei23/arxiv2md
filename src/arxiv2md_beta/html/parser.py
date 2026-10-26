@@ -369,6 +369,17 @@ def _parse_structured_author_blocks(container: Tag) -> list[ParsedAuthor]:
         personname = creator.find(class_=re.compile(r"ltx_personname"))
         if not personname:
             continue
+        # A personname can hold several authors separated by <br>s: either an
+        # explicit multi-author list (1706.03762) or a two-author slot broken
+        # with <br class="ltx_break"> (2610.10310) — the whitespace-collapsed
+        # single-name path glued those into "Qiguang Chen Ziqi Zhao". Try the
+        # split whenever a <br> is present; the single-name path stays the
+        # fallback so plain names are unaffected.
+        if personname.find("br") is not None:
+            br_authors = _parse_br_delimited_authors(personname)
+            if br_authors:
+                results.extend(br_authors)
+                continue
         name = _clean_single_author_text(personname)
         if name:
             # Look for affiliation in sibling/following elements within the creator
