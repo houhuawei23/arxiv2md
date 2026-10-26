@@ -406,6 +406,17 @@ class HTMLBuilder(IRBuilder):
                 inlines=[MathIR(latex=latex, display=False)],
             )
 
+        # Stray inline-level element at block position (e.g. the bare <a>
+        # "External Links" anchor and <sup> markup ar5iv puts inside
+        # bibliography blocks — arXiv 2610.10310): render as a paragraph
+        # instead of leaking re-serialized raw HTML. The tag itself goes
+        # through the inline path so an <a> keeps its href as a LinkIR.
+        if tag_name in ("a", "em", "strong", "b", "i", "sup", "sub", "cite", "label", "small"):
+            il = self._tag_to_inline(tag)
+            if il is None:
+                return None
+            return ParagraphIR(inlines=il if isinstance(il, list) else [il])
+
         # Raw fallback
         return RawBlockIR(
             format="html",
