@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -15,6 +16,35 @@ from arxiv2md_beta.network.retry import request_with_retries
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.text import dedupe_affiliation_strings, names_match
+
+# TeX accent sequences: \'e -> é (composed before escape-stripping)
+_TEX_ACCENTS = {"'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303", "=": "\u0304", ".": "\u0307"}
+_TEX_ACCENT_RE = re.compile(r"\\([\'`^\"~=.])\s*([a-zA-Z])")
+_LATEX_ESC_RE = re.compile(r"\\(?=[\'\"`^~=&%$#_{}])")
+_LATEX_AT_RE = re.compile(r"\\at\b\s*")
+
+
+def clean_affiliation(s: str | None) -> str:
+    r"""Normalise one affiliation string from upstream metadata sources.
+
+    OpenAlex ``raw_affiliation_strings`` and abs-page hints regularly carry
+    parser artifacts that must not leak into ``paper.yml``:
+    ``#TAB#`` sentinels, stacked ``Affiliation:`` prefixes, TeX escapes
+    (``Montr\'eal``), ``\at`` macros and stray backslashes.
+    """
+    if not s:
+        return ""
+    s = str(s).replace("#TAB#", " ")
+    while True:
+        s2 = re.sub(r"^\s*Affiliation:\s*", "", s, flags=re.I)
+        if s2 == s:
+            break
+        s = s2
+    s = _TEX_ACCENT_RE.sub(lambda m: unicodedata.normalize("NFC", m.group(2) + _TEX_ACCENTS[m.group(1)]), s)
+    s = _LATEX_AT_RE.sub("at ", s)
+    s = _LATEX_ESC_RE.sub("", s)
+    s = s.replace("\\", "")
+    return re.sub(r"\s+", " ", s).strip(" ,;")
 
 
 def _orcid_id(url_or_id: str | None) -> str | None:
@@ -30,6 +60,10 @@ def _merge_openalex_into_authors(
     work: dict[str, Any],
 ) -> int:
     """Mutate ``authors`` in place with institutions / ORCID from OpenAlex ``authorships``.
+
+    Canonical ``institutions[].display_name`` values are preferred; cleaned
+    ``raw_affiliation_strings`` are used only as a fallback when an authorship
+    has no canonical institutions, so parser artifacts never reach ``paper.yml``.
 
     Returns:
     -------
@@ -47,20 +81,19 @@ def _merge_openalex_into_authors(
             if not oa_name or not names_match(name, oa_name):
                 continue
             insts = ash.get("institutions") or []
-            inst_names = [i.get("display_name") for i in insts if isinstance(i, dict) and i.get("display_name")]
+            inst_names = [
+                clean_affiliation(i.get("display_name")) for i in insts if isinstance(i, dict) and i.get("display_name")
+            ]
+            inst_names = [x for x in dedupe_affiliation_strings(inst_names) if x][:5]
             raw = ash.get("raw_affiliation_strings") or []
             if isinstance(raw, str):
                 raw = [raw]
-            aff_parts: list[str] = []
-            for x in list(inst_names) + [r for r in raw if r]:
-                if x:
-                    aff_parts.append(str(x).strip())
-            aff_parts = dedupe_affiliation_strings(aff_parts)
-            aff_joined = "; ".join(aff_parts[:5])
-            if aff_parts and (not au.get("affiliation") or len(aff_joined) > len(str(au.get("affiliation", "")))):
-                au["affiliation"] = aff_joined
+            raw_clean = [x for x in dedupe_affiliation_strings([clean_affiliation(r) for r in raw]) if x][:3]
+            # Canonical institution names win; raw strings only fill the gap.
+            aff_parts = inst_names or raw_clean
             if aff_parts:
                 au["affiliations"] = aff_parts
+                au["affiliation"] = "; ".join(aff_parts)
             oid = _orcid_id((ash.get("author") or {}).get("orcid"))
             if oid and not au.get("orcid"):
                 au["orcid"] = oid

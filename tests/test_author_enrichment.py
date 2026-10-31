@@ -9,6 +9,7 @@ import pytest
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
 from arxiv2md_beta.network.author_enrichment import (
     _merge_openalex_into_authors,
+    clean_affiliation,
     dedupe_affiliation_strings,
 )
 from arxiv2md_beta.output.metadata import _metadata_to_paper_yml
@@ -62,8 +63,64 @@ def test_merge_openalex_into_authors_sets_affiliations_and_orcid() -> None:
     _merge_openalex_into_authors(authors, work)
     assert authors[0].get("affiliation")
     assert "OpenAlex Lab" in authors[0]["affiliation"]
-    assert authors[0].get("affiliations") == ["OpenAlex Lab", "Dept. of AI"]
+    # Canonical institution names win; raw strings are only a fallback.
+    assert authors[0].get("affiliations") == ["OpenAlex Lab"]
     assert authors[0].get("orcid") == "0000-0002-1825-0097"
+
+
+def test_merge_openalex_cleans_raw_artifacts() -> None:
+    """OpenAlex raw strings carry parser artifacts that must not reach paper.yml."""
+    authors = [{"name": "Alice A"}, {"name": "Bob B"}, {"name": "Celine C"}]
+    work = {
+        "authorships": [
+            {
+                "author": {"display_name": "Alice A"},
+                "institutions": [],
+                "raw_affiliation_strings": ["Affiliation: Affiliation: Jagiellonian University"],
+            },
+            {
+                "author": {"display_name": "Bob B"},
+                "institutions": [],
+                "raw_affiliation_strings": ["Google Inc., Mountain View, CA#TAB#"],
+            },
+            {
+                "author": {"display_name": "Celine C"},
+                "institutions": [],
+                "raw_affiliation_strings": ["Montr\\'eal Institute for Learning Algorithms"],
+            },
+        ]
+    }
+    _merge_openalex_into_authors(authors, work)
+    assert authors[0]["affiliations"] == ["Jagiellonian University"]
+    assert authors[1]["affiliations"] == ["Google Inc., Mountain View, CA"]
+    assert "#TAB#" not in authors[1]["affiliation"]
+    assert authors[2]["affiliations"] == ["Montréal Institute for Learning Algorithms"]
+
+
+def test_merge_openalex_prefers_institutions_over_raw() -> None:
+    authors = [{"name": "Jane Doe"}]
+    work = {
+        "authorships": [
+            {
+                "author": {"display_name": "Jane Doe"},
+                "institutions": [{"display_name": "Stanford University"}],
+                "raw_affiliation_strings": ["Affiliation: Dept. of CS, Stanford"],
+            }
+        ]
+    }
+    _merge_openalex_into_authors(authors, work)
+    assert authors[0]["affiliations"] == ["Stanford University"]
+    assert "Affiliation:" not in authors[0]["affiliation"]
+
+
+def test_clean_affiliation_stacks_and_accents() -> None:
+    assert clean_affiliation("Affiliation: Affiliation: X") == "X"
+    assert clean_affiliation("Google Inc., Mountain View, CA#TAB#") == "Google Inc., Mountain View, CA"
+    assert clean_affiliation("Montr\\'eal Institute") == "Montréal Institute"
+    assert clean_affiliation('Universit\\"at Berlin') == "Universität Berlin"
+    assert clean_affiliation("Alessandro Betti \\at DINFO") == "Alessandro Betti at DINFO"
+    assert clean_affiliation(None) == ""
+    assert clean_affiliation("") == ""
 
 
 @pytest.mark.asyncio

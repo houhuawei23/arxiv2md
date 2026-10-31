@@ -125,7 +125,7 @@ def _clean_math_and_spacing(text: str) -> str:
     n = len(tokens)
 
     def _escaped_dollar(idx: int) -> bool:
-        """True when the "$" token at *idx* is backslash-escaped (``\\$``).
+        r"""True when the "$" token at *idx* is backslash-escaped (``\\$``).
 
         The emitter escapes literal/currency dollars (escape_literal_dollars);
         an escaped dollar is prose, never a math delimiter.

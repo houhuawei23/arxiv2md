@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
+### Fixed（2026-11-01：OpenAlex 机构串污染，20_Papers 全库清洗实战回归）
+
+以 20_Papers 论文库 1278 篇 `paper.yml` 元信息清洗为回归基准，修复 OpenAlex 合并管线把解析器残片写入机构字段的缺陷：
+
+- **`_merge_openalex_into_authors` 拼接 raw 串泄漏脏值**：此前把 `institutions[].display_name` 与 `raw_affiliation_strings` 直接拼接（上限 5 条）写入 `affiliation`/`affiliations`，raw 串里的 `#TAB#` 哨兵（`Google Inc., Mountain View, CA#TAB#`）、堆叠 `Affiliation:` 前缀（`Affiliation: Affiliation: Google`）、TeX 转义（`Montr\'eal`）、`\at` 宏（`Betti \at DINFO`）全部入库。新策略：**规范 `institutions[].display_name` 优先**（逐条经 `clean_affiliation` 清洗）；raw 串仅在 authorship 无规范机构名时兜底（上限 3 条，同样清洗）。`clean_affiliation` 为新增公共函数：循环剥 `Affiliation:` 前缀、去 `#TAB#`、TeX 重音组合（`\'e`→`é`、`\"u`→`ü`）、去转义反斜杠与 `\at`、空白折叠。
+- **行为变更**：institutions 与 raw 并存时不再两条都保留（`OpenAlex Lab` + `Dept. of AI` → 仅 `OpenAlex Lab`）。`test_author_enrichment.py` 断言同步更新，并新增 3 个回归测试（raw 残片清洗、规范名优先、`clean_affiliation` 单元）。
+- 全套 `pytest tests/` 611 passed；`test_golden_snapshot` 2 个失败为既有问题（stash 后复现，与本修复无关）。
+
 ### Fixed（2026-10-26：arXiv 2610.10310 实测回归）
 
 以真实论文（2610.10310,RSIGym）端到端转换复测,发现并修复 3 个 HTML 管线缺陷：
