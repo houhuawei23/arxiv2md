@@ -351,7 +351,8 @@ def finalize_ingestion_output(
         for author in m.authors:
             affils = ", ".join(author.affiliations) if author.affiliations else ""
             summary_lines.append(f"  - {author.name} — {affils}" if affils else f"  - {author.name}")
-    summary_lines.append(f"- Sections: {count_sections(cast('list[Any]', doc.sections))}")
+    n_sections = count_sections(cast("list[Any]", doc.sections))
+    summary_lines.append(f"- Sections: {n_sections}")
     show_abstract = bool(m.abstract_text) if ctx.include_abstract_in_tree is None else ctx.include_abstract_in_tree
     tree_lines = ["Sections:"]
     if show_abstract:
@@ -362,12 +363,34 @@ def finalize_ingestion_output(
     token_estimate = format_token_count(sections_tree + "\n" + token_body)
     if token_estimate:
         summary_lines.append(f"- Estimated tokens: {token_estimate}")
+
+    # Flat YAML front matter for the written paper.md — derived from the
+    # same paper.yml dict so file header and metadata can never drift.
+    # Best-effort: a front-matter failure must not abort the conversion.
+    front_matter: str | None = None
+    fm_enabled = p.md_front_matter
+    if fm_enabled is None:
+        fm_enabled = get_settings().output.md_front_matter
+    if fm_enabled and ctx.paper_yml_data:
+        try:
+            from loguru import logger
+
+            from arxiv2md_beta.output.front_matter import build_front_matter
+            from arxiv2md_beta.output.metadata import _metadata_to_paper_yml
+
+            paper_dict = _metadata_to_paper_yml(ctx.paper_yml_data).get("paper") or {}
+            if paper_dict:
+                front_matter = build_front_matter(paper_dict, sections=n_sections)
+        except Exception as e:  # noqa: BLE001 - front matter is best-effort
+            logger.warning(f"Failed to build front matter, omitting: {e}")
+
     result = IngestionResult(
         summary="\n".join(summary_lines),
         sections_tree=sections_tree,
         content=content,
         content_references=content_references,
         content_appendix=content_appendix,
+        front_matter=front_matter,
     )
 
     # save_paper_metadata is best-effort and swallows+warns internally

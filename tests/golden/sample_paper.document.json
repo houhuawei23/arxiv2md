@@ -169,7 +169,7 @@
           "anchor": "eq-1",
           "equation_number": "(1)",
           "id": "sec_1:b1:equation",
-          "latex": "\\begin{equation}\n E = mc^2\n \n\\end{equation}",
+          "latex": "E = mc^2",
           "type": "equation"
         }
       ],
@@ -436,7 +436,6 @@
             ]
           ],
           "id": "sec_3:b1:table",
-          "label": "tab:comparison",
           "rows": [
             [
               [
@@ -467,7 +466,7 @@
               ]
             ]
           ],
-          "table_id": "tab:comparison",
+          "table_id": "table-1",
           "type": "table"
         }
       ],

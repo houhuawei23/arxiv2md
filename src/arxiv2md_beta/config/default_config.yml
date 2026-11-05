@@ -62,7 +62,7 @@ output_naming:
   naming_scheme: arxiv-ym
 
 ingestion:
-  fetch_arxiv_metadata: false
+  fetch_arxiv_metadata: true
   reference_section_titles:
     - references
     - bibliography
@@ -108,6 +108,8 @@ features:
 
 output:
   tiktoken_encoding: o200k_base
+  # Flat YAML front matter at the top of paper.md (machine-readable header).
+  md_front_matter: true
   include_anchors: false
   linked_citations: false
   # Quality gate: reject stub output (near-empty paper.md) instead of writing it silently.

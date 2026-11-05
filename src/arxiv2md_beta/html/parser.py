@@ -101,7 +101,12 @@ _AFFILIATION_KEYWORDS = {
     "flatiron",
     "allen",
     "astera",
+    "foundation",
 }
+# Keywords long enough to be unambiguous affiliation markers. Short ones
+# ("eth", "mit", "cmu", "lab") collide with surnames ("Daniel Eth") and are
+# excluded from the alternation-based name promotion below.
+_UNAMBIGUOUS_AFFILIATION_KEYWORDS = {kw for kw in _AFFILIATION_KEYWORDS if len(kw) >= 5}
 # Regex for footnote markers like *, **, 1, 12, †, ‡
 _FOOTNOTE_MARKER_RE = re.compile(r"^[\*†‡§¶‖#♯\d]+$")
 
@@ -427,16 +432,27 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
         Ashish Vaswani <br> Google Brain <br> avaswani@google.com <br>
         &amp;Noam Shazeer <br> Google Brain <br> noam@google.com ...
     """
-    # Split content by <br> tags
+    # <br> separators can sit at ANY depth: LaTeXML often wraps every author
+    # after the first in an unclosed inner <span> (e.g. 2609.36054), so the
+    # ``<br class="ltx_break">`` nodes end up as siblings of those inner spans
+    # rather than direct children of the personname. Direct-child iteration
+    # used to see only the first author plus one giant nested blob (dropped by
+    # the length filter). Clone the node, turn every <br> into a newline, and
+    # split the flattened text instead.
+    clone = BeautifulSoup(str(personname), "html.parser")
+    for br in clone.find_all("br"):
+        br.replace_with("\n")
+    for sup in clone.find_all("sup"):
+        sup.decompose()
+    for note in clone.find_all(class_=re.compile(r"ltx_note|ltx_role_footnote")):
+        note.decompose()
+    for annotation in clone.find_all("annotation"):
+        annotation.decompose()
     parts: list[str] = []
-    for child in personname.children:
-        if isinstance(child, Tag) and child.name == "br":
-            # BR marks a boundary; flush current part
-            continue
-        text = _get_clean_text(child) if isinstance(child, Tag) else str(child).strip()
-        text = re.sub(r"\s+", " ", text).strip()
-        if text:
-            parts.append(text)
+    for chunk in clone.get_text().split("\n"):
+        chunk = re.sub(r"\s+", " ", chunk).strip()
+        if chunk:
+            parts.append(chunk)
 
     if not parts:
         return []
@@ -469,7 +485,32 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
             continue
 
         # Determine if this is a name or affiliation
-        if _looks_like_name(part):
+        is_name = _looks_like_name(part)
+        # In br-delimited blocks a single-word token following a name is almost
+        # always an organisation (GovAI, Guidelight, Forethought) — personal
+        # names have at least two words. Attach it to the preceding author.
+        if is_name and len(part.split()) == 1 and current_name:
+            is_name = False
+        elif not is_name and current_name and current_affils:
+            # Strict name→affiliation alternation: the token right after an
+            # affiliation line is the next author. Keyword false positives
+            # (surname "Eth" vs ETH Zurich) only survive when the token has a
+            # proper-name shape with no long affiliation keyword in it.
+            words = part.split()
+            alpha_words = [w for w in words if w.isalpha()]
+            if (
+                2 <= len(words) <= 4
+                and "," not in part
+                and "@" not in part
+                and alpha_words
+                and all(w[0].isupper() for w in alpha_words)
+                and sum(w.isupper() for w in alpha_words) <= 1
+                and not any(
+                    re.search(rf"\b{re.escape(kw)}\b", part.lower()) for kw in _UNAMBIGUOUS_AFFILIATION_KEYWORDS
+                )
+            ):
+                is_name = True
+        if is_name:
             # Flush previous author if any
             if current_name:
                 results.append(
@@ -478,7 +519,8 @@ def _parse_br_delimited_authors(personname: Tag) -> list[ParsedAuthor]:
                         affiliations=dedupe_strings(current_affils),
                     )
                 )
-            current_name = part
+            # Strip trailing footnote markers ("Alan Chan*" → "Alan Chan")
+            current_name = re.sub(r"[\*†‡§¶‖#♯\d]+$", "", part).strip()
             current_affils = []
         elif _looks_like_affiliation(part):
             if current_name:

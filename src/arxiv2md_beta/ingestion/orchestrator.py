@@ -366,7 +366,12 @@ class IngestionOrchestrator:
     # ── Step 3: Fetch API metadata ─────────────────────────────────────
 
     async def _fetch_api_metadata(self) -> None:
-        if not (self.params.fetch_metadata or self._ingestion_cfg.fetch_arxiv_metadata):
+        # ``--fetch-metadata/--no-fetch-metadata`` overrides the settings
+        # default (``ingestion.fetch_arxiv_metadata``, on by default) — the
+        # Atom API is the authoritative author/date source (default-on).
+        fetch = self.params.fetch_metadata
+        enabled = self._ingestion_cfg.fetch_arxiv_metadata if fetch is None else fetch
+        if not enabled:
             self._api_metadata = {}
             return
         self._api_metadata = await fetch_arxiv_metadata(self._query.arxiv_id)
@@ -623,10 +628,13 @@ class IngestionOrchestrator:
         for a in self._parsed.authors:
             html_affil_map[_norm(a.name)] = a.affiliations
 
-        # Merge: API first, HTML as supplement
+        # Merge: non-empty API affiliations first, HTML as supplement.
+        # API authors whose affiliations are empty (OpenAlex values are parked
+        # for gap-fill) must not mask the HTML-parsed ones.
         merged: dict[str, list[str]] = {}
         for key, affils in api_affil_map.items():
-            merged[key] = list(affils)
+            if affils:
+                merged[key] = list(affils)
         for key, affils in html_affil_map.items():
             if key not in merged:
                 merged[key] = affils
@@ -695,6 +703,11 @@ class IngestionOrchestrator:
                 ]
         paper_meta = fill_arxiv_metadata_defaults(paper_meta, base_id)
         merge_tex_affiliations_if_configured(paper_meta, self._tex_source_info)
+        # Last: promote OpenAlex-profile affiliations only for authors the
+        # per-paper sources (HTML/TeX) left without any affiliation.
+        from arxiv2md_beta.network.author_enrichment import apply_openalex_affiliation_gap_fill
+
+        apply_openalex_affiliation_gap_fill(paper_meta)
         return paper_meta
 
     async def _reap_tex_task(self, tex_task: asyncio.Task | None) -> None:

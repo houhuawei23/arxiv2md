@@ -127,8 +127,13 @@ class OutputNamingSection(BaseModel):
 
 class IngestionSection(BaseModel):
     fetch_arxiv_metadata: bool = Field(
-        default=False,
-        description="Fetch optional arXiv API metadata enrichment (disabled by default).",
+        default=True,
+        description=(
+            "Fetch arXiv Atom API metadata (canonical author list, publication date, "
+            "abs-page/OpenAlex enrichment). The Atom API is the authoritative author "
+            "source; HTML/TeX parsing only supplements affiliations. Disable for fully "
+            "offline runs or to skip the API round-trip in large offline batches."
+        ),
     )
     reference_section_titles: list[str]
     abstract_section_title: str
@@ -210,6 +215,15 @@ class FeaturesSection(BaseModel):
 
 class OutputSection(BaseModel):
     tiktoken_encoding: str = "o200k_base"
+    md_front_matter: bool = Field(
+        default=True,
+        description=(
+            "Write a flat YAML front-matter block at the top of paper.md (title, authors,"
+            " publication, urls, categories, sections) instead of the human-readable bullet"
+            " header. Only the file changes — the CLI's stdout summary stays human-readable."
+            " Disable with --no-front-matter."
+        ),
+    )
     include_anchors: bool = Field(
         default=False,
         description='If True, keep <a id="..."></a> anchor tags in generated Markdown.',

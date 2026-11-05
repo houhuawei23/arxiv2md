@@ -19,6 +19,7 @@ def parse_author_affiliations_from_tex(tex: str) -> list[dict[str, Any]]:
     IEEE ``\\IEEEauthorblockN`` / ``\\IEEEauthorblockA``,
     ICLR/NeurIPS-style ``\\author`` with ``$^{n}$`` markers and a legend line,
     sequential ``\\author`` + ``\\affiliation`` / ``\\institution`` / ``\\institute``,
+    template-defined ``\\formatauthor{}`` / ``\\formataffil{}`` pairs,
     and single ``\\author{...}`` blocks split by ``\\and``.
     """
     if not tex or not tex.strip():
@@ -43,6 +44,10 @@ def parse_author_affiliations_from_tex(tex: str) -> list[dict[str, Any]]:
     seq = _parse_sequential_author_affiliation(region)
     if seq:
         return seq
+
+    custom = _parse_custom_author_affil_macros(region)
+    if custom:
+        return custom
 
     return _parse_single_author_block(region)
 
@@ -377,6 +382,45 @@ _AUTHOR_CMD = re.compile(
     re.I,
 )
 
+# Bespoke author/affiliation macros defined by class templates (e.g. the
+# GovAI policy-paper style: ``\formatauthor{...}`` / ``\formataffil{...}``
+# strictly alternating inside one ``\author{...}`` block). Any command whose
+# name contains "author" opens an entry; one containing "affil" attaches to it.
+_CUSTOM_AUTHOR_AFFIL_RE = re.compile(r"\\(?P<cmd>[a-zA-Z@]*(?:author|affil)[a-zA-Z@]*)\s*\{", re.I)
+
+
+def _parse_custom_author_affil_macros(region: str) -> list[dict[str, Any]]:
+    r"""Pair template-defined ``\formatauthor{}`` / ``\formataffil{}`` macros.
+
+    Runs after the dedicated ICML/IEEE/ICLR/sequential parsers so those styles
+    are unaffected; claims the result only when at least two authors carry
+    affiliations (otherwise the generic ``\author`` fallbacks get their turn).
+    """
+    results: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for m in _CUSTOM_AUTHOR_AFFIL_RE.finditer(region):
+        cmd = m.group("cmd").lower()
+        if cmd == "author":
+            continue  # bare \author is handled by the dedicated parsers
+        inner = _balanced_inner(region, m.end() - 1)
+        if inner is None:
+            continue
+        if "author" in cmd:
+            if current is not None:
+                results.append(current)
+            name = _clean_latex_author_name(inner)
+            current = {"name": name, "affiliations": []} if name else None
+        else:
+            if current is not None:
+                line = _clean_affil_line(inner)
+                if line:
+                    current["affiliations"].append(line)
+    if current is not None:
+        results.append(current)
+    if len(results) < 2 or not any(r["affiliations"] for r in results):
+        return []
+    return results
+
 
 def _parse_sequential_author_affiliation(header: str) -> list[dict[str, Any]]:
     matches = list(_AUTHOR_CMD.finditer(header))
@@ -523,6 +567,9 @@ def _clean_latex_author_name(s: str) -> str:
     s = re.sub(r"\\[a-zA-Z@]+\s*\{([^}]*)\}", r"\1", s)
     s = s.replace("\\\\", " ").replace("\\", " ")
     s = re.sub(r"\s+", " ", s).strip()
+    # Strip trailing footnote markers so bibtex keys don't carry them
+    # ("Alan Chan*" → "Alan Chan"; matches the HTML parser's name cleaning).
+    s = re.sub(r"[\*†‡§]+$", "", s).strip()
     return s
 
 
@@ -544,5 +591,7 @@ def _split_address_lines(s: str) -> list[str]:
 
 def _clean_affil_line(s: str) -> str:
     s = re.sub(r"\\[a-zA-Z@]+\s*\{([^}]*)\}", r"\1", s)
+    # Unescape literal TeX special chars ("Institute for Law \& AI" → "&").
+    s = s.replace(r"\&", "&").replace(r"\%", "%")
     s = re.sub(r"\s+", " ", s).strip()
     return s

@@ -15,23 +15,32 @@ from arxiv2md_beta.output.markdown_utils import count_tokens
 from arxiv2md_beta.settings import get_settings
 from arxiv2md_beta.settings.schema import AppSettings
 
+# Distinguishes "caller didn't pass a count" from "caller passed None because
+# tiktoken is unavailable". Treating None as unset used to make is_stub
+# re-encode the full text a second time when tiktoken was down (audit5 X3).
+_TOKEN_COUNT_UNSET = object()
+
 
 def is_stub(
     output_text: str,
     *,
     settings: AppSettings | None = None,
-    token_count: int | None = None,
+    token_count: int | None | object = _TOKEN_COUNT_UNSET,
 ) -> bool:
     """True when ``output_text`` is below either stub threshold (OR semantics).
 
     ``token_count`` lets callers that already encoded the text pass the
-    count through instead of re-encoding (audit5 X3).
+    count through instead of re-encoding (audit5 X3). A caller-passed
+    ``None`` (tiktoken unavailable) is respected and does NOT trigger a
+    re-encode here.
     """
     s = settings or get_settings()
     content_bytes = len(output_text.encode("utf-8"))
-    tokens = count_tokens(output_text) if token_count is None else token_count
+    tokens = count_tokens(output_text) if token_count is _TOKEN_COUNT_UNSET else token_count
     too_few_bytes = content_bytes < s.output.stub_min_bytes
-    too_few_tokens = tokens is not None and tokens < s.output.stub_min_tokens
+    # isinstance (not `is not None`) so the sentinel-typed ``object`` also
+    # narrows away for the type checker.
+    too_few_tokens = isinstance(tokens, int) and tokens < s.output.stub_min_tokens
     return too_few_bytes or too_few_tokens
 
 

@@ -22,6 +22,11 @@ class IngestionResult(BaseModel):
     content: str
     content_references: str | None = None
     content_appendix: str | None = None
+    # Flat YAML front matter for the written paper.md (machine-readable
+    # replacement of the bullet header). ``summary`` stays the human-readable
+    # stdout form; only the file gets this block. None = disabled or no
+    # metadata to build it from.
+    front_matter: str | None = None
     performance: dict | None = None
 
 

@@ -69,11 +69,27 @@ async def write_split_markdown_sidecars(
         logger.info(f"Appendix removed (empty split): {app_path}")
 
 
-def format_output(summary: str, tree: str, content: str, *, include_tree: bool) -> str:
-    """Format final Markdown body (optional section tree)."""
+def format_output(
+    summary: str,
+    tree: str,
+    content: str,
+    *,
+    include_tree: bool,
+    front_matter: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Format final Markdown body (optional section tree).
+
+    With *front_matter* set, the machine-readable YAML block (plus an ``H1``
+    of the paper title) replaces the human-readable bullet *summary* at the
+    top of the written file — *summary* itself keeps its stdout role.
+    """
+    header = summary
+    if front_matter:
+        header = f"{front_matter}\n\n# {title}" if title else front_matter
     if include_tree:
-        return f"{summary}\n\n{tree}\n\n{content}".strip()
-    return f"{summary}\n\n{content}".strip()
+        return f"{header}\n\n{tree}\n\n{content}".strip()
+    return f"{header}\n\n{content}".strip()
 
 
 def _manifest_stub_status(
@@ -299,6 +315,8 @@ async def persist_ingestion_output(
         result.sections_tree,
         result.content,
         include_tree=params.include_tree,
+        front_matter=result.front_matter,
+        title=title,
     )
 
     # Encode the full text once and pass the count to every consumer

@@ -38,6 +38,15 @@ def _mock_no_tex(monkeypatch) -> None:
     monkeypatch.setattr(orch_module, "fetch_and_extract_tex_source", no_tex)
 
 
+def _mock_no_api(monkeypatch) -> None:
+    """Keep the (now default-on) Atom API metadata fetch off the network."""
+
+    async def no_api(arxiv_id: str) -> dict:
+        return {}
+
+    monkeypatch.setattr(orch_module, "fetch_arxiv_metadata", no_api)
+
+
 SAMPLE = (
     "<html><head><title>Tiny Paper</title></head><body>"
     "<article class='ltx_document'>"
@@ -53,6 +62,7 @@ SAMPLE = (
 async def test_run_happy_path(tmp_path, monkeypatch, sample_html) -> None:
     _mock_html(monkeypatch, SAMPLE)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     orch = _orch(tmp_path)
     result, metadata = await orch.run()
@@ -75,6 +85,7 @@ async def test_run_pdf_only_fallback(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(orch_module, "fetch_arxiv_html", no_html)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     orch = _orch(tmp_path)
     result, metadata = await orch.run()
@@ -90,6 +101,7 @@ async def test_run_metadata_failure_degrades_to_html(tmp_path, monkeypatch) -> N
     """A failing arXiv API metadata fetch must not abort the conversion."""
     _mock_html(monkeypatch, SAMPLE)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     async def fail_metadata(arxiv_id: str) -> dict:
         raise NetworkError("API down", status_code=500)
@@ -108,6 +120,7 @@ async def test_run_propagates_save_failure(tmp_path, monkeypatch) -> None:
     """An assembly error in paper.yml saving must fail the run (fail fast)."""
     _mock_html(monkeypatch, SAMPLE)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     def boom(meta, out_dir) -> None:
         raise ValueError("injected: paper.yml assembly bug")
@@ -125,6 +138,7 @@ async def test_run_propagates_save_failure(tmp_path, monkeypatch) -> None:
 async def test_run_propagates_structured_export_failure(tmp_path, monkeypatch) -> None:
     _mock_html(monkeypatch, SAMPLE)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     def boom(*args, **kwargs) -> dict:
         raise ValueError("injected: structured export bug")
@@ -212,6 +226,7 @@ async def test_run_html_unavailable_degrades_to_latex(tmp_path, monkeypatch) -> 
         raise NetworkError("no HTML rendering", status_code=404)
 
     monkeypatch.setattr(orch_module, "fetch_arxiv_html", no_html)
+    _mock_no_api(monkeypatch)
 
     from arxiv2md_beta.contracts import TexSourceInfo
 
@@ -272,6 +287,7 @@ async def test_run_pdf_only_fallback_enriches_from_abs_page(tmp_path, monkeypatc
 
     monkeypatch.setattr(orch_module, "fetch_arxiv_html", no_html)
     _mock_no_tex(monkeypatch)
+    _mock_no_api(monkeypatch)
 
     abs_html = (
         "<html><head>"

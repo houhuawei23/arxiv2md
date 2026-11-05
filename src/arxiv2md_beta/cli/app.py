@@ -28,6 +28,7 @@ from arxiv2md_beta.cli.options import (
     EMIT_RESULT_JSON_OPT,
     FETCH_METADATA_OPT,
     FORCE_OPT,
+    FRONT_MATTER_OPT,
     INCLUDE_ANCHORS_OPT,
     INCLUDE_TREE_OPT,
     LINKED_CITATIONS_OPT,
@@ -191,7 +192,8 @@ def convert_cmd(
     linked_citations: bool | None = LINKED_CITATIONS_OPT,
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
-    fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
+    fetch_arxiv_metadata: bool | None = FETCH_METADATA_OPT,
+    front_matter: bool | None = FRONT_MATTER_OPT,
     force: bool = FORCE_OPT,
     allow_stub: bool = ALLOW_STUB_OPT,
     dry_run: bool = DRY_RUN_OPT,
@@ -208,6 +210,7 @@ def convert_cmd(
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
         fetch_arxiv_metadata=fetch_arxiv_metadata,
+        md_front_matter=front_matter,
         concurrency=concurrency,
     )
     params = make_convert_params(
@@ -235,6 +238,7 @@ def convert_cmd(
         include_anchors=cli.include_anchors,
         naming_scheme=cli.naming_scheme,
         fetch_metadata=cli.fetch_metadata,
+        md_front_matter=cli.md_front_matter,
         no_progress=cli.no_progress,
         concurrency=cli.concurrency,
     )
@@ -292,7 +296,8 @@ def batch_cmd(
     linked_citations: bool | None = LINKED_CITATIONS_OPT,
     naming_scheme: str | None = NAMING_SCHEME_OPT,
     download_pdf: bool = DOWNLOAD_PDF_OPT,
-    fetch_arxiv_metadata: bool = FETCH_METADATA_OPT,
+    fetch_arxiv_metadata: bool | None = FETCH_METADATA_OPT,
+    front_matter: bool | None = FRONT_MATTER_OPT,
     force: bool = FORCE_OPT,
     allow_stub: bool = ALLOW_STUB_OPT,
     dry_run: bool = DRY_RUN_OPT,
@@ -308,6 +313,7 @@ def batch_cmd(
         linked_citations=linked_citations,
         naming_scheme=naming_scheme,
         fetch_arxiv_metadata=fetch_arxiv_metadata,
+        md_front_matter=front_matter,
     )
     template = make_convert_params(
         "",
@@ -334,6 +340,7 @@ def batch_cmd(
         include_anchors=cli.include_anchors,
         naming_scheme=cli.naming_scheme,
         fetch_metadata=cli.fetch_metadata,
+        md_front_matter=cli.md_front_matter,
         no_progress=cli.no_progress,
     )
     lines = input_file.read_text(encoding="utf-8").splitlines()
@@ -388,6 +395,17 @@ def paper_yml_cmd(
             " API fields overwrite."
         ),
     ),
+    migrate: Path | None = typer.Option(
+        None,
+        "--migrate",
+        "-m",
+        metavar="PATH",
+        help=(
+            "Upgrade an existing paper.yml from schema v1 to v2 in place (no network:"
+            " relations.categories → classification, drops paper.id/citation, extracts"
+            " bibtex to paper.bib, stamps paper.schema: 2). Idempotent for v2 files."
+        ),
+    ),
     output: str | None = typer.Option(
         None,
         "--output",
@@ -415,6 +433,18 @@ def paper_yml_cmd(
 ) -> None:
     """Fetch arXiv metadata only and write or refresh ``paper.yml`` (no Markdown conversion)."""
     logger = get_logger()
+    if migrate is not None:
+        if update is not None or arxiv:
+            logger.warning("Ignoring ARXIV/--update because --migrate is set.")
+        params = PaperYmlParams(
+            update_path=None,
+            arxiv_input=None,
+            output=None,
+            force=force,
+            migrate_path=migrate,
+        )
+        _run_command(lambda: run_paper_yml_sync(params))
+        return
     if update is not None:
         if arxiv:
             logger.warning("Ignoring ARXIV argument because --update is set.")

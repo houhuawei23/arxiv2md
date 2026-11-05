@@ -42,7 +42,8 @@ class ConvertParams:
     # corresponding settings default at the consumer.
     include_anchors: bool | None = None  # None = settings.output.include_anchors
     naming_scheme: str | None = None  # None = settings.output_naming.naming_scheme
-    fetch_metadata: bool = False  # OR-ed with settings.ingestion.fetch_arxiv_metadata
+    fetch_metadata: bool | None = None  # None = settings.ingestion.fetch_arxiv_metadata; True/False = explicit override
+    md_front_matter: bool | None = None  # None = settings.output.md_front_matter; True/False = explicit override
     # Explicit switch, NOT a settings.images.disable_tqdm mutation: consumers
     # receive it as disable_tqdm=<params.no_progress> arguments (None = fall
     # back to the settings default at the consumer).

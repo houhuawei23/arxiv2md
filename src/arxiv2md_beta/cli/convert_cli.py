@@ -26,7 +26,8 @@ class ConvertCliSettings:
     include_anchors: bool
     linked_citations: bool
     naming_scheme: str
-    fetch_metadata: bool
+    fetch_metadata: bool | None
+    md_front_matter: bool | None
     no_progress: bool
     concurrency: int | None
 
@@ -41,7 +42,8 @@ def apply_convert_cli_settings(
     include_anchors: bool | None = None,
     linked_citations: bool | None = None,
     naming_scheme: str | None = None,
-    fetch_arxiv_metadata: bool = False,
+    fetch_arxiv_metadata: bool | None = False,
+    md_front_matter: bool | None = None,
     concurrency: int | None = None,
 ) -> ConvertCliSettings:
     """Validate parser/section/structured options and resolve CLI flags.
@@ -88,6 +90,7 @@ def apply_convert_cli_settings(
         linked_citations=linked_citations if linked_citations is not None else s.output.linked_citations,
         naming_scheme=naming_scheme if naming_scheme is not None else s.output_naming.naming_scheme,
         fetch_metadata=fetch_arxiv_metadata,
+        md_front_matter=md_front_matter,
         no_progress=no_progress,
         concurrency=concurrency,
     )
@@ -118,7 +121,8 @@ def make_convert_params(
     dry_run: bool = False,
     include_anchors: bool | None = None,
     naming_scheme: str | None = None,
-    fetch_metadata: bool = False,
+    fetch_metadata: bool | None = None,
+    md_front_matter: bool | None = None,
     no_progress: bool = False,
     concurrency: int | None = None,
 ) -> ConvertParams:
@@ -149,6 +153,7 @@ def make_convert_params(
         include_anchors=include_anchors,
         naming_scheme=naming_scheme,
         fetch_metadata=fetch_metadata,
+        md_front_matter=md_front_matter,
         no_progress=no_progress,
         concurrency=concurrency,
     )

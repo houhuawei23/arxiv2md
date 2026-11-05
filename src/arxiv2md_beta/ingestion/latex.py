@@ -36,10 +36,12 @@ async def ingest_paper(
     arxiv_id = query.arxiv_id
     version = query.version
     async with async_timed_operation(f"ingest_paper_latex({arxiv_id})"):
-        # Fetch metadata from API (optional; disabled by default to avoid slow
-        # retry chains when arXiv API / OpenAlex / Crossref are unreachable)
+        # Fetch metadata from API — on by default (canonical authors/dates);
+        # ``--no-fetch-metadata`` or settings can turn it off for offline runs.
         api_metadata: dict[str, Any] = {}
-        if params.fetch_metadata or get_settings().ingestion.fetch_arxiv_metadata:
+        fetch = params.fetch_metadata
+        fetch_enabled = get_settings().ingestion.fetch_arxiv_metadata if fetch is None else fetch
+        if fetch_enabled:
             try:
                 api_metadata = await fetch_arxiv_metadata(arxiv_id)
             except Exception as exc:  # noqa: BLE001 - metadata is enrichment only
@@ -127,6 +129,11 @@ async def ingest_paper(
         from arxiv2md_beta.ingestion.ir_finalize import FinalizeContext, finalize_ingestion_output
 
         merge_tex_affiliations_if_configured(api_metadata, tex_source_info)
+        # Last: promote OpenAlex-profile affiliations only for authors the
+        # per-paper sources (TeX) left without any affiliation.
+        from arxiv2md_beta.network.author_enrichment import apply_openalex_affiliation_gap_fill
+
+        apply_openalex_affiliation_gap_fill(api_metadata)
         # Same off-loop treatment as the local-archive paths (markdown emission,
         # YAML dump and JSON bundle are CPU/IO-bound).
         result, metadata = await asyncio.to_thread(

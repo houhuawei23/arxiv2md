@@ -31,3 +31,5 @@ class PaperYmlParams:
     # --update --refresh: API values also overwrite user-owned fields
     # (audit5 S8 F3); keys only the user added are still kept.
     refresh: bool = False
+    # --migrate PATH: offline schema v1 → v2 upgrade in place (no fetch).
+    migrate_path: Path | None = None

@@ -63,10 +63,22 @@ DOWNLOAD_PDF_OPT = typer.Option(
     "--download-pdf/--skip-pdf-download",
     help="Download the arXiv PDF into the output directory (default: True).",
 )
-FETCH_METADATA_OPT = typer.Option(
-    False,
-    "--fetch-metadata",
-    help="Fetch optional arXiv API metadata (disabled by default).",
+FETCH_METADATA_OPT: bool | None = typer.Option(
+    None,
+    "--fetch-metadata/--no-fetch-metadata",
+    help=(
+        "Fetch arXiv API metadata (canonical authors, dates, OpenAlex affiliations). "
+        "Default: follow ingestion.fetch_arxiv_metadata in settings (on by default)."
+    ),
+)
+FRONT_MATTER_OPT: bool | None = typer.Option(
+    None,
+    "--front-matter/--no-front-matter",
+    help=(
+        "Write a flat YAML front-matter block at the top of paper.md (machine-readable "
+        "header; stdout summary unaffected). Default: follow output.md_front_matter in "
+        "settings (on by default)."
+    ),
 )
 FORCE_OPT = typer.Option(
     False,

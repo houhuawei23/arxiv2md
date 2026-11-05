@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from collections import OrderedDict
 from contextlib import suppress
@@ -13,12 +14,16 @@ import yaml
 from loguru import logger
 
 from arxiv2md_beta.exceptions import ParseError
+from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.atomic_io import atomic_write_text_sync
 
 # Paths (relative to the serialized root) the user owns once present in a
 # saved paper.yml: ``paper-yml --update`` and re-conversions must never let
 # fresh API data clobber them (audit4 A4 — reading status / tags used to
 # reset on every update). Fresh values fill these keys only when absent.
+# (v1's ``paper.bibtex`` moved to a ``paper.bib`` sidecar in schema v2; the
+# sidecar keeps the user-owned rule via the extracted-bibtex preference in
+# :func:`write_paper_yml_file`.)
 USER_OWNED_PATHS: frozenset[tuple[str, ...]] = frozenset(
     {
         ("paper", "workflow", "status"),
@@ -26,9 +31,13 @@ USER_OWNED_PATHS: frozenset[tuple[str, ...]] = frozenset(
         ("paper", "workflow", "date_added"),
         ("paper", "relations", "tags"),
         ("paper", "relations", "related"),
-        ("paper", "bibtex"),
     }
 )
+
+# Schema version marker written under ``paper.schema``; files without it (or
+# with a lower value) are upgraded by :func:`migrate_paper_yml_v1_to_v2`
+# before they are merged or re-serialized.
+PAPER_YML_SCHEMA_VERSION = 2
 
 
 def save_paper_metadata(metadata: dict, paper_output_dir: Path) -> None:
@@ -131,15 +140,23 @@ def write_paper_yml_file(
     """Serialize metadata to a ``paper.yml`` (or ``*.yml``) file at ``output_path``.
 
     If ``merge_existing`` is set (e.g. from ``paper-yml --update``), user-only keys from the
-    existing file are preserved while fresh API fields overwrite. ``refresh``
-    additionally lets API values replace user-owned fields (audit5 S8 F3).
+    existing file are preserved while fresh API fields overwrite; a v1 file is
+    migrated to schema v2 before merging. ``refresh`` additionally lets API
+    values replace user-owned fields (audit5 S8 F3).
+
+    The BibTeX entry lives in a sibling ``paper.bib`` (schema v2), never
+    embedded in the YAML: an existing entry wins unless ``refresh`` (same
+    user-owned rule ``paper.bibtex`` had in v1), otherwise the freshly
+    generated one is written.
     """
     output_path = Path(output_path)
     fresh = _metadata_to_paper_yml(metadata)
     if not fresh:
         logger.warning("No metadata to write (missing arxiv_id); skipping")
         return
+    existing_bibtex: str | None = None
     if merge_existing is not None:
+        merge_existing, existing_bibtex = migrate_paper_yml_v1_to_v2(merge_existing)
         paper_yml_data = merge_paper_yml_preserve_user_fields(merge_existing, fresh, refresh=refresh)
     else:
         paper_yml_data = fresh
@@ -157,6 +174,112 @@ def write_paper_yml_file(
     content = yaml.dump(paper_yml_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
     atomic_write_text_sync(output_path, content)
     logger.info(f"Paper metadata written to: {output_path}")
+    _write_bib_sidecar(metadata, output_path, existing_bibtex=existing_bibtex, refresh=refresh)
+
+
+def _write_bib_sidecar(metadata: dict, output_path: Path, *, existing_bibtex: str | None, refresh: bool) -> None:
+    """Write the BibTeX entry to the sibling ``paper.bib`` (schema v2 home).
+
+    User-owned rule carried over from v1's ``paper.bibtex``: an entry already
+    on disk wins over the freshly generated one unless ``refresh``. A missing
+    fresh entry never deletes an existing sidecar.
+    """
+    fresh_bibtex = str(metadata.get("bibtex") or "").strip()
+    sidecar = existing_bibtex if (existing_bibtex and not refresh) else None
+    bib = sidecar or fresh_bibtex or existing_bibtex
+    if not bib:
+        return
+    bib_path = bib_sidecar_path(output_path)
+    if bib_path.exists() and bib == bib_path.read_text(encoding="utf-8").strip():
+        return
+    atomic_write_text_sync(bib_path, bib.strip() + "\n")
+    logger.info(f"BibTeX written to: {bib_path}")
+
+
+def migrate_paper_yml_v1_to_v2(data: dict) -> tuple[dict, str | None]:
+    """Upgrade a loaded ``paper.yml`` mapping from schema v1 to v2, in place.
+
+    Returns ``(data, bibtex)`` where *bibtex* is the entry extracted from the
+    v1 ``paper.bibtex`` key (now a ``paper.bib`` sidecar — the caller writes
+    it), or ``None`` when there was none. Idempotent: a file already at v2
+    (``paper.schema == 2``) or with no v1 markers passes through unchanged.
+
+    Moves performed:
+    - ``relations.categories`` / ``relations.primary_category`` → ``classification.*``
+    - arXiv-category entries removed from ``content.keywords`` (v1 mixed
+      classification into keywords)
+    - ``paper.id`` (``arxiv:<id>``) dropped — ``identifiers.arxiv`` is the identity
+    - ``content.citation`` (truncated derived string) dropped
+    - scalar ``authors[].affiliation`` → ``affiliations: [v]``
+    - ``paper.bibtex`` extracted and the key removed
+    - ``paper.schema: 2`` written
+    """
+    paper = data.get("paper") if isinstance(data, dict) else None
+    if not isinstance(paper, dict):
+        return data, None
+    if paper.get("schema") == PAPER_YML_SCHEMA_VERSION:
+        return data, None
+
+    relations = paper.get("relations")
+    relations = relations if isinstance(relations, dict) else {}
+    content = paper.get("content")
+    content = content if isinstance(content, dict) else {}
+    has_v1_markers = any(
+        (
+            "id" in paper,
+            "bibtex" in paper,
+            "categories" in relations,
+            "primary_category" in relations,
+            "citation" in content,
+        )
+    )
+    if not has_v1_markers:
+        # Already structurally v2 (e.g. produced by a v2-aware writer); just
+        # stamp the version if missing.
+        paper["schema"] = PAPER_YML_SCHEMA_VERSION
+        return data, None
+
+    # classification ← relations
+    classification = paper.get("classification")
+    classification = classification if isinstance(classification, dict) else {}
+    if not classification.get("categories") and relations.get("categories"):
+        classification["categories"] = relations["categories"]
+    if not classification.get("primary_category") and relations.get("primary_category"):
+        classification["primary_category"] = relations["primary_category"]
+    relations.pop("categories", None)
+    relations.pop("primary_category", None)
+    if classification:
+        paper["classification"] = classification
+
+    # keywords: drop entries that are (case-insensitively) categories; a
+    # list left empty by that removal is removed outright (v1 papers whose
+    # only keywords were categories end up with no keywords at all).
+    cats = {str(c).lower() for c in (classification.get("categories") or [])}
+    if cats and isinstance(content.get("keywords"), list):
+        content["keywords"] = [kw for kw in content["keywords"] if str(kw).lower() not in cats]
+        if not content["keywords"]:
+            content.pop("keywords")
+    content.pop("citation", None)
+
+    # identity + citation-string cleanup
+    paper.pop("id", None)
+
+    # authors: scalar affiliation → list
+    for au in paper.get("authors") or []:
+        if isinstance(au, dict) and not isinstance(au.get("affiliations"), list) and au.get("affiliation"):
+            au["affiliations"] = [au.pop("affiliation")]
+
+    # bibtex extracted (caller writes the sidecar)
+    bibtex = paper.pop("bibtex", None)
+    bibtex = str(bibtex).strip() if bibtex else None
+
+    paper["schema"] = PAPER_YML_SCHEMA_VERSION
+    return data, bibtex or None
+
+
+def bib_sidecar_path(output_path: Path) -> Path:
+    """Sibling ``paper.bib`` path for a ``paper.yml`` at *output_path*."""
+    return output_path.with_suffix(".bib")
 
 
 def load_paper_yml(path: Path) -> dict:
@@ -189,9 +312,21 @@ def arxiv_id_from_paper_yml(path: Path) -> str:
 
 
 def _metadata_to_paper_yml(metadata: dict) -> dict:
-    """Convert arXiv API metadata to nested paper.yml structure.
+    """Convert arXiv API metadata to the nested paper.yml structure (schema v2).
 
-    与 academic-extension schema 统一，输出嵌套格式。
+    v2 layout (see ``PAPER_YML_SCHEMA_VERSION``):
+
+    - ``paper.schema`` marks the version (migration detection).
+    - Categories live only in ``paper.classification`` — arXiv categories are
+      classification, not keywords, and v1 duplicated them in
+      ``content.keywords`` + ``relations.categories``.
+    - ``paper.id`` (``arxiv:<id>``) and the truncated ``content.citation`` are
+      gone; ``identifiers.arxiv`` / ``identifiers.doi`` carry the identity.
+    - ``bibtex`` is no longer embedded (escaped multi-line YAML) — it is
+      written to a sibling ``paper.bib`` by the write layer.
+    - ``publication.updated_date`` / ``identifiers.doi`` / ``content.license``
+      are emitted when the upstream metadata provides them (DOI additionally
+      derives from the arXiv DataCite convention when absent).
 
     Parameters
     ----------
@@ -208,7 +343,6 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
         return {}
 
     title = metadata.get("title") or "Untitled"
-    paper_id = f"arxiv:{arxiv_id}"
 
     # publication
     publication: OrderedDict[str, Any] = OrderedDict()
@@ -235,6 +369,9 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
 
     if date_str:
         publication["date_published"] = date_str
+    updated = _date_only(metadata.get("updated"))
+    if updated and updated != date_str:
+        publication["updated_date"] = updated
     if year is None and metadata.get("year"):
         year = metadata["year"]
     if year is None and date_str:
@@ -255,11 +392,16 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
         }
         publication["type"] = type_mapping.get(crossref_type, "preprint")
 
-    # identifiers
+    # identifiers — DOI derives from the arXiv DataCite convention when the
+    # upstream sources did not provide one (only for real arXiv ids; local
+    # archives may carry synthetic ids that have no DOI).
     identifiers = OrderedDict()
     identifiers["arxiv"] = arxiv_id
-    if metadata.get("doi"):
-        identifiers["doi"] = metadata["doi"]
+    doi = str(metadata.get("doi") or "").strip()
+    if not doi and re.match(r"\d{4}\.\d{4,5}", strip_version(str(arxiv_id))):
+        doi = f"10.48550/arXiv.{strip_version(str(arxiv_id))}"
+    if doi:
+        identifiers["doi"] = doi
     if metadata.get("openalex_work_id"):
         identifiers["openalex_work"] = metadata["openalex_work_id"]
 
@@ -270,31 +412,30 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     if metadata.get("abstract_url"):
         urls["abstract"] = metadata["abstract_url"]
 
-    # authors
+    # authors — affiliations are list-only in v2 (the legacy scalar
+    # ``affiliation`` join duplicated the list).
     authors = []
     for author in metadata.get("authors", []):
         author_dict = {}
         if author.get("name"):
             author_dict["name"] = author["name"]
         affs = author.get("affiliations")
+        if not isinstance(affs, list) and author.get("affiliation"):
+            affs = [author["affiliation"]]
         if isinstance(affs, list) and affs:
             author_dict["affiliations"] = [str(x) for x in affs if x]
-        elif author.get("affiliation"):
-            # Only emit string when no structured list (avoids duplicating join(affiliations))
-            author_dict["affiliation"] = author["affiliation"]
         if author.get("orcid"):
             author_dict["orcid"] = author["orcid"]
         if author_dict:
             authors.append(author_dict)
 
-    # content
+    categories = metadata.get("categories", [])
+
+    # content — real keywords only; arXiv categories belong to classification.
     content = OrderedDict()
     if metadata.get("summary"):
         content["abstract"] = metadata["summary"]
     keywords = []
-    categories = metadata.get("categories", [])
-    if categories:
-        keywords.extend(categories)
     if metadata.get("keywords_merged"):
         keywords = metadata["keywords_merged"]
     elif metadata.get("crossref_subjects"):
@@ -310,8 +451,16 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
         content["keywords"] = unique_keywords
     # Prefer an explicit language from the source; "en" remains the arXiv default.
     content["language"] = metadata.get("language") or "en"
-    if metadata.get("citation"):
-        content["citation"] = metadata["citation"]
+    if metadata.get("license"):
+        content["license"] = metadata["license"]
+
+    # classification — the single home for arXiv categories (v1 scattered
+    # them across content.keywords and relations.categories).
+    classification = OrderedDict()
+    if categories:
+        classification["categories"] = list(categories)
+    if metadata.get("primary_category"):
+        classification["primary_category"] = metadata["primary_category"]
 
     # workflow — date_added records when the paper entered the library, not
     # its arXiv publication date (audit4 A4); the merge layer keeps any
@@ -326,14 +475,11 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
     # relations
     relations: OrderedDict[str, Any] = OrderedDict()
     relations["tags"] = []
-    relations["categories"] = list(categories) if categories else []
-    if metadata.get("primary_category"):
-        relations["primary_category"] = metadata["primary_category"]
     relations["related"] = []
 
     # Build paper object with fixed field order
     paper: OrderedDict[str, Any] = OrderedDict()
-    paper["id"] = paper_id
+    paper["schema"] = PAPER_YML_SCHEMA_VERSION
     paper["title"] = title
     if authors:
         paper["authors"] = authors
@@ -345,9 +491,22 @@ def _metadata_to_paper_yml(metadata: dict) -> dict:
         paper["urls"] = dict(urls)
     if content:
         paper["content"] = dict(content)
+    if classification:
+        paper["classification"] = dict(classification)
     paper["workflow"] = dict(workflow)
     paper["relations"] = dict(relations)
-    if metadata.get("bibtex"):
-        paper["bibtex"] = metadata["bibtex"]
 
     return {"paper": dict(paper)}
+
+
+def _date_only(value: Any) -> str | None:
+    """Normalize an upstream datetime/date string to ``YYYY-MM-DD`` (None if unparsable)."""
+    if not value:
+        return None
+    text = str(value).strip()
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", text)
+    if m:
+        return m.group(1)
+    with suppress(ValueError):
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+    return None

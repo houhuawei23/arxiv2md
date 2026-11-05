@@ -55,15 +55,28 @@ def _orcid_id(url_or_id: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+# Private author key holding OpenAlex-sourced affiliations until the final
+# reconciliation step (:func:`apply_openalex_affiliation_gap_fill`) runs.
+# ``_metadata_to_paper_yml`` only emits known keys, so it never leaks into
+# paper.yml even if reconciliation is not reached.
+_OPENALEX_AFFILS_KEY = "_openalex_affiliations"
+
+
 def _merge_openalex_into_authors(
     authors: list[dict[str, Any]],
     work: dict[str, Any],
 ) -> int:
-    """Mutate ``authors`` in place with institutions / ORCID from OpenAlex ``authorships``.
+    """Record OpenAlex institutions / ORCID onto ``authors`` (in place).
 
     Canonical ``institutions[].display_name`` values are preferred; cleaned
     ``raw_affiliation_strings`` are used only as a fallback when an authorship
     has no canonical institutions, so parser artifacts never reach ``paper.yml``.
+
+    OpenAlex infers affiliations from the author's overall profile, which for
+    fresh papers is frequently stale for the paper at hand (e.g. a former
+    employer). The values are therefore parked under a private key and only
+    promoted by :func:`apply_openalex_affiliation_gap_fill` for authors whose
+    affiliation no per-paper source (HTML / TeX) filled.
 
     Returns:
     -------
@@ -92,14 +105,39 @@ def _merge_openalex_into_authors(
             # Canonical institution names win; raw strings only fill the gap.
             aff_parts = inst_names or raw_clean
             if aff_parts:
-                au["affiliations"] = aff_parts
-                au["affiliation"] = "; ".join(aff_parts)
+                au[_OPENALEX_AFFILS_KEY] = aff_parts
             oid = _orcid_id((ash.get("author") or {}).get("orcid"))
             if oid and not au.get("orcid"):
                 au["orcid"] = oid
             matched += 1
             break
     return matched
+
+
+def apply_openalex_affiliation_gap_fill(metadata: dict[str, Any]) -> int:
+    """Promote recorded OpenAlex affiliations to authors still without any.
+
+    Runs after every per-paper affiliation source (abs hints, HTML parse, TeX
+    parse) has merged, so profile-inferred OpenAlex institutions never shadow
+    paper-exact ones. Strips the private parking key either way. Returns the
+    number of authors filled.
+    """
+    authors = metadata.get("authors")
+    if not isinstance(authors, list):
+        return 0
+    filled = 0
+    for au in authors:
+        if not isinstance(au, dict):
+            continue
+        pending = au.pop(_OPENALEX_AFFILS_KEY, None)
+        if not isinstance(pending, list) or not pending:
+            continue
+        if not au.get("affiliations") and not au.get("affiliation"):
+            au["affiliations"] = [str(x) for x in pending if x]
+            if au["affiliations"]:
+                au["affiliation"] = "; ".join(au["affiliations"])
+                filled += 1
+    return filled
 
 
 async def fetch_abs_html(base_id: str) -> str | None:

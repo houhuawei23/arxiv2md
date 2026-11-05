@@ -36,3 +36,15 @@
 - **用法与限制**：请遵守 [Terms of Use](https://info.arxiv.org/help/api/tou.html)，手册还建议对重复查询做缓存、控制频率（例如说明里提到连续调用之间 **约 3 秒** 间隔等实践）。
 
 **结论**：通过 **arXiv API（Atom）** 能拿到的论文元信息，基本上就是上面表格那些；你们实现已覆盖主要字段。若要「更多」，需要 **换数据源**（Crossref 已部分接入）或 **其它学术 API / 开放数据库**，而不是在同一 Atom entry 里再挖字段。若你希望把 **`category` 的 scheme**、**v1 提交日 vs 当前版更新日** 等写进 `paper.yml`，可以在现有 `fetch_arxiv_metadata` 解析层做小幅扩展即可。
+
+## 2026-11 更新：paper.yml Schema v2 与 paper.md front matter
+
+`updated` 的语义（首版 vs 当前版日期）已落地：`publication.updated_date`（与 `date_published` 相同则省略）。同时 `paper.yml` 升级到 **schema v2**（`paper.schema: 2`）：
+
+- 分类独立成 `paper.classification`（`categories` / `primary_category`），不再混入 `content.keywords` 或 `relations`；
+- 删除冗余的 `paper.id`、截断的 `content.citation`、内嵌 `paper.bibtex`（bibtex 改写到同目录 `paper.bib`，用户手改的条目在更新时仍优先保留）；
+- 新增 `identifiers.doi`（缺失时按 `10.48550/arXiv.{id}` 派生）与可选 `content.license`。
+
+存量 v1 文件用 `arxiv2md-beta paper-yml --migrate PATH` 离线升级（幂等，保留 .bak 备份）；`convert` 重跑与 `paper-yml --update` 会自动随写盘迁移。
+
+另外 `paper.md` 默认以**扁平 YAML front matter** 开头（title/arxiv/doi/authors/publication/meta_status/workflow/urls/categories/sections，数据与 paper.yml 同源派生），可用 `--no-front-matter` 或 `output.md_front_matter: false` 关闭；CLI stdout 的摘要保持人类可读格式不变。

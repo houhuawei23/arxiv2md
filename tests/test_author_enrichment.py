@@ -9,6 +9,7 @@ import pytest
 from arxiv2md_beta.network.arxiv_abs_html import parse_abs_page_for_authors
 from arxiv2md_beta.network.author_enrichment import (
     _merge_openalex_into_authors,
+    apply_openalex_affiliation_gap_fill,
     clean_affiliation,
     dedupe_affiliation_strings,
 )
@@ -61,11 +62,32 @@ def test_merge_openalex_into_authors_sets_affiliations_and_orcid() -> None:
         ]
     }
     _merge_openalex_into_authors(authors, work)
-    assert authors[0].get("affiliation")
+    # OpenAlex affiliations are parked, never written directly — profile
+    # inference is unreliable for the paper at hand.
+    assert authors[0].get("affiliation") is None
+    assert authors[0].get("affiliations") is None
+    assert authors[0].get("orcid") == "0000-0002-1825-0097"
+    # Gap-fill promotes them for authors without any affiliation.
+    meta = {"authors": authors}
+    assert apply_openalex_affiliation_gap_fill(meta) == 1
     assert "OpenAlex Lab" in authors[0]["affiliation"]
     # Canonical institution names win; raw strings are only a fallback.
     assert authors[0].get("affiliations") == ["OpenAlex Lab"]
-    assert authors[0].get("orcid") == "0000-0002-1825-0097"
+
+
+def test_openalex_gap_fill_never_overrides_paper_exact_affiliations() -> None:
+    authors = [
+        {"name": "Jane Doe", "affiliations": ["TeX University"]},
+        {"name": "Bob Sample"},
+    ]
+    authors[0]["_openalex_affiliations"] = ["Stale Profile Employer"]
+    authors[1]["_openalex_affiliations"] = ["Real Gap Filler"]
+    meta = {"authors": authors}
+    assert apply_openalex_affiliation_gap_fill(meta) == 1
+    assert authors[0]["affiliations"] == ["TeX University"]
+    assert authors[1]["affiliations"] == ["Real Gap Filler"]
+    for au in authors:
+        assert "_openalex_affiliations" not in au
 
 
 def test_merge_openalex_cleans_raw_artifacts() -> None:
@@ -91,6 +113,8 @@ def test_merge_openalex_cleans_raw_artifacts() -> None:
         ]
     }
     _merge_openalex_into_authors(authors, work)
+    meta = {"authors": authors}
+    apply_openalex_affiliation_gap_fill(meta)
     assert authors[0]["affiliations"] == ["Jagiellonian University"]
     assert authors[1]["affiliations"] == ["Google Inc., Mountain View, CA"]
     assert "#TAB#" not in authors[1]["affiliation"]
@@ -109,6 +133,8 @@ def test_merge_openalex_prefers_institutions_over_raw() -> None:
         ]
     }
     _merge_openalex_into_authors(authors, work)
+    meta = {"authors": authors}
+    apply_openalex_affiliation_gap_fill(meta)
     assert authors[0]["affiliations"] == ["Stanford University"]
     assert "Affiliation:" not in authors[0]["affiliation"]
 
@@ -153,7 +179,8 @@ async def test_enrich_authors_openalex_sets_metadata_work_id() -> None:
     ):
         out = await enrich_authors_with_abs_html_and_openalex(meta, "2301.00001")
     assert out["openalex_work_id"] == "https://w.openalex.org/W123"
-    assert out["authors"][0].get("affiliation")
+    # Affiliations are parked for later gap-fill, not written here.
+    assert out["authors"][0]["_openalex_affiliations"] == ["Inst X"]
 
 
 def test_metadata_to_paper_yml_includes_affiliations_and_openalex() -> None:
@@ -181,6 +208,7 @@ def test_metadata_to_paper_yml_includes_affiliations_and_openalex() -> None:
 
 
 def test_metadata_to_paper_yml_affiliation_string_when_no_list() -> None:
+    """v2 normalizes a legacy scalar affiliation into the list form."""
     md = {
         "arxiv_id": "1234.5678",
         "title": "T",
@@ -189,4 +217,4 @@ def test_metadata_to_paper_yml_affiliation_string_when_no_list() -> None:
         "authors": [{"name": "Only Str", "affiliation": "MIT"}],
     }
     yml = _metadata_to_paper_yml(md)
-    assert yml["paper"]["authors"][0] == {"name": "Only Str", "affiliation": "MIT"}
+    assert yml["paper"]["authors"][0] == {"name": "Only Str", "affiliations": ["MIT"]}
