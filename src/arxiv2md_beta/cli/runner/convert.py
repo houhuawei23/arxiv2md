@@ -33,6 +33,7 @@ from arxiv2md_beta.query.parser import (
     parse_local_html,
 )
 from arxiv2md_beta.query.sections import collect_sections
+from arxiv2md_beta.query.web_urls import WEB_WECHAT, detect_web_source, identity_for_web_url, parse_web_input
 from arxiv2md_beta.schemas import IngestionMetadata, IngestionResult
 from arxiv2md_beta.utils.arxiv_ids import strip_version
 from arxiv2md_beta.utils.logging_config import get_logger
@@ -123,6 +124,42 @@ async def _process_with(
         pdf_fetch=spec.pdf_fetch(query),
         log_local_success=spec.log_local_success,
     )
+
+
+async def _process_web(input_text: str, params: ConvertParams, kind: str) -> Path:
+    """Web-article flow (WeChat / generic blog): parse → dry-run/idempotency → ingest.
+
+    Deliberately does not go through ``_process_with``/``finalize_convert_output``:
+    web articles write blog-style output (``<slug>/index.md`` + ``images/``) and
+    have no paper.yml, sidecars, or PDF. The idempotency machinery (claim
+    marker + completed-dir scan) is shared with the paper paths.
+    """
+    from arxiv2md_beta.ingestion.web import ingest_web_article
+
+    query = parse_web_input(input_text, kind)
+    label = "WeChat article" if kind == WEB_WECHAT else "web page"
+    logger.info(f"Processing {label}")
+    base_output_dir = determine_output_dir(params.output, params.settings)
+
+    identity = identity_for_web_url(query.url)
+    if not params.force:
+        if params.completed_index is not None:
+            done = params.completed_index.lookup(identity)
+        else:
+            done = await asyncio.to_thread(find_completed_output_dir, base_output_dir, identity)
+    else:
+        done = None
+
+    if params.dry_run:
+        _echo_dry_run_plan(params=params, label=label, base_output_dir=base_output_dir, done=done)
+        return base_output_dir
+
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    if done is not None:
+        logger.info(f"Skip (already converted): {done}; use --force to re-convert")
+        return done
+
+    return await ingest_web_article(params, query, base_output_dir)
 
 
 def _echo_dry_run_plan(
@@ -292,6 +329,12 @@ async def run_convert_flow(params: ConvertParams) -> Path:
             input_text = params.input_text.strip()
             if not input_text:
                 raise UserInputError("INPUT cannot be empty")
+            # Web articles (WeChat / generic blog pages) run their own flow:
+            # blog-style layout (slug/index.md + images/), not the paper tail.
+            if params.parser != "latex":
+                kind = detect_web_source(input_text)
+                if kind is not None:
+                    return await _process_web(input_text, params, kind)
             spec, label = _select_spec(input_text, params)
             if spec is _SPECS["arxiv-latex"]:
                 try:

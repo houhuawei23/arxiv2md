@@ -12,6 +12,10 @@
   - arXiv 论文（ID 或 URL）
   - 本地 HTML 文件（Science.org、IEEE、ACM 等保存的论文）
   - 本地 arXiv 归档（tar.gz）
+  - **Web 文章**（任意 `http(s)` URL，非 arXiv）：
+    - 微信公众号文章（`mp.weixin.qq.com`）：`#js_content` 抽取、`data-src` 懒加载修复、`code-snippet` 带语言围栏、图片本地化（空 Referer 绕防盗链）
+    - 通用博客页：trafilatura 主内容抽取 → mega-paragraph/空结果自动降级 markdownify 整页（表格保留原始 HTML）
+    - 博客风格输出：`<slug>/index.md`（YAML front matter）+ `images/`，图片全部本地化、链接重写为相对路径
 - **双解析模式**：
   - HTML 模式（默认）：解析 arXiv HTML 页面或本地 HTML 文件
   - LaTeX 模式：下载 TeX 源码，使用 pandoc 转换为 Markdown
@@ -93,6 +97,10 @@ arxiv2md-beta convert 2501.11120 --no-images
 
 # 本地 HTML 文件（如 Science.org、IEEE 等保存的论文）
 arxiv2md-beta convert ./paper.html -o ./out
+
+# 微信公众号文章 / 任意博客页（URL 判别路由，输出 <slug>/index.md + images/）
+arxiv2md-beta convert "https://mp.weixin.qq.com/s/o-fWqG46Tw_4BgZKoPxf9w" -o ./blogs
+arxiv2md-beta convert "https://people.idsia.ch/~juergen/recursive-self-improvement.html" -o ./blogs
 
 # 批量：ids.txt 每行一个 ID/URL/本地路径（# 开头与空行忽略）
 arxiv2md-beta batch ids.txt -o ./out --no-images --max-concurrency 2

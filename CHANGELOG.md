@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Web article ingestion（2026-11-08：微信公众号 + 通用博客页 → 博客风格 Markdown 目录）。
+
+### Fixed（2026-11-08：Wikipedia 页实测回归，web ingestion 抽取质量门控）
+
+以 `Recursive_self-improvement` 词条端到端实测驱动的 4 项修复（全部离线测试覆盖，`tests/test_web_ingestion.py` 24 用例）：
+
+- **chrome 剪枝前置**（`_prune_chrome`）：trafilatura/markdownify 抽取前统一 decompose `nav/aside/header/footer/.navbox/.sidebar/.infobox/.mw-editsection/.noprint/.catlinks/#siteSub/#toc` 等 chrome——此前 Wikipedia 页每节标题下泄漏 `\[edit](…action=edit…)` 垃圾行、页顶 "Part of a series on" 侧栏表整体漏入。`<noscript><img></noscript>` 懒加载真身先解包再剪枝，防误删内容图。
+- **图片可用性门控**：DOM 有内容图（`upload.wikimedia.org`/`/thumb/` 或宽高 ≥150px）而 trafilatura 产出零图时降级 markdownify 整页——此前 Wikipedia 图（thumb 结构）被 trafilatura 全部丢弃且无兜底。
+- **标题候选取最短**：`og:title`/`h1` 中选最短——MediaWiki 的 `og:title` 带站名后缀（"… - Wikipedia"）而 `h1` 干净；另支持 `og:site_name` 后缀剥离。
+- **日期只信 head 元数据**：`article:modified_time > dcterms.modified > og:updated_time > article:published_time > dcterms.created`（优先修改时间）；不再采信 trafilatura 文本扫描日期——此前把引文里的年份（dcterms.created 2004-11-14）当文章日期写入 front matter。
+
+### Added（2026-11-08：web article ingestion，微信单篇 + 任意博客 URL）
+
+`convert` 新增两条可插拔输入路径（复用既有 HTTP 客户端池/限速、`.arxiv2md-paper` 认领 marker、幂等机制；不走论文 persist 尾部——博客风格输出无 paper.yml/sidecars/PDF）：
+
+- **路由**（`query/web_urls.py` + `cli/runner/convert.py::_process_web`）：绝对 `http(s)` URL 且非 arxiv.org → web 源。`mp.weixin.qq.com` → `wechat`；其余 → `webpage`。identity = 去 fragment/尾斜杠的 URL。
+- **输出契约**（`ingestion/web.py`）：`<slug-of-title>/index.md`（YAML front matter：title/account/author/date/source）+ `images/` 本地化图片，md 全部重写为相对路径。
+- **微信抽取**：`#js_content` 正文；`data-src` 懒加载修复；`code-snippet` → `code_language_callback` 带语言围栏；Chrome UA + 空 Referer（绕 mmbiz 防盗链）；扩展名取 `wx_fmt` 参数。实测量子位 RSI 对谈（35 图）4.6s 全部落盘。
+- **通用页两级降级**：trafilatura 主内容抽取（`output_format="markdown"`，相对图片 URL 经页面 URL 解析）→ 空结果或 mega-paragraph（单行 >5000 字符，如整页 references 表被拍平）时降级 markdownify 整页（nav/header/footer/script 先剪枝）。表格保留原始 HTML（markdownify 会把 `<table>` 拉平成巨行）——`_soup_to_markdown` 以占位符换出 `table.prettify()`。`<img>` HTML 标签与 `![]()` 语法同样本地化。实测 Schmidhuber RSI 页（15 图）最长行 88k→782 字符。
+- **依赖**：`markdownify>=0.13`、`trafilatura>=1.12`、`lxml>=5.0` 入硬依赖。
+- **测试**：`tests/test_web_ingestion.py` 16 个离线用例（检测/解析/identity/slug、微信抽取、两级降级、图片本地化重写、端到端落盘 + 幂等 marker、dry-run 路由）。全套 837 passed；3 个失败与 12 个 pypandoc ERROR 均为既有（stash 验证）。
+
 批量下载实战复盘（download-papers-playbook）驱动的健壮性与自动化改进；以及 2026-09-20 全面审计（docs/REVIEW_2026-09-20.md）驱动的确定性 bug 修复与工程化加固。
 
 ### Fixed（2026-11-01：OpenAlex 机构串污染，20_Papers 全库清洗实战回归）

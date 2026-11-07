@@ -14,7 +14,8 @@
 CLI (typer)          cli/app.py (命令注册) → cli/runner/{convert,batch,images,paper_yml}.py
    │
 路由                 cli/runner/convert.py::run_convert_flow（4 路分支 → 汇聚到 output_finalize）
-   │
+   │                    └─ web 源（wechat/webpage，URL 判别）→ _process_web → ingestion/web.py
+   │                      （博客风格输出 <slug>/index.md + images/，不经论文 persist 尾部）
 Ingestion            ingestion/orchestrator.py（远程 HTML）+ ingestion/{latex,local,local_html}.py
                      共享尾：ingestion/ir_finalize.py（emit_split_markdown + run_structured_export）
    │
