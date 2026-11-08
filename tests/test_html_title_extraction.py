@@ -46,3 +46,35 @@ def test_parse_arxiv_html_title_clean() -> None:
     parsed = parse_arxiv_html(_THANKS_TITLE_HTML)
     assert parsed.title == "Towards Causal Representation Learning"
     assert [a.name for a in parsed.authors] == ["Bernhard Schölkopf"]
+
+
+_CAPTION_LEAK_TITLE_HTML = """
+<article class="ltx_document">
+<figure class="ltx_figure"><figcaption class="ltx_caption"><span class="ltx_tag ltx_tag_figure">Figure 1</span>: <span
+  class="ltx_font_bold">MetaRSI-v1</span> at a glance. 1: loops close where verification is
+machine-checkable. 2: one kernel, three operators, one writable surface each. 3: five of six
+orderings admissible. 4: three nested improvement levels. 5: horizontal composition, vertical
+policy rewriting. The band runs from freely verifiable to unverifiable.</figcaption></figure>
+<section class="ltx_section"><h2 class="ltx_title ltx_title_section">Introduction</h2>
+<p class="ltx_para">Body text.</p></section>
+</article>
+"""
+
+
+def test_title_tag_partial_caption_leak_detected() -> None:
+    r"""ArXiv 2609.06396v2: caption leaked into <title> with the tag half-stripped.
+
+    When \title never renders, LaTeXML puts the first caption in <title> with
+    the "Figure " tag only partially stripped — "1MetaRSI-v1 at a glance..."
+    (tag digit glued to the caption body). The strict "Figure N:" prefix check
+    misses it; the fuzzy caption comparison must catch it.
+    """
+    soup = BeautifulSoup(
+        f"<html><head><title>1MetaRSI-v1 at a glance. 1: loops close where verification is "
+        f"machine-checkable. 2: one kernel, three operators, one writable surface each. "
+        f"3: five of six orderings admissible. 4: three nested improvement levels. "
+        f"5: horizontal composition, vertical policy rewriting. The band runs from freely "
+        f"verifiable to unverifiable.</title></head><body>{_CAPTION_LEAK_TITLE_HTML}</body></html>",
+        "html.parser",
+    )
+    assert _extract_title(soup) is None

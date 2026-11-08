@@ -360,6 +360,43 @@ class IngestionOrchestrator:
 
     # ── Step 2: Parse HTML ─────────────────────────────────────────────
 
+    async def _repair_labelless_svgs(self) -> None:
+        """Swap label-less picture SVGs for their ar5iv counterparts.
+
+        Detection is content-based (see ``html.svg_repair``): only figure
+        SVGs whose foreignObject labels came out empty are repaired, matched
+        by LaTeXML's shared element ids. Network errors degrade to a warning
+        — an unrepaired figure still converts, just without labels.
+        """
+        assert self._html is not None
+        from arxiv2md_beta.exceptions import NonRetryableNetworkError
+        from arxiv2md_beta.html.svg_repair import labelless_picture_svg_spans, substitute_svgs_from_ar5iv
+        from arxiv2md_beta.network.download import fetch_text_with_retries
+
+        spans = labelless_picture_svg_spans(self._html)
+        if not spans:
+            return
+        arxiv_id = strip_version(self._query.arxiv_id)
+        logger.info(
+            f"[{self._query.arxiv_id}] {len(spans)} inline SVG figure(s) lost their labels "
+            f"(arXiv LaTeXML bug); fetching ar5iv rendering to repair"
+        )
+        ar5iv_url = self._query.ar5iv_url or f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        try:
+            ar5iv_html = await fetch_text_with_retries(
+                ar5iv_url,
+                label=f"fetch ar5iv HTML {ar5iv_url}",
+                not_found_error=lambda: NonRetryableNetworkError(
+                    f"No ar5iv rendering available for {arxiv_id}",
+                    status_code=404,
+                ),
+            )
+            self._html, replaced = substitute_svgs_from_ar5iv(self._html, ar5iv_html)
+        except NetworkError as e:
+            logger.warning(f"[{self._query.arxiv_id}] ar5iv fetch failed; keeping label-less SVGs: {e}")
+            return
+        logger.info(f"[{self._query.arxiv_id}] Repaired {replaced}/{len(spans)} label-less SVG figure(s) from ar5iv")
+
     def _parse_html(self) -> None:
         self._parsed = parse_arxiv_html(self._html)
 
@@ -402,6 +439,11 @@ class IngestionOrchestrator:
             logger.warning(f"No usable HTML rendering for {self._query.arxiv_id}: {exc}")
             logger.warning("Falling back to PDF-only minimal output (paper.yml + stub paper.md + PDF).")
             return
+        # arXiv's LaTeXML build sometimes drops every TikZ label, leaving
+        # shape-only picture SVGs; borrow ar5iv's rendering of the same
+        # figures before parsing. Best-effort: on any failure keep the
+        # original HTML (figures just come out without labels).
+        await self._repair_labelless_svgs()
         await asyncio.to_thread(self._parse_html)
 
         self._display_author_names = author_display_names_from_metadata(self._api_metadata)
@@ -419,6 +461,12 @@ class IngestionOrchestrator:
 
         if self._parsed is not None and not self._parsed.title and self._api_metadata.get("title"):
             self._parsed.title = self._api_metadata["title"]
+        # Degraded LaTeXML builds can also drop \abstract entirely (the only
+        # abstract-like paragraph is a TikZ poster's math-label soup, which
+        # the parser now rejects) — fall back to the API summary so the
+        # Abstract section and paper.yml carry the real abstract.
+        if self._parsed is not None and not self._parsed.abstract and self._api_metadata.get("summary"):
+            self._parsed.abstract = re.sub(r"\s+", " ", self._api_metadata["summary"]).strip()
 
     # ── Step 4: Filter sections ────────────────────────────────────────
 

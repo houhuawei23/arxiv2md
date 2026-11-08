@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Iterable
+from difflib import SequenceMatcher
 
 from arxiv2md_beta.contracts import ParsedArxivHtml, ParsedAuthor, SectionNode
 from arxiv2md_beta.settings import get_settings
@@ -209,9 +210,32 @@ def _extract_title(soup: BeautifulSoup, document_root: Tag | None = None) -> str
         text = re.sub(r"\bContents\s*$", "", text).strip()
         if _CAPTION_RE.match(text):
             return None
+        if text and _title_matches_a_caption(soup, text):
+            return None
         if text and text.lower() not in ("arxiv", "", "contents"):
             return text
     return None
+
+
+def _title_matches_a_caption(soup: BeautifulSoup, text: str) -> bool:
+    r"""True when *text* is (near-)identical to a figure/table caption.
+
+    When ``\\title`` never renders, LaTeXML puts the first caption in
+    ``<title>`` — often with the ``Figure N`` tag only partially stripped
+    (``"1MetaRSI-v1 at a glance..."``), so the strict ``_CAPTION_RE`` prefix
+    check misses it. Compare against every caption instead; the leaked text
+    is otherwise character-identical to the caption body.
+    """
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    if not normalized:
+        return False
+    for caption in soup.find_all(["figcaption"]):
+        caption_text = re.sub(r"\s+", " ", caption.get_text(" ", strip=True)).strip().lower()
+        if not caption_text:
+            continue
+        if SequenceMatcher(None, normalized, caption_text).ratio() >= 0.75:
+            return True
+    return False
 
 
 def _is_bold_only_para(para: Tag, allow_math: bool = False) -> bool:
@@ -264,10 +288,14 @@ def _extract_degraded_title(root: Tag) -> str | None:
 
 
 def _find_degraded_abstract_para(root: Tag) -> Tag | None:
-    """Locate the abstract paragraph in degraded LaTeXML output.
+    r"""Locate the abstract paragraph in degraded LaTeXML output.
 
     The abstract is the last long top-level paragraph before the first
     section (short author/affiliation/thanks paragraphs don't qualify).
+    Poster/teaser paragraphs don't qualify either: their visible text is
+    almost entirely MathML (a TikZ picture's labels — taking one produced
+    a "𝒟 \\mathcal{D} ℋ ..." glyph soup), or they embed title-block
+    graphics and mix title/author lines into the text.
     """
     last_long: Tag | None = None
     for child in root.children:
@@ -277,9 +305,24 @@ def _find_degraded_abstract_para(root: Tag) -> Tag | None:
             break
         if child.name != "div" or "ltx_para" not in css_classes(child):
             continue
-        if len(child.get_text(" ", strip=True)) >= 300:
+        if child.find(["img", "figure", "svg"]) is not None:
+            continue
+        if len(child.get_text(" ", strip=True)) >= 300 and _non_math_text_length(child) >= 200:
             last_long = child
     return last_long
+
+
+def _non_math_text_length(para: Tag) -> int:
+    r"""Visible character count of *para* excluding ``<math>`` content.
+
+    MathML contributes both the unicode render and the ``x-tex`` annotation
+    (``"𝒟 \\mathcal{D}"``), so a paragraph of pure math can be arbitrarily
+    long by ``get_text`` while carrying no abstract prose at all.
+    """
+    working = copy.copy(para)
+    for math in working.find_all("math"):
+        math.decompose()
+    return len(working.get_text(" ", strip=True))
 
 
 def _extract_degraded_authors(root: Tag) -> list[ParsedAuthor]:

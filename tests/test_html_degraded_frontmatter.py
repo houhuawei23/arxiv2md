@@ -93,3 +93,64 @@ def test_title_tag_caption_never_leaks() -> None:
     """
     parsed = parse_arxiv_html(html)
     assert parsed.title is None
+
+
+_MATH_POSTER_PARA_HTML = """
+<html><head><title>Some Paper Title</title></head><body><article class="ltx_document">
+<div class="ltx_para">Author One, Author Two, and Author Three</div>
+<figure class="ltx_figure"><figcaption class="ltx_caption">Figure 1: A caption.</figcaption></figure>
+<div class="ltx_para ltx_align_center"><math alttext="\\mathcal{D}"><semantics><mrow><mi>D</mi></mrow>
+<annotation encoding="application/x-tex">\\mathcal{D}</annotation></semantics></math>
+<math alttext="\\mathcal{H}"><semantics><mrow><mi>H</mi></mrow>
+<annotation encoding="application/x-tex">\\mathcal{H}</annotation></semantics></math>
+<math alttext="\\theta"><semantics><mrow><mi>θ</mi></mrow>
+<annotation encoding="application/x-tex">\\theta</annotation></semantics></math>
+<math alttext="\\kappa_{\\mathrm{k}}"><semantics><mrow><mi>κ</mi></mrow>
+<annotation encoding="application/x-tex">\\kappa_{\\mathrm{k}}</annotation></semantics></math>
+<math alttext="\\cdot"><semantics><mrow><mo>⋅</mo></mrow>
+<annotation encoding="application/x-tex">\\cdot</annotation></semantics></math>
+<math alttext="\\kappa_{\\mathrm{r}}"><semantics><mrow><mi>κ</mi></mrow>
+<annotation encoding="application/x-tex">\\kappa_{\\mathrm{r}}</annotation></semantics></math>
+<math alttext="\\cdot"><semantics><mrow><mo>⋅</mo></mrow>
+<annotation encoding="application/x-tex">\\cdot</annotation></semantics></math>
+<math alttext="\\kappa_{\\mathrm{v}}"><semantics><mrow><mi>κ</mi></mrow>
+<annotation encoding="application/x-tex">\\kappa_{\\mathrm{v}}</annotation></semantics></math></div>
+<section class="ltx_section"><h2 class="ltx_title ltx_title_section">1 Introduction</h2>
+<p class="ltx_para">Body text.</p></section>
+</article></body></html>
+"""
+
+
+def test_math_soup_poster_para_is_not_abstract() -> None:
+    r"""ArXiv 2609.06396v2 poster paragraph must not become the abstract.
+
+    The only long paragraph before the first section is a TikZ poster whose
+    text is pure MathML (glyph + x-tex annotation soup). It must not be taken
+    as the abstract — None lets the caller fall back to the arXiv API summary.
+    """
+    parsed = parse_arxiv_html(_MATH_POSTER_PARA_HTML)
+    assert parsed.abstract is None
+    assert parsed.abstract_html is None
+
+
+def test_poster_para_with_images_is_not_abstract() -> None:
+    """A poster paragraph embedding graphics must not become the abstract.
+
+    Title-block posters mix title/author lines with abstract text; the
+    image guard must reject them even when the prose is long enough.
+    """
+    html = _MATH_POSTER_PARA_HTML.replace(
+        '<div class="ltx_para ltx_align_center">',
+        '<div class="ltx_para ltx_align_center"><img src="x.png" alt="[image]">',
+        1,
+    )
+    # Give it enough prose that only the image guard can reject it.
+    html = html.replace(
+        '<section class="ltx_section">',
+        '<div class="ltx_para">Abstract: '
+        + "Long enough abstract prose. " * 20
+        + '<img src="y.png" alt="[image]"></div><section class="ltx_section">',
+        1,
+    )
+    parsed = parse_arxiv_html(html)
+    assert parsed.abstract is None

@@ -750,6 +750,10 @@ class HTMLBuilder(IRBuilder):
         # Drop <img> fallbacks nested inside an <object> so the same graphic
         # is not collected twice.
         imgs = [t for t in imgs if t.name != "img" or t.find_parent("object") is None]
+        # Drop <svg>s nested inside an already-collected <svg> (LaTeXML
+        # multi-panel pictures embed marker sub-svgs); registering them
+        # separately rasterized 4pt decorative fragments into junk images.
+        imgs = [t for t in imgs if t.name != "svg" or t.find_parent("svg") is None]
         svg_srcs: dict[int, str] = {id(t): self._register_svg_asset(t) for t in imgs if t.name == "svg"}
         # ar5iv sometimes renders a table as a vector <svg> inside
         # <figure class="ltx_table"> with no <table> and no <img>. With nothing
